@@ -205,3 +205,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# OS files
+.DS_Store
