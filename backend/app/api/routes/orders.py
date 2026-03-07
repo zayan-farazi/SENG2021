@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+import logging
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import OrderRequest
-from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
+from app.services.ubl_order import (
+    OrderGenerationError,
+    generate_order_id,
+    generate_ubl_order_xml,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # In-memory store for quick testing (replace with Supabase later)
 # orderId -> { orderId, status, createdAt, updatedAt, payload, ublXml, warnings }
@@ -16,7 +22,7 @@ ORDERS: dict[str, dict[str, Any]] = {}
 
 
 def now_z() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @router.get("/")
@@ -26,9 +32,13 @@ def root():
 
 @router.post("/v1/order/create", status_code=201)
 def create_order(req: OrderRequest):
-    order_id = generate_order_id()
-    created_at = now_z()
-    ubl_xml = generate_ubl_order_xml(order_id, req)
+    try:
+        order_id = generate_order_id()
+        created_at = now_z()
+        ubl_xml = generate_ubl_order_xml(order_id, req)
+    except OrderGenerationError as exc:
+        logger.exception("Order creation failed")
+        raise HTTPException(status_code=500, detail="Unable to create order.") from exc
 
     record = {
         "orderId": order_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 from xml.dom import minidom
+from xml.parsers.expat import ExpatError
 from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
 
 from app.models.schemas import Delivery, LineItem, OrderRequest
@@ -14,6 +15,10 @@ NS_CAC = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents
 register_namespace("", NS_ORDER)
 register_namespace("cbc", NS_CBC)
 register_namespace("cac", NS_CAC)
+
+
+class OrderGenerationError(RuntimeError):
+    pass
 
 
 def _cbc(parent: Element, tag: str, text: str | None = None, **attrs) -> Element:
@@ -28,7 +33,10 @@ def _cac(parent: Element, tag: str) -> Element:
 
 
 def generate_order_id() -> str:
-    return f"ord_{uuid4().hex[:16]}"
+    try:
+        return f"ord_{uuid4().hex[:16]}"
+    except Exception as exc:
+        raise OrderGenerationError("Unable to generate order identifier.") from exc
 
 
 def _add_party(order: Element, role_tag: str, party_name: str) -> None:
@@ -80,19 +88,22 @@ def _add_order_lines(order: Element, lines: list[LineItem], currency: str | None
 
 
 def generate_ubl_order_xml(order_id: str, req: OrderRequest) -> str:
-    order = Element(f"{{{NS_ORDER}}}Order")
+    try:
+        order = Element(f"{{{NS_ORDER}}}Order")
 
-    _cbc(order, "UBLVersionID", "2.1")
-    _cbc(order, "ID", order_id)
-    _cbc(order, "IssueDate", (req.issueDate or date.today()).isoformat())
-    if req.notes:
-        _cbc(order, "Note", req.notes)
+        _cbc(order, "UBLVersionID", "2.1")
+        _cbc(order, "ID", order_id)
+        _cbc(order, "IssueDate", (req.issueDate or date.today()).isoformat())
+        if req.notes:
+            _cbc(order, "Note", req.notes)
 
-    _add_party(order, "BuyerCustomerParty", req.buyerName)
-    _add_party(order, "SellerSupplierParty", req.sellerName)
-    _add_delivery(order, req.delivery)
-    _add_order_lines(order, req.lines, req.currency)
+        _add_party(order, "BuyerCustomerParty", req.buyerName)
+        _add_party(order, "SellerSupplierParty", req.sellerName)
+        _add_delivery(order, req.delivery)
+        _add_order_lines(order, req.lines, req.currency)
 
-    xml_bytes = tostring(order, encoding="utf-8", xml_declaration=True)
-    pretty = minidom.parseString(xml_bytes).toprettyxml(indent="  ", encoding="utf-8")
-    return pretty.decode("utf-8")
+        xml_bytes = tostring(order, encoding="utf-8", xml_declaration=True)
+        pretty = minidom.parseString(xml_bytes).toprettyxml(indent="  ", encoding="utf-8")
+        return pretty.decode("utf-8")
+    except (ExpatError, TypeError, ValueError) as exc:
+        raise OrderGenerationError("Unable to generate UBL order XML.") from exc
