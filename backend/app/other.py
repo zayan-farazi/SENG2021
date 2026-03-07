@@ -6,7 +6,6 @@ SUPABASE_KEY='sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ'
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 # saves order information and returns order Id
 def saveOrder(buyername, sellername, deliverystreet, deliverycity,
               deliverypostcode, deliverycountry, notes,
@@ -52,3 +51,34 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     except Exception as e:
        raise RuntimeError(f"Failed to save order details: {e}")
 
+# (greedily) returns all tuples mathing the filter(s). 
+# must write the variable name as all fields have empty default values
+def findOrders(buyername=None, sellername=None, deliverystreet=None, deliverycity=None,
+              deliverypostcode=None, deliverycountry=None, notes=None,
+              issueDate=None, lastChanged=None, status=None):
+    query = supabase.table('orders').select('*')
+
+    if buyername:    
+        query = query.eq('buyername', buyername)
+    if sellername:   
+        query = query.eq('sellername', sellername)
+    if deliverystreet:      
+        query = query.eq('deliverystreet', deliverystreet)
+    if deliverycity: 
+        query = query.eq('deliverycity', deliverycity)
+    if deliverypostcode:    
+        query = query.eq('deliverypostcode', deliverypostcode)
+    if deliverycountry:     
+        query = query.eq('deliverycountry', deliverycountry)
+    if notes: 
+        query = query.ilike('notes', notes)
+    if status:       
+        query = query.eq('status', status)
+    if issueDate:    
+        query = query.eq('issuedate', issueDate)
+    if lastChanged:  
+        query = query.eq('lastchanged', lastChanged)
+    if status:       
+        query = query.eq('status', status)
+
+    return query.execute()
