@@ -33,11 +33,11 @@ def saveOrder(buyername, sellername, deliverystreet, deliverycity,
         return response.data[0]['id']
     except Exception as e:
         raise RuntimeError(f"Failed to save order: {e}")
-    
 
+# saves a single line of order details, does not return anything
 def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     if orderId is None:
-        raise ValueError(f"Failed to parse order details: orderId can\'t be empty")
+        raise ValueError("Failed to parse order details: orderId can\'t be empty")
     
     query = {
         'orderid': orderId,
@@ -51,3 +51,4 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
        supabase.table('orderdetails').insert(query).execute()
     except Exception as e:
        raise RuntimeError(f"Failed to save order details: {e}")
+
