@@ -5,12 +5,12 @@ on:
     branches: ["main"]
     paths:
       - "backend/**"
-      - ".github/workflows/backend-ci.yml"
+      - ".github/workflows/backend.yml"
   push:
     branches: ["main"]
     paths:
       - "backend/**"
-      - ".github/workflows/backend-ci.yml"
+      - ".github/workflows/backend.yml"
 
 permissions:
   contents: read
@@ -31,22 +31,17 @@ jobs:
           python-version: "3.11"
           cache: "pip"
           cache-dependency-path: |
-            backend/requirements.txt
+            requirements.txt
             backend/pyproject.toml
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest ruff
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+          ./.venv/bin/python -m pip install -r ../requirements.txt
+          ./.venv/bin/python -m pip install httpx pytest pytest-cov ruff
 
-      - name: Lint (ruff)
-        run: ruff check .
-
-      - name: Format check (ruff)
-        run: ruff format --check .
-
-      - name: Tests
+      - name: Backend checks
         env:
           DATABASE_URL: "postgresql+psycopg2://dummy:dummy@localhost:5432/dummy"
-        run: pytest -q
+        run: make ci
