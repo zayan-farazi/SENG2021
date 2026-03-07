@@ -50,7 +50,9 @@ def test_generate_ubl_order_xml_includes_full_structure():
             requestedDate=date(2026, 3, 10),
         ),
         lines=[
-            LineItem(productName="Domain-Driven Design", quantity=2, unitCode="EA", unitPrice="12.50"),
+            LineItem(
+                productName="Domain-Driven Design", quantity=2, unitCode="EA", unitPrice="12.50"
+            ),
             LineItem(productName="Clean Architecture", quantity=1, unitCode=None, unitPrice="5.00"),
         ],
     )
@@ -63,32 +65,47 @@ def test_generate_ubl_order_xml_includes_full_structure():
     assert root.find("cbc:ID", NS).text == "ord_1234567890abcdef"
     assert root.find("cbc:IssueDate", NS).text == "2026-03-07"
     assert root.find("cbc:Note", NS).text == "Leave at loading dock"
-    assert root.find(
-        "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
-        NS,
-    ).text == "Acme Books"
-    assert root.find(
-        "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
-        NS,
-    ).text == "Digital Book Supply"
+    assert (
+        root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
+            NS,
+        ).text
+        == "Acme Books"
+    )
+    assert (
+        root.find(
+            "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
+            NS,
+        ).text
+        == "Digital Book Supply"
+    )
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "123 Test St"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:CityName", NS).text == "Sydney"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:PostalZone", NS).text == "2000"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:CountrySubentity", NS).text == "NSW"
-    assert root.find(
-        "cac:Delivery/cac:DeliveryAddress/cac:Country/cbc:IdentificationCode",
-        NS,
-    ).text == "AU"
-    assert root.find(
-        "cac:Delivery/cac:RequestedDeliveryPeriod/cbc:StartDate",
-        NS,
-    ).text == "2026-03-10"
+    assert (
+        root.find(
+            "cac:Delivery/cac:DeliveryAddress/cac:Country/cbc:IdentificationCode",
+            NS,
+        ).text
+        == "AU"
+    )
+    assert (
+        root.find(
+            "cac:Delivery/cac:RequestedDeliveryPeriod/cbc:StartDate",
+            NS,
+        ).text
+        == "2026-03-10"
+    )
 
     order_lines = root.findall("cac:OrderLine", NS)
     assert len(order_lines) == 2
     assert order_lines[0].find("cac:LineItem/cbc:ID", NS).text == "1"
     assert order_lines[0].find("cac:LineItem/cbc:Quantity", NS).attrib["unitCode"] == "EA"
-    assert order_lines[0].find("cac:LineItem/cac:Price/cbc:PriceAmount", NS).attrib["currencyID"] == "AUD"
+    assert (
+        order_lines[0].find("cac:LineItem/cac:Price/cbc:PriceAmount", NS).attrib["currencyID"]
+        == "AUD"
+    )
     assert order_lines[1].find("cac:LineItem/cbc:Quantity", NS).attrib["unitCode"] == "EA"
 
 

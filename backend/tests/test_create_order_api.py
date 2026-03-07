@@ -95,19 +95,28 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert root.find("cbc:ID", NS).text == body["orderId"]
     assert root.find("cbc:IssueDate", NS).text == payload["issueDate"]
     assert root.find("cbc:Note", NS).text == payload["notes"]
-    assert root.find(
-        "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
-        NS,
-    ).text == payload["buyerName"]
-    assert root.find(
-        "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
-        NS,
-    ).text == payload["sellerName"]
+    assert (
+        root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
+            NS,
+        ).text
+        == payload["buyerName"]
+    )
+    assert (
+        root.find(
+            "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
+            NS,
+        ).text
+        == payload["sellerName"]
+    )
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "123 Test St"
-    assert root.find(
-        "cac:Delivery/cac:RequestedDeliveryPeriod/cbc:StartDate",
-        NS,
-    ).text == payload["delivery"]["requestedDate"]
+    assert (
+        root.find(
+            "cac:Delivery/cac:RequestedDeliveryPeriod/cbc:StartDate",
+            NS,
+        ).text
+        == payload["delivery"]["requestedDate"]
+    )
 
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
     assert price_amount.text == payload["lines"][0]["unitPrice"]
@@ -147,9 +156,15 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     [
         (lambda payload: payload.pop("buyerName"), ["body", "buyerName"]),
         (lambda payload: payload.update({"lines": []}), ["body", "lines"]),
-        (lambda payload: payload["lines"][0].update({"quantity": 0}), ["body", "lines", 0, "quantity"]),
+        (
+            lambda payload: payload["lines"][0].update({"quantity": 0}),
+            ["body", "lines", 0, "quantity"],
+        ),
         (lambda payload: payload.update({"currency": "AU"}), ["body", "currency"]),
-        (lambda payload: payload["lines"][0].update({"unitPrice": "-1.00"}), ["body", "lines", 0, "unitPrice"]),
+        (
+            lambda payload: payload["lines"][0].update({"unitPrice": "-1.00"}),
+            ["body", "lines", 0, "unitPrice"],
+        ),
     ],
 )
 def test_create_order_rejects_invalid_payloads(client, mutator, expected_loc):
