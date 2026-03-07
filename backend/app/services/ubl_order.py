@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 from xml.dom import minidom
-from xml.parsers.expat import ExpatError
 from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
+from xml.parsers.expat import ExpatError
 
 from app.models.schemas import Delivery, LineItem, OrderRequest
 
