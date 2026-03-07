@@ -6,15 +6,48 @@ SUPABASE_KEY='sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ'
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-new = {'buyername': 'Jane Doe', 
-       'sellername': 'John Doe',
-       'deliverystreet': '221B Baker St',
-       'deliverycity': 'Sydney',
-       'deliverypostcode': '1234',
-       'deliverycountry': 'Australia',
-       'status': 'pending',
-       'notes': 'boooop'}
 
-supabase.table('orders').insert(new).execute()
-results = supabase.table('orders').select('*').execute()
-print(results)
+# saves order information and returns order Id
+def saveOrder(buyername, sellername, deliverystreet, deliverycity,
+              deliverypostcode, deliverycountry, notes,
+              issueDate=None, status='Pending'):
+    
+    if issueDate is None:
+        issueDate = datetime.datetime.now()
+
+    query = {
+        'buyername': buyername,
+        'sellername': sellername,
+        'deliverystreet': deliverystreet,
+        'deliverycity': deliverycity,
+        'deliverypostcode': deliverypostcode,
+        'deliverycountry': deliverycountry,
+        'status': status,
+        'notes': notes,
+        'issuedate': issueDate.isoformat(),
+        'lastchanged': datetime.datetime.now().isoformat()
+    }
+
+    try:
+        response = supabase.table('orders').insert(query).execute()
+        return response.data[0]['id']
+    except Exception as e:
+        raise RuntimeError(f"Failed to save order: {e}")
+    
+
+def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
+    if orderId is None:
+        raise ValueError(f"Failed to parse order details: orderId can\'t be empty")
+    
+    query = {
+        'orderid': orderId,
+        'productname': productName,
+        'unitcode': unitCode,
+        'quantity': quantity,
+        'unitprice': unitPrice
+    }
+
+    try:
+       supabase.table('orderdetails').insert(query).execute()
+    except Exception as e:
+       raise RuntimeError(f"Failed to save order details: {e}")
