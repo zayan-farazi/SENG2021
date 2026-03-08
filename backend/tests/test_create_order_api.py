@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import orders
 from app.main import app
+from app.services import order_store
 from app.services.ubl_order import OrderGenerationError
 
 NS = {
@@ -184,7 +185,7 @@ def test_create_order_returns_500_when_id_generation_fails(client, monkeypatch):
     def fail_generate_order_id():
         raise OrderGenerationError("boom")
 
-    monkeypatch.setattr(orders, "generate_order_id", fail_generate_order_id)
+    monkeypatch.setattr(order_store, "generate_order_id", fail_generate_order_id)
 
     response = client.post("/v1/order/create", json=payload)
 
@@ -199,8 +200,8 @@ def test_create_order_returns_500_when_xml_generation_fails(client, monkeypatch)
     def fail_generate_ubl_order_xml(order_id: str, req):
         raise OrderGenerationError(f"unable to serialize {order_id}")
 
-    monkeypatch.setattr(orders, "generate_order_id", lambda: "ord_fixedfailure01")
-    monkeypatch.setattr(orders, "generate_ubl_order_xml", fail_generate_ubl_order_xml)
+    monkeypatch.setattr(order_store, "generate_order_id", lambda: "ord_fixedfailure01")
+    monkeypatch.setattr(order_store, "generate_ubl_order_xml", fail_generate_ubl_order_xml)
 
     response = client.post("/v1/order/create", json=payload)
 

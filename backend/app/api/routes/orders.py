@@ -1,28 +1,27 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from app.models.schemas import OrderRequest
-from app.services.ubl_order import (
-    OrderGenerationError,
-    generate_order_id,
-    generate_ubl_order_xml,
+from app.services import groq_order_extractor, order_store
+from app.services.order_draft import (
+    DraftSessionState,
+    append_partial_transcript,
+    apply_draft_patch,
+    apply_transcript_interpretation,
+    reset_state,
+    serialize_state,
+    validate_draft_for_commit,
 )
+from app.services.ubl_order import OrderGenerationError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# In-memory store for quick testing (replace with Supabase later)
-# orderId -> { orderId, status, createdAt, updatedAt, payload, ublXml, warnings }
-ORDERS: dict[str, dict[str, Any]] = {}
-
-
-def now_z() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+ORDERS = order_store.ORDERS
 
 
 @router.get("/")
@@ -33,28 +32,200 @@ def root():
 @router.post("/v1/order/create", status_code=201)
 def create_order(req: OrderRequest):
     try:
-        order_id = generate_order_id()
-        created_at = now_z()
-        ubl_xml = generate_ubl_order_xml(order_id, req)
+        record = order_store.create_order_record(req)
     except OrderGenerationError as exc:
         logger.exception("Order creation failed")
         raise HTTPException(status_code=500, detail="Unable to create order.") from exc
 
-    record = {
-        "orderId": order_id,
-        "status": "DRAFT",
-        "createdAt": created_at,
-        "updatedAt": created_at,
-        "payload": req.model_dump(mode="json"),
-        "ublXml": ubl_xml,
-        "warnings": [],
-    }
-    ORDERS[order_id] = record
+    return order_store.build_order_response(record)
 
-    return {
-        "orderId": order_id,
-        "status": record["status"],
-        "createdAt": record["createdAt"],
-        "ublXml": record["ublXml"],
-        "warnings": record["warnings"],
-    }
+
+@router.websocket("/v1/order/draft/ws")
+async def order_draft_session(websocket: WebSocket):
+    await websocket.accept()
+    state = DraftSessionState()
+    await websocket.send_json({"type": "session.ready", "payload": serialize_state(state)})
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict):
+                await _send_error(
+                    websocket, "invalid_message", "WebSocket messages must be JSON objects."
+                )
+                continue
+
+            event_type = message.get("type")
+            payload = message.get("payload") or {}
+
+            if not isinstance(payload, dict):
+                await _send_error(
+                    websocket, "invalid_payload", "Event payloads must be JSON objects."
+                )
+                continue
+
+            if event_type == "session.start":
+                await _handle_session_start(websocket, state, payload)
+            elif event_type == "transcript.partial":
+                await _handle_partial_transcript(websocket, state, payload)
+            elif event_type == "transcript.final":
+                await _handle_final_transcript(websocket, state, payload)
+            elif event_type == "draft.patch":
+                await _handle_draft_patch(websocket, state, payload)
+            elif event_type == "session.commit":
+                await _handle_commit(websocket, state)
+            elif event_type == "session.reset":
+                reset_state(state)
+                await _send_draft_update(websocket, state, ["Draft reset."])
+            else:
+                await _send_error(
+                    websocket, "unknown_event", f"Unsupported event type: {event_type}"
+                )
+    except WebSocketDisconnect:
+        logger.info("Draft session disconnected")
+
+
+async def _handle_session_start(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    payload: dict[str, Any],
+):
+    draft_payload = payload.get("draft")
+    if draft_payload is None:
+        await _send_draft_update(websocket, state, ["Draft session started."])
+        return
+
+    if not isinstance(draft_payload, dict):
+        await _send_error(websocket, "invalid_draft", "Draft payload must be a JSON object.")
+        return
+
+    try:
+        applied_changes = apply_draft_patch(state, draft_payload)
+    except ValidationError as exc:
+        await _send_error(
+            websocket, "invalid_draft", "Draft payload failed validation.", exc.errors()
+        )
+        return
+
+    await _send_draft_update(websocket, state, applied_changes)
+
+
+async def _handle_partial_transcript(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    payload: dict[str, Any],
+):
+    text = payload.get("text")
+    if not isinstance(text, str):
+        await _send_error(
+            websocket, "invalid_transcript", "Partial transcript text must be a string."
+        )
+        return
+
+    append_partial_transcript(state, text)
+    await websocket.send_json(
+        {
+            "type": "transcript.echo",
+            "payload": {"kind": "partial", "text": state.current_partial},
+        }
+    )
+
+
+async def _handle_final_transcript(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    payload: dict[str, Any],
+):
+    text = payload.get("text")
+    if not isinstance(text, str):
+        await _send_error(
+            websocket, "invalid_transcript", "Final transcript text must be a string."
+        )
+        return
+
+    cleaned = text.strip()
+    await websocket.send_json(
+        {"type": "transcript.echo", "payload": {"kind": "final", "text": cleaned}}
+    )
+    interpretation = await groq_order_extractor.extract_transcript_patch(
+        state.draft,
+        state.transcript_log,
+        cleaned,
+    )
+    result = apply_transcript_interpretation(state, cleaned, interpretation)
+    await _send_draft_update(websocket, state, result.applied_changes)
+
+
+async def _handle_draft_patch(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    payload: dict[str, Any],
+):
+    draft_payload = payload.get("draft")
+    if not isinstance(draft_payload, dict):
+        await _send_error(websocket, "invalid_draft", "Draft payload must be a JSON object.")
+        return
+
+    try:
+        applied_changes = apply_draft_patch(state, draft_payload)
+    except ValidationError as exc:
+        await _send_error(
+            websocket, "invalid_draft", "Draft payload failed validation.", exc.errors()
+        )
+        return
+
+    await _send_draft_update(websocket, state, applied_changes)
+
+
+async def _handle_commit(websocket: WebSocket, state: DraftSessionState):
+    req, errors = validate_draft_for_commit(state.draft)
+    if req is None:
+        await websocket.send_json(
+            {
+                "type": "commit.blocked",
+                "payload": {"errors": errors, "state": serialize_state(state)},
+            }
+        )
+        return
+
+    try:
+        record = order_store.create_order_record(req)
+    except OrderGenerationError:
+        logger.exception("WebSocket order creation failed")
+        await _send_error(websocket, "order_creation_failed", "Unable to create order.")
+        return
+
+    await websocket.send_json(
+        {
+            "type": "order.created",
+            "payload": {
+                "order": order_store.build_order_response(record),
+                "state": serialize_state(state),
+            },
+        }
+    )
+
+
+async def _send_draft_update(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    applied_changes: list[str],
+):
+    await websocket.send_json(
+        {
+            "type": "draft.updated",
+            "payload": {"state": serialize_state(state), "appliedChanges": applied_changes},
+        }
+    )
+
+
+async def _send_error(
+    websocket: WebSocket,
+    code: str,
+    message: str,
+    details: Any | None = None,
+):
+    payload = {"code": code, "message": message}
+    if details is not None:
+        payload["details"] = details
+    await websocket.send_json({"type": "error", "payload": payload})
