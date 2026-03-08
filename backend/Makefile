@@ -1,28 +1,35 @@
-.PHONY: all ci check lint format fix test coverage
+.PHONY: all ci check lint format fix test coverage dev
 
 PYTHON := ./.venv/bin/python
 RUFF := $(PYTHON) -m ruff
 PYTEST := $(PYTHON) -m pytest
+UVICORN := $(PYTHON) -m uvicorn
 
-all: fix check test
+all: $(PYTHON) fix check test
 
-ci: check test
+$(PYTHON):
+	uv sync --group dev
 
-check: lint
+ci: $(PYTHON) check test
 
-lint:
+check: $(PYTHON) lint
+
+lint: $(PYTHON)
 	$(RUFF) check .
 	$(RUFF) format --check .
 
-format:
+format: $(PYTHON)
 	$(RUFF) format .
 
-fix:
+fix: $(PYTHON)
 	$(RUFF) check --fix .
 	$(RUFF) format .
 
-test:
+test: $(PYTHON)
 	$(PYTEST) -q
 
-coverage:
+coverage: $(PYTHON)
 	$(PYTEST) --cov=app --cov-report=term-missing
+
+dev: $(PYTHON)
+	PYTHONPATH=. $(UVICORN) app.main:app --reload
