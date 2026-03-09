@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
+from decimal import Decimal
 
 import httpx
 
-from app.models.schemas import OrderDraft
+from app.models.schemas import DraftDelivery, DraftLineItem, OrderDraft
 from app.services import groq_order_extractor
 
 
@@ -88,12 +90,103 @@ def test_extract_transcript_patch_parses_valid_structured_response(monkeypatch):
     assert result.patch.lineActions[0].unitPrice == "4.00"
 
 
+def test_compact_draft_context_omits_empty_fields():
+    assert groq_order_extractor.compact_draft_context(OrderDraft()) == {}
+
+
+def test_compact_draft_context_preserves_only_populated_values():
+    draft = OrderDraft(
+        buyerName="James",
+        issueDate=date(2026, 3, 8),
+        delivery=DraftDelivery(city="Sydney"),
+        lines=[
+            DraftLineItem(productName="oranges", quantity=4, unitCode="EA"),
+            DraftLineItem(productName=None, quantity=None, unitCode="EA", unitPrice=Decimal("4.50")),
+        ],
+    )
+
+    assert groq_order_extractor.compact_draft_context(draft) == {
+        "buyerName": "James",
+        "issueDate": "2026-03-08",
+        "delivery": {"city": "Sydney"},
+        "lines": [
+            {"productName": "oranges", "quantity": 4, "unitCode": "EA"},
+            {"unitCode": "EA", "unitPrice": "4.50"},
+        ],
+    }
+
+
+def test_select_recent_transcripts_keeps_latest_two_final_entries():
+    transcript_log = [
+        {"kind": "partial", "text": "ignore me"},
+        {"kind": "final", "text": "i want oranges"},
+        {"kind": "final", "text": "from the shop"},
+        {"kind": "final", "text": "actually make that 4 oranges"},
+    ]
+
+    assert groq_order_extractor.select_recent_transcripts(transcript_log) == [
+        {"kind": "final", "text": "from the shop"},
+        {"kind": "final", "text": "actually make that 4 oranges"},
+    ]
+
+
+def test_build_request_body_uses_compact_context_and_preserves_latest_transcript():
+    draft = OrderDraft(
+        buyerName="James",
+        lines=[DraftLineItem(productName="oranges", quantity=2, unitCode="EA")],
+    )
+    transcript_log = [
+        {"kind": "final", "text": "i want oranges"},
+        {"kind": "final", "text": "from the grocery shop"},
+        {"kind": "final", "text": "actually make that 4 oranges"},
+    ]
+
+    request_body = groq_order_extractor.build_request_body(
+        draft,
+        transcript_log,
+        "actually make that 4 oranges",
+        model="openai/gpt-oss-20b",
+    )
+    payload = json.loads(request_body["messages"][1]["content"])
+
+    assert payload == {
+        "currentDraft": {
+            "buyerName": "James",
+            "lines": [{"productName": "oranges", "quantity": 2, "unitCode": "EA"}],
+        },
+        "recentFinalTranscripts": [
+            {"kind": "final", "text": "from the grocery shop"},
+            {"kind": "final", "text": "actually make that 4 oranges"},
+        ],
+        "latestTranscript": "actually make that 4 oranges",
+    }
+
+
+def test_measure_context_payload_sizes_shows_compaction():
+    draft = OrderDraft(
+        buyerName="James",
+        sellerName="Shop",
+        delivery=DraftDelivery(),
+        lines=[DraftLineItem(productName="oranges", quantity=4, unitCode="EA")],
+    )
+    transcript_log = [
+        {"kind": "final", "text": "one"},
+        {"kind": "final", "text": "two"},
+        {"kind": "final", "text": "three"},
+    ]
+
+    sizes = groq_order_extractor.measure_context_payload_sizes(draft, transcript_log, "three")
+
+    assert sizes["compact"] < sizes["full"]
+
+
 def test_extract_transcript_patch_loads_api_key_from_env_file(monkeypatch, tmp_path):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text('GROQ_API_KEY="file-key"\n', encoding="utf-8")
     monkeypatch.setattr(groq_order_extractor, "_candidate_env_files", lambda: [env_file])
     seen_headers = {}
+    json_module = json
 
     async def fake_post(self, url, *, headers, json):  # noqa: ARG001
         seen_headers.update(headers)
@@ -131,7 +224,6 @@ def test_extract_transcript_patch_loads_api_key_from_env_file(monkeypatch, tmp_p
             },
         )
 
-    json_module = json
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     result = asyncio.run(

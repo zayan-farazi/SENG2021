@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -12,6 +13,7 @@ from app.services.order_draft import HostedTranscriptInterpretation, HostedTrans
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 DEFAULT_GROQ_TIMEOUT_SECONDS = 20.0
+RECENT_TRANSCRIPT_LIMIT = 2
 
 
 async def extract_transcript_patch(
@@ -30,32 +32,7 @@ async def extract_transcript_patch(
     base_url = os.getenv("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL).rstrip("/")
     model = os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)
     timeout_seconds = float(os.getenv("GROQ_TIMEOUT_SECONDS", DEFAULT_GROQ_TIMEOUT_SECONDS))
-
-    request_body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _system_prompt()},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "currentDraft": draft.model_dump(mode="json"),
-                        "recentFinalTranscripts": transcript_log[-6:],
-                        "latestTranscript": transcript,
-                    }
-                ),
-            },
-        ],
-        "temperature": 0,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "order_patch",
-                "strict": True,
-                "schema": HostedTranscriptPatch.model_json_schema(),
-            },
-        },
-    }
+    request_body = build_request_body(draft, transcript_log, transcript, model=model)
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -95,21 +72,115 @@ async def extract_transcript_patch(
     )
 
 
+def build_request_body(
+    draft: OrderDraft,
+    transcript_log: list[dict[str, str]],
+    transcript: str,
+    *,
+    model: str,
+) -> dict[str, Any]:
+    context_payload = build_compact_context_payload(draft, transcript_log, transcript)
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _system_prompt()},
+            {"role": "user", "content": json.dumps(context_payload)},
+        ],
+        "temperature": 0,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "order_patch",
+                "strict": True,
+                "schema": HostedTranscriptPatch.model_json_schema(),
+            },
+        },
+    }
+
+
+def build_compact_context_payload(
+    draft: OrderDraft,
+    transcript_log: list[dict[str, str]],
+    transcript: str,
+) -> dict[str, Any]:
+    return {
+        "currentDraft": compact_draft_context(draft),
+        "recentFinalTranscripts": select_recent_transcripts(transcript_log),
+        "latestTranscript": transcript,
+    }
+
+
+def compact_draft_context(draft: OrderDraft) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+
+    for field_name in ("buyerName", "sellerName", "currency", "issueDate", "notes"):
+        value = getattr(draft, field_name)
+        if value is not None:
+            compact[field_name] = value.isoformat() if hasattr(value, "isoformat") else value
+
+    if draft.delivery:
+        compact_delivery = {
+            field_name: (
+                value.isoformat() if hasattr(value, "isoformat") else value
+            )
+            for field_name in ("street", "city", "state", "postcode", "country", "requestedDate")
+            if (value := getattr(draft.delivery, field_name)) is not None
+        }
+        if compact_delivery:
+            compact["delivery"] = compact_delivery
+
+    compact_lines = []
+    for line in draft.lines:
+        compact_line = {
+            field_name: (str(value) if field_name == "unitPrice" else value)
+            for field_name in ("productName", "quantity", "unitCode", "unitPrice")
+            if (value := getattr(line, field_name)) is not None
+        }
+        if compact_line:
+            compact_lines.append(compact_line)
+    if compact_lines:
+        compact["lines"] = compact_lines
+
+    return compact
+
+
+def select_recent_transcripts(transcript_log: list[dict[str, str]]) -> list[dict[str, str]]:
+    finals = [entry for entry in transcript_log if entry.get("kind") == "final"]
+    return finals[-RECENT_TRANSCRIPT_LIMIT:]
+
+
+def measure_context_payload_sizes(
+    draft: OrderDraft,
+    transcript_log: list[dict[str, str]],
+    transcript: str,
+) -> dict[str, int]:
+    full_payload = {
+        "currentDraft": draft.model_dump(mode="json"),
+        "recentFinalTranscripts": transcript_log[-6:],
+        "latestTranscript": transcript,
+    }
+    compact_payload = build_compact_context_payload(draft, transcript_log, transcript)
+    return {
+        "full": len(json.dumps(full_payload)),
+        "compact": len(json.dumps(compact_payload)),
+    }
+
+
 def _system_prompt() -> str:
     return """
-You convert conversational ordering transcripts into structured JSON patches for an order draft.
+Convert ordering transcripts into a JSON patch for the current order draft.
 
 Rules:
-- Return only data that should change in the current draft.
+- Return only changes to apply to the current draft.
 - Use null for untouched scalar fields.
-- delivery must always be present with all keys, using null for untouched values.
-- lineActions must contain ordered upsert/delete actions.
-- Use ISO dates (YYYY-MM-DD) for issueDate and requestedDate.
-- Use uppercase 3-letter currency codes when present.
-- Use plain numeric strings for unitPrice, for example "4.00".
-- If the transcript expresses deletion such as "I don't want oranges", emit a delete action.
-- If nothing can be safely applied, leave field updates null/empty and set unresolvedReason.
-- warnings should contain any ambiguity the UI should surface.
+- delivery must include all keys, using null for untouched values.
+- lineActions may add, update, or delete items in order.
+- Use ISO dates for issueDate and requestedDate.
+- Use uppercase 3-letter currency codes.
+- Use plain numeric strings for unitPrice such as "4.00".
+- If the user says they do not want an item, emit a delete action.
+- If nothing can be safely applied, leave updates empty and set unresolvedReason.
+- Put ambiguity in warnings.
 """.strip()
 
 

@@ -19,6 +19,8 @@ from app.services.order_draft import (
 )
 from app.services.ubl_order import OrderGenerationError
 
+# from other import findOrders, saveOrder, saveOrderDetails, DBInfo
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
@@ -229,3 +231,30 @@ async def _send_error(
     if details is not None:
         payload["details"] = details
     await websocket.send_json({"type": "error", "payload": payload})
+    return {
+        "orderId": order_id,
+        "status": record["status"],
+        "createdAt": record["createdAt"],
+        "ublXml": record["ublXml"],
+        "warnings": record["warnings"],
+    }
+
+
+@router.get("/v1/order/{order_id}")
+def get_order(order_id: str):
+    order = ORDERS.get(order_id)
+
+    if order is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    if not order.get("ublXml"):
+        raise HTTPException(status_code=500, detail="Order XML missing.")
+
+    return {
+        "orderId": order["orderId"],
+        "status": order["status"],
+        "createdAt": order["createdAt"],
+        "updatedAt": order["updatedAt"],
+        "ublXml": order["ublXml"],
+        "warnings": order["warnings"],
+    }
