@@ -58,3 +58,19 @@ def create_order(req: OrderRequest):
         "ublXml": record["ublXml"],
         "warnings": record["warnings"],
     }
+
+@router.get("/v1/order/{order_id}")
+def get_order(order_id: str):
+    order = ORDERS.get(order_id)
+
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+
+    return {
+        "orderId": order["orderId"],
+        "status": order["status"],
+        "createdAt": order["createdAt"],
+        "updatedAt": order["updatedAt"],
+        "ublXml": order["ublXml"],
+        "warnings": order["warnings"],
+    }
