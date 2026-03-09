@@ -130,6 +130,6 @@ def test_get_order_with_missing_ubl_xml_returns_error(client, created_order):
     record["ublXml"] = None
 
     response = client.get(f"/v1/order/{order_id}")
-    # - Return 500? (internal error)
+    # Return 500 (internal error)
     assert response.status_code == 500
     assert response.json() == {"detail": "Order XML missing."}
