@@ -3,8 +3,8 @@ import os
 
 from supabase import Client, create_client
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SUPABASE_URL = os.getenv["SUPABASE_URL"]
+SUPABASE_KEY = os.getenv["SUPABASE_KEY"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -24,9 +24,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         "Sydney",
         344,
         "Australia",
+        "pls work",
         datetime.datetime.now().isoformat(),
         "Pending",
-        "pls work",
     )
     saveOrderDetails(orderid, "pears", "def", 5.9, 9.8)
     return findOrders(orderId="12")
@@ -69,7 +69,7 @@ def saveOrder(
         response = supabase.table("orders").upsert(query).execute()
         return response.data[0]["id"]
     except Exception as e:
-        raise RuntimeError(f"Failed to save order: {e}") from None
+        raise RuntimeError(f"Failed to save order: {e}") from e
 
 
 # saves or updates a single line of order details, does not return anything
@@ -89,7 +89,7 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     try:
         supabase.table("orderdetails").upsert(query).execute()
     except Exception as e:
-        raise RuntimeError(f"Failed to save order details: {e}") from None
+        raise RuntimeError(f"Failed to save order details: {e}") from e
 
 
 # (greedily) returns all tuples mathing the filter(s).
@@ -137,12 +137,13 @@ def findOrders(
         query = query.eq("status", status)
 
     res = query.execute()
-    if res.count == 0:
-        return "No orders found"
+    orders = res.data
 
-    if res.count > 1:
-        return res
-    return res, findOrderDetails(res.data[0]["id"])
+    if res.count == 1:
+        details = findOrderDetails(orders[0]["id"])
+        orders[0]["details"] = details.data
+
+    return orders
 
 
 # looks for order detail list through order id
