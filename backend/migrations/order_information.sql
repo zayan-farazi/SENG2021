@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS orders (
-    id INT PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     buyername TEXT NOT NULL,
     sellername TEXT NOT NULL,
     deliverystreet TEXT,
@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS orders (
     deliverycountry TEXT,
     status TEXT DEFAULT 'pending',
     notes TEXT,
-    issueDate TIMESTAMPTZ DEFAULT NOW()
-    lastChanged DEFAULT NOW()
+    issueDate TIMESTAMPTZ DEFAULT NOW(),
+    lastChanged TIMESTAMPTZ DEFAULT NOW()
 );
 
 
