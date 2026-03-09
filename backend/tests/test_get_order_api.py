@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -7,10 +9,8 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import orders
 from app.main import app
-from datetime import date
-from decimal import Decimal
-from app.models.schemas import OrderRequest, LineItem, Delivery
-from app.services.ubl_order import generate_ubl_order_xml, generate_order_id, OrderGenerationError
+from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
 NS = {
     "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
