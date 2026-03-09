@@ -18,7 +18,6 @@ NS = {
 }
 
 
-
 def build_payload() -> OrderRequest:
     return OrderRequest(
         buyerName="Acme Books",
@@ -49,6 +48,7 @@ def build_payload() -> OrderRequest:
             ),
         ],
     )
+
 
 @pytest.fixture
 def client():
@@ -83,7 +83,7 @@ def test_get_existing_order_returns_order(client, created_order):
     assert response.status_code == 200
 
     body = response.json()
-     # Check only fields returned to the client
+    # Check only fields returned to the client
     assert body["orderId"] == record["orderId"]
     assert body["status"] == record["status"]
     assert body["createdAt"] == record["createdAt"]
@@ -100,12 +100,14 @@ def test_get_existing_order_returns_order(client, created_order):
     # parse XML and check key values
     root = ET.fromstring(body["ublXml"])
     assert root.find("cbc:ID", NS).text == order_id
-    assert root.find(
-        "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name", NS
-    ).text == record["payload"]["buyerName"]
-    assert root.find(
-        "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name", NS
-    ).text == record["payload"]["sellerName"]
+    assert (
+        root.find("cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name", NS).text
+        == record["payload"]["buyerName"]
+    )
+    assert (
+        root.find("cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name", NS).text
+        == record["payload"]["sellerName"]
+    )
 
 
 def test_get_nonexistent_order_returns_404(client):
@@ -113,12 +115,14 @@ def test_get_nonexistent_order_returns_404(client):
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
 
+
 def test_get_order_with_invalid_id_format_returns_404(client):
     invalid_ids = ["", "!!!!", "123-abc!", " "]
     for order_id in invalid_ids:
         response = client.get(f"/v1/order/{order_id}")
         assert response.status_code == 404
         assert response.json() == {"detail": "Not Found"}
+
 
 def test_get_order_with_missing_ubl_xml_returns_error(client, created_order):
     order_id, record = created_order

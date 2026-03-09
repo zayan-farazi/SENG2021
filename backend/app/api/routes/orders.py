@@ -59,13 +59,14 @@ def create_order(req: OrderRequest):
         "warnings": record["warnings"],
     }
 
+
 @router.get("/v1/order/{order_id}")
 def get_order(order_id: str):
     order = ORDERS.get(order_id)
 
     if order is None:
         raise HTTPException(status_code=404, detail="Not Found")
-    
+
     if not order.get("ublXml"):
         raise HTTPException(status_code=500, detail="Order XML missing.")
 
