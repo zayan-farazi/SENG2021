@@ -32,5 +32,5 @@ dev = [
     "pytest-cov>=7.0.0",
     "pyright>=1.1.408",
     "ruff>=0.14.0",
-    "uvicorn>=0.41.0",
+    "uvicorn[standard]>=0.41.0",
 ]
