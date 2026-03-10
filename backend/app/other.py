@@ -72,7 +72,7 @@ def saveOrder(
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
         "notes": notes,
-        "lastchanged":datetime.now().isoformat(),
+        "lastchanged": datetime.now().isoformat(),
     }
 
     if orderId is None:
@@ -174,7 +174,8 @@ def findOrders(
 # looks for order detail list through order id
 def findOrderDetails(orderId):
     return (
-        get_supabase_client().table("orderdetails")
+        get_supabase_client()
+        .table("orderdetails")
         .select("productname", "unitcode", "quantity", "unitprice")
         .eq("orderid", orderId)
         .execute()
@@ -189,6 +190,7 @@ def deleteOrderDetails(orderId):
 # deletes given order (including order details)
 def deleteOrder(orderId):
     return get_supabase_client().table("orders").delete().eq("id", orderId).execute()
+
 
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
