@@ -9,14 +9,14 @@ SUPABASE_KEY = os.getenv["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # how to save order example
-# this works but pls make sure all details are correct before running the functions
-# and do a try except so we don't up w rubbish data / duplicate info
-
-# default currency is AUD
-# default issue date is today
-# default status is Pending
-
 """
+    this works but pls make sure all details are correct before running the functions
+    and do a try except so we don't up w rubbish data / duplicate info
+
+    # default currency is AUD
+    # default issue date is today
+    # default status is Pending
+
     orderid = saveOrder(
         "Rita",
         "Tina",
@@ -35,6 +35,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # saves or updates order information and returns order Id
+# creates an entry when orderid is empty, updates existing entry otherwise
+# saves or updates order information and returns order Id
+# creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
     buyername,
     sellername,
@@ -44,13 +47,10 @@ def saveOrder(
     deliverycountry,
     notes,
     issueDate=None,
-    status="Pending",
-    currency="AUD",
+    status=None,
+    currency=None,
+    orderId=None,
 ):
-
-    if issueDate is None:
-        issueDate = datetime.datetime.now()
-
     query = {
         "buyername": buyername,
         "sellername": sellername,
@@ -58,12 +58,24 @@ def saveOrder(
         "deliverycity": deliverycity,
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
-        "status": status,
         "notes": notes,
-        "currency": currency,
-        "issuedate": issueDate.isoformat(),
         "lastchanged": datetime.datetime.now().isoformat(),
     }
+
+    if orderId is None:
+        if issueDate is None:
+            issueDate = datetime.datetime.now().isoformat()
+        query["issuedate"] = issueDate
+
+        if status is None:
+            status = "Pending"
+        if currency is None:
+            currency = "AUD"
+    else:
+        query["id"] = orderId
+
+    query["status"] = status
+    query["currency"] = "AUD"
 
     try:
         response = supabase.table("orders").upsert(query).execute()
@@ -72,7 +84,7 @@ def saveOrder(
         raise RuntimeError(f"Failed to save order: {e}") from e
 
 
-# saves or updates a single line of order details, does not return anything
+# saves a single line of order details, does not return anything
 # NEEDS ORDER ID TO ATTATCH TO
 def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     if orderId is None:
@@ -89,7 +101,7 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     try:
         supabase.table("orderdetails").upsert(query).execute()
     except Exception as e:
-        raise RuntimeError(f"Failed to save order details: {e}") from e
+        raise RuntimeError(f"Failed to save or update order details: {e}") from e
 
 
 # (greedily) returns all tuples mathing the filter(s).
@@ -154,6 +166,11 @@ def findOrderDetails(orderId):
         .eq("orderid", orderId)
         .execute()
     )
+
+
+# deletes all order lines related to a query
+def deleteOrderDetails(orderId):
+    return supabase.table("orderdetails").delete().eq("orderid", orderId).execute()
 
 
 # mostly for debug purposes, returns all information stored in both databases
