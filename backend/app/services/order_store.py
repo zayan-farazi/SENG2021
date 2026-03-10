@@ -114,3 +114,46 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
 
     ORDERS[order_id] = existing
     return existing
+
+# def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> None:
+#     from app.other import (
+#         findOrders,
+#         updateOrder,
+#         deleteOrderDetails,
+#         saveOrderDetails,
+#     )
+
+#     try:
+#         delivery = req.delivery
+#         updateOrder(
+#             orderId=db_order_id,
+#             buyername=req.buyerName,
+#             sellername=req.sellerName,
+#             deliverystreet=delivery.street if delivery else None,
+#             deliverycity=delivery.city if delivery else None,
+#             deliverypostcode=delivery.postcode if delivery else None,
+#             deliverycountry=delivery.country if delivery else None,
+#             notes=req.notes,
+#             issueDate=req.issueDate,
+#             status="DRAFT",
+#             currency=req.currency or "AUD",
+#         )
+
+#         # Delete existing line items and re-insert
+#         deleteOrderDetails(orderId=db_order_id)
+
+#         for line in req.lines:
+#             saveOrderDetails(
+#                 db_order_id,
+#                 line.productName,
+#                 line.unitCode or "EA",
+#                 line.quantity,
+#                 float(line.unitPrice) if line.unitPrice is not None else 0.0,
+#             )
+
+#         orders = findOrders(orderId=db_order_id)
+#     except Exception as exc:  # noqa: BLE001
+#         raise OrderPersistenceError("Order update could not be persisted in Supabase.") from exc
+
+#     if not orders:
+#         raise OrderPersistenceError("Order update could not be verified in Supabase.")
