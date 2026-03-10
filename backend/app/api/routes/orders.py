@@ -259,3 +259,22 @@ def get_order(order_id: str):
         "ublXml": order["ublXml"],
         "warnings": order["warnings"],
     }
+
+@router.put("/v1/order/{order_id}")
+def update_order(order_id: str, req: OrderRequest):
+    try:
+        record = order_store.update_order_record(order_id, req)
+    except OrderNotFoundError:
+        # Order could not be found with order_id
+        raise HTTPException(status_code=404, detail="Not Found")
+    except OrderConflictLockedError as exc:
+        # used for conflict situations (e.g., not editable)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OrderGenerationError as exc:
+        logger.exception("Order update failed")
+        raise HTTPException(status_code=500, detail="Unable to update order.") from exc
+    except OrderPersistenceError as exc:
+        logger.exception("Order update persistence verification failed")
+        raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
+
+    return order_store.build_order_response(record)
