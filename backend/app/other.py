@@ -1,12 +1,26 @@
-import datetime
 import os
+from datetime import datetime
+from pathlib import Path
 
 from supabase import Client, create_client
 
-SUPABASE_URL = os.getenv["SUPABASE_URL"]
-SUPABASE_KEY = os.getenv["SUPABASE_KEY"]
+_SUPABASE_CLIENT: Client | None = None
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_supabase_client() -> Client:
+    global _SUPABASE_CLIENT
+
+    if _SUPABASE_CLIENT is None:
+        _load_local_env_files()
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
+        if not supabase_url:
+            raise RuntimeError("SUPABASE_URL is not configured.")
+        if not supabase_key:
+            raise RuntimeError("SUPABASE_KEY is not configured.")
+        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
+
+    return _SUPABASE_CLIENT
 
 # how to save order example
 """
@@ -182,3 +196,47 @@ def DBInfo():
     orders = supabase.table("orders").select("*").execute()
     orderDetails = supabase.table("orderdetails").select("*").execute()
     return orders, orderDetails
+
+
+def _load_local_env_files() -> None:
+    for env_file in _candidate_env_files():
+        if not env_file.is_file():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, value = _parse_env_line(line)
+            if key and value is not None:
+                os.environ.setdefault(key, value)
+
+
+def _candidate_env_files() -> list[Path]:
+    backend_dir = Path(__file__).resolve().parents[1]
+    repo_root = backend_dir.parent
+    return [
+        backend_dir / ".env",
+        backend_dir / ".env.local",
+        repo_root / ".env",
+        repo_root / ".env.local",
+    ]
+
+
+def _parse_env_line(line: str) -> tuple[str | None, str | None]:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None, None
+
+    if stripped.startswith("export "):
+        stripped = stripped.removeprefix("export ").strip()
+
+    if "=" not in stripped:
+        return None, None
+
+    key, raw_value = stripped.split("=", 1)
+    key = key.strip()
+    value = raw_value.strip()
+    if not key:
+        return None, None
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+
+    return key, value
