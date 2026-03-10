@@ -82,3 +82,35 @@ def persist_order_to_database(req: OrderRequest) -> Any:
         raise OrderPersistenceError("Order could not be verified in Supabase.")
 
     return db_order_id
+
+
+def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
+    existing = ORDERS.get(order_id)
+    if existing is None:
+        # Order can't be found with order_id
+        raise OrderNotFoundError(order_id)
+
+    status = existing.get("status", "DRAFT")
+    if status not in EDITABLE_STATUSES:
+        # Order is not in an editable status
+        raise OrderConflictLockedError(f"Order cannot be updated in status '{status}'.")
+
+    updated_at = now_z()
+    ubl_xml = generate_ubl_order_xml(order_id, req)
+
+    db_order_id = existing.get("dbOrderId")
+    if db_order_id is None:
+        # Order is missing dbOrderId
+        raise OrderPersistenceError("Order is missing dbOrderId for persistence.")
+
+    # Persist to DB
+    persist_order_update_to_database(db_order_id, req)
+
+    # Update in-memory record
+    existing["updatedAt"] = updated_at
+    existing["payload"] = req.model_dump(mode="json")
+    existing["ublXml"] = ubl_xml
+    existing["warnings"] = existing.get("warnings", [])
+
+    ORDERS[order_id] = existing
+    return existing
