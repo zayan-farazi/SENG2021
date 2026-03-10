@@ -7,6 +7,7 @@ from app.models.schemas import HealthResponse
 
 router = APIRouter(prefix="/v1", tags=["Health"])
 
+
 @router.get("/health", response_model=HealthResponse)
 def health_check(request: Request):
 
@@ -19,8 +20,5 @@ def health_check(request: Request):
     request_count = request.app.state.request_count
 
     return HealthResponse(
-        status="healthy",
-        uptimeSeconds=uptime,
-        version=version,
-        requestCount=request_count
+        status="healthy", uptimeSeconds=uptime, version=version, requestCount=request_count
     )
