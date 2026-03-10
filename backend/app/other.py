@@ -77,8 +77,8 @@ def saveOrder(
 
     if orderId is None:
         if issueDate is None:
-            issueDate = datetime.now().isoformat()
-        query["issuedate"] = issueDate
+            issueDate = datetime.now()
+        query["issuedate"] = issueDate.isoformat()
 
         if status is None:
             status = "Pending"
@@ -86,9 +86,10 @@ def saveOrder(
             currency = "AUD"
     else:
         query["id"] = orderId
-
-    query["status"] = status
-    query["currency"] = "AUD"
+    if status is not None:
+        query["status"] = status
+    if currency is not None:
+        query["currency"] = currency
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -184,12 +185,12 @@ def findOrderDetails(orderId):
 
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
-    return get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
+    get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
 
 
 # deletes given order (including order details)
 def deleteOrder(orderId):
-    return get_supabase_client().table("orders").delete().eq("id", orderId).execute()
+    get_supabase_client().table("orders").delete().eq("id", orderId).execute()
 
 
 # mostly for debug purposes, returns all information stored in both databases
