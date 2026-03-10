@@ -194,7 +194,7 @@ def deleteOrder(orderId):
 def DBInfo():
     client = get_supabase_client()
     orders = client.table("orders").select("*").execute()
-    orders = get_supabase_client().table("orders").select("*").execute()
+    orderDetails = client.table("orderdetails").select("*").execute()
     return orders, orderDetails
 
 
