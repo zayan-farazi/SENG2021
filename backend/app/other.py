@@ -50,8 +50,6 @@ def get_supabase_client() -> Client:
 
 # saves or updates order information and returns order Id
 # creates an entry when orderid is empty, updates existing entry otherwise
-# saves or updates order information and returns order Id
-# creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
     buyername,
     sellername,
