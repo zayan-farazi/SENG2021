@@ -173,6 +173,10 @@ def deleteOrderDetails(orderId):
     return supabase.table("orderdetails").delete().eq("orderid", orderId).execute()
 
 
+# deletes given order (including order details)
+def deleteOrder(orderId):
+    return supabase.table("orders").delete().eq("id", orderId).execute()
+
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
     orders = supabase.table("orders").select("*").execute()
