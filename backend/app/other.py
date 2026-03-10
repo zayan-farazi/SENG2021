@@ -92,7 +92,7 @@ def saveOrder(
     query["currency"] = "AUD"
 
     try:
-        response = supabase.table("orders").upsert(query).execute()
+        response = get_supabase_client().table("orders").upsert(query).execute()
         return response.data[0]["id"]
     except Exception as e:
         raise RuntimeError(f"Failed to save order: {e}") from e
@@ -113,7 +113,7 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     }
 
     try:
-        supabase.table("orderdetails").upsert(query).execute()
+        get_supabase_client().table("orderdetails").upsert(query).execute()
     except Exception as e:
         raise RuntimeError(f"Failed to save or update order details: {e}") from e
 
@@ -135,7 +135,7 @@ def findOrders(
     lastChanged=None,
     status=None,
 ):
-    query = supabase.table("orders").select("*", count="exact")
+    query = get_supabase_client().table("orders").select("*", count="exact")
 
     if orderId:
         query = query.eq("id", orderId)
@@ -175,7 +175,7 @@ def findOrders(
 # looks for order detail list through order id
 def findOrderDetails(orderId):
     return (
-        supabase.table("orderdetails")
+        get_supabase_client().table("orderdetails")
         .select("productname", "unitcode", "quantity", "unitprice")
         .eq("orderid", orderId)
         .execute()
@@ -184,17 +184,17 @@ def findOrderDetails(orderId):
 
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
-    return supabase.table("orderdetails").delete().eq("orderid", orderId).execute()
+    return get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
 
 
 # deletes given order (including order details)
 def deleteOrder(orderId):
-    return supabase.table("orders").delete().eq("id", orderId).execute()
+    return get_supabase_client().table("orders").delete().eq("id", orderId).execute()
 
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
-    orders = supabase.table("orders").select("*").execute()
-    orderDetails = supabase.table("orderdetails").select("*").execute()
+    orders = get_supabase_client().table("orders").select("*").execute()
+    orderDetails = get_supabase_client().table("orderdetails").select("*").execute()
     return orders, orderDetails
 
 
