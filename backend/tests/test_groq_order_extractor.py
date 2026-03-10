@@ -101,7 +101,9 @@ def test_compact_draft_context_preserves_only_populated_values():
         delivery=DraftDelivery(city="Sydney"),
         lines=[
             DraftLineItem(productName="oranges", quantity=4, unitCode="EA"),
-            DraftLineItem(productName=None, quantity=None, unitCode="EA", unitPrice=Decimal("4.50")),
+            DraftLineItem(
+                productName=None, quantity=None, unitCode="EA", unitPrice=Decimal("4.50")
+            ),
         ],
     )
 

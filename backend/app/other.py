@@ -1,12 +1,27 @@
-import datetime
 import os
+from datetime import datetime
+from pathlib import Path
 
 from supabase import Client, create_client
 
-SUPABASE_URL = os.getenv["SUPABASE_URL"]
-SUPABASE_KEY = os.getenv["SUPABASE_KEY"]
+_SUPABASE_CLIENT: Client | None = None
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_supabase_client() -> Client:
+    global _SUPABASE_CLIENT
+
+    if _SUPABASE_CLIENT is None:
+        _load_local_env_files()
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
+        if not supabase_url:
+            raise RuntimeError("SUPABASE_URL is not configured.")
+        if not supabase_key:
+            raise RuntimeError("SUPABASE_KEY is not configured.")
+        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
+
+    return _SUPABASE_CLIENT
+
 
 # how to save order example
 # this works but pls make sure all details are correct before running the functions
@@ -47,9 +62,8 @@ def saveOrder(
     status="Pending",
     currency="AUD",
 ):
-
     if issueDate is None:
-        issueDate = datetime.datetime.now()
+        issueDate = datetime.now()
 
     query = {
         "buyername": buyername,
@@ -62,11 +76,11 @@ def saveOrder(
         "notes": notes,
         "currency": currency,
         "issuedate": issueDate.isoformat(),
-        "lastchanged": datetime.datetime.now().isoformat(),
+        "lastchanged": datetime.now().isoformat(),
     }
 
     try:
-        response = supabase.table("orders").upsert(query).execute()
+        response = get_supabase_client().table("orders").upsert(query).execute()
         return response.data[0]["id"]
     except Exception as e:
         raise RuntimeError(f"Failed to save order: {e}") from e
@@ -87,7 +101,7 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     }
 
     try:
-        supabase.table("orderdetails").upsert(query).execute()
+        get_supabase_client().table("orderdetails").upsert(query).execute()
     except Exception as e:
         raise RuntimeError(f"Failed to save order details: {e}") from e
 
@@ -109,7 +123,7 @@ def findOrders(
     lastChanged=None,
     status=None,
 ):
-    query = supabase.table("orders").select("*", count="exact")
+    query = get_supabase_client().table("orders").select("*", count="exact")
 
     if orderId:
         query = query.eq("id", orderId)
@@ -149,7 +163,8 @@ def findOrders(
 # looks for order detail list through order id
 def findOrderDetails(orderId):
     return (
-        supabase.table("orderdetails")
+        get_supabase_client()
+        .table("orderdetails")
         .select("productname", "unitcode", "quantity", "unitprice")
         .eq("orderid", orderId)
         .execute()
@@ -158,6 +173,51 @@ def findOrderDetails(orderId):
 
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
-    orders = supabase.table("orders").select("*").execute()
-    orderDetails = supabase.table("orderdetails").select("*").execute()
+    client = get_supabase_client()
+    orders = client.table("orders").select("*").execute()
+    orderDetails = client.table("orderdetails").select("*").execute()
     return orders, orderDetails
+
+
+def _load_local_env_files() -> None:
+    for env_file in _candidate_env_files():
+        if not env_file.is_file():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, value = _parse_env_line(line)
+            if key and value is not None:
+                os.environ.setdefault(key, value)
+
+
+def _candidate_env_files() -> list[Path]:
+    backend_dir = Path(__file__).resolve().parents[1]
+    repo_root = backend_dir.parent
+    return [
+        backend_dir / ".env",
+        backend_dir / ".env.local",
+        repo_root / ".env",
+        repo_root / ".env.local",
+    ]
+
+
+def _parse_env_line(line: str) -> tuple[str | None, str | None]:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None, None
+
+    if stripped.startswith("export "):
+        stripped = stripped.removeprefix("export ").strip()
+
+    if "=" not in stripped:
+        return None, None
+
+    key, raw_value = stripped.split("=", 1)
+    key = key.strip()
+    value = raw_value.strip()
+    if not key:
+        return None, None
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+
+    return key, value

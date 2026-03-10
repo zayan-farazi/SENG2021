@@ -120,9 +120,7 @@ def compact_draft_context(draft: OrderDraft) -> dict[str, Any]:
 
     if draft.delivery:
         compact_delivery = {
-            field_name: (
-                value.isoformat() if hasattr(value, "isoformat") else value
-            )
+            field_name: (value.isoformat() if hasattr(value, "isoformat") else value)
             for field_name in ("street", "city", "state", "postcode", "country", "requestedDate")
             if (value := getattr(draft.delivery, field_name)) is not None
         }

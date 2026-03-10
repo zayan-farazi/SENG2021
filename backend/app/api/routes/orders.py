@@ -17,6 +17,7 @@ from app.services.order_draft import (
     serialize_state,
     validate_draft_for_commit,
 )
+from app.services.order_store import OrderPersistenceError
 from app.services.ubl_order import OrderGenerationError
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
@@ -38,6 +39,9 @@ def create_order(req: OrderRequest):
     except OrderGenerationError as exc:
         logger.exception("Order creation failed")
         raise HTTPException(status_code=500, detail="Unable to create order.") from exc
+    except OrderPersistenceError as exc:
+        logger.exception("Order persistence verification failed")
+        raise HTTPException(status_code=500, detail="Unable to persist order.") from exc
 
     return order_store.build_order_response(record)
 
@@ -196,6 +200,10 @@ async def _handle_commit(websocket: WebSocket, state: DraftSessionState):
         logger.exception("WebSocket order creation failed")
         await _send_error(websocket, "order_creation_failed", "Unable to create order.")
         return
+    except OrderPersistenceError:
+        logger.exception("WebSocket order persistence failed")
+        await _send_error(websocket, "order_persistence_failed", "Unable to persist order.")
+        return
 
     await websocket.send_json(
         {
@@ -231,13 +239,6 @@ async def _send_error(
     if details is not None:
         payload["details"] = details
     await websocket.send_json({"type": "error", "payload": payload})
-    return {
-        "orderId": order_id,
-        "status": record["status"],
-        "createdAt": record["createdAt"],
-        "ublXml": record["ublXml"],
-        "warnings": record["warnings"],
-    }
 
 
 @router.get("/v1/order/{order_id}")

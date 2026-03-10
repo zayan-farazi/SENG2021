@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.services import order_store
+from app.services.order_store import OrderPersistenceError
 from app.services.ubl_order import OrderGenerationError
 
 NS = {
@@ -207,4 +208,19 @@ def test_create_order_returns_500_when_xml_generation_fails(client, monkeypatch)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to create order."}
+    assert orders.ORDERS == {}
+
+
+def test_create_order_returns_500_when_database_verification_fails(client, monkeypatch):
+    payload = build_payload()
+
+    def fail_persist_order_to_database(req):  # noqa: ARG001
+        raise OrderPersistenceError("Supabase verification failed")
+
+    monkeypatch.setattr(order_store, "persist_order_to_database", fail_persist_order_to_database)
+
+    response = client.post("/v1/order/create", json=payload)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to persist order."}
     assert orders.ORDERS == {}
