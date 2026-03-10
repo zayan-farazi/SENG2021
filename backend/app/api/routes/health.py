@@ -1,5 +1,5 @@
 # app/routes/health.py
-from time import time
+from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -15,7 +15,7 @@ def health_check(request: Request):
     if not healthy:
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
-    uptime = time() - request.app.state.start_time
+    uptime = monotonic() - request.app.state.start_time
     version = request.app.version
     request_count = request.app.state.request_count
 
