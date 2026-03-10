@@ -22,15 +22,16 @@ def get_supabase_client() -> Client:
 
     return _SUPABASE_CLIENT
 
+
 # how to save order example
+# this works but pls make sure all details are correct before running the functions
+# and do a try except so we don't up w rubbish data / duplicate info
+
+# default currency is AUD
+# default issue date is today
+# default status is Pending
+
 """
-    this works but pls make sure all details are correct before running the functions
-    and do a try except so we don't up w rubbish data / duplicate info
-
-    # default currency is AUD
-    # default issue date is today
-    # default status is Pending
-
     orderid = saveOrder(
         "Rita",
         "Tina",
@@ -71,12 +72,12 @@ def saveOrder(
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
         "notes": notes,
-        "lastchanged": datetime.datetime.now().isoformat(),
+        "lastchanged":datetime.now().isoformat(),
     }
 
     if orderId is None:
         if issueDate is None:
-            issueDate = datetime.datetime.now().isoformat()
+            issueDate = datetime.now().isoformat()
         query["issuedate"] = issueDate
 
         if status is None:
@@ -113,10 +114,10 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     try:
         get_supabase_client().table("orderdetails").upsert(query).execute()
     except Exception as e:
-        raise RuntimeError(f"Failed to save or update order details: {e}") from e
+        raise RuntimeError(f"Failed to save order details: {e}") from e
 
 
-# (greedily) returns all tuples mathing the filter(s).
+# (greedily) returns all tuples matching the filter(s).
 # must write the variable name as all fields have empty default values
 # if there are several matches, it returns list (up to 1000 tuples)
 # if there is only one match, it returns it as well as its order line list
@@ -191,8 +192,9 @@ def deleteOrder(orderId):
 
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
+    client = get_supabase_client()
+    orders = client.table("orders").select("*").execute()
     orders = get_supabase_client().table("orders").select("*").execute()
-    orderDetails = get_supabase_client().table("orderdetails").select("*").execute()
     return orders, orderDetails
 
 
