@@ -16,7 +16,7 @@ def health_check(request: Request):
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
     uptime = time() - request.app.state.start_time
-    version = request.app.state.version
+    version = request.app.version
     request_count = request.app.state.request_count
 
     return HealthResponse(

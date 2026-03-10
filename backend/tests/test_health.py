@@ -33,7 +33,7 @@ def test_health_returns_correct_values(client):
 
     assert data["status"] == "healthy"
     assert isinstance(data["uptimeSeconds"], float)
-    assert data["version"] == "0.1.0"
+    assert data["version"] == app.version
     assert isinstance(data["requestCount"], int)
 
 
