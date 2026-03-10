@@ -1,8 +1,9 @@
 # app/routes/health.py
-from fastapi import APIRouter, Request, HTTPException
-from app.models.schemas import HealthResponse
 from time import time
 
+from fastapi import APIRouter, HTTPException, Request
+
+from app.models.schemas import HealthResponse
 
 router = APIRouter(prefix="/v1", tags=["Health"])
 
