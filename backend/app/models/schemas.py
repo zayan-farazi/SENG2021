@@ -56,3 +56,10 @@ class OrderDraft(BaseModel):
     notes: str | None = None
     delivery: DraftDelivery | None = None
     lines: list[DraftLineItem] = Field(default_factory=list)
+
+
+class HealthResponse(BaseModel):
+    status: str
+    uptimeSeconds: float
+    version: str
+    requestCount: int
