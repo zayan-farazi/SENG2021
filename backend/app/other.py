@@ -171,6 +171,20 @@ def findOrderDetails(orderId):
     )
 
 
+def deleteOrderDetails(orderId):
+    try:
+        return get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
+    except Exception as e:
+        raise RuntimeError(f"Failed to delete order details: {e}") from e
+
+
+def deleteOrder(orderId):
+    try:
+        return get_supabase_client().table("orders").delete().eq("id", orderId).execute()
+    except Exception as e:
+        raise RuntimeError(f"Failed to delete order: {e}") from e
+
+
 # mostly for debug purposes, returns all information stored in both databases
 def DBInfo():
     client = get_supabase_client()

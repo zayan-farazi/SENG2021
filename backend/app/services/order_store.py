@@ -47,6 +47,25 @@ def build_order_response(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def delete_order_record(order_id: str) -> bool:
+    record = ORDERS.get(order_id)
+    if record is None:
+        return False
+
+    db_order_id = record.get("dbOrderId")
+    if db_order_id:
+        from app.other import deleteOrder, deleteOrderDetails
+
+        try:
+            deleteOrderDetails(db_order_id)
+            deleteOrder(db_order_id)
+        except Exception as exc:  # noqa: BLE001
+            raise OrderPersistenceError("Order could not be deleted from Supabase.") from exc
+
+    ORDERS.pop(order_id, None)
+    return True
+
+
 def persist_order_to_database(req: OrderRequest) -> Any:
     from app.other import findOrders, saveOrder, saveOrderDetails
 
