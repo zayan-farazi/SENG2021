@@ -123,15 +123,15 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
 def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> None:
     from app.other import (
         findOrders,
-        updateOrder,
+        saveOrder,
         deleteOrderDetails,
         saveOrderDetails,
     )
 
     try:
+        # Update order using orderId
         delivery = req.delivery
-        updateOrder(
-            orderId=db_order_id,
+        saveOrder(
             buyername=req.buyerName,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -142,6 +142,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
             issueDate=req.issueDate,
             status="DRAFT",
             currency=req.currency or "AUD",
+            orderId=db_order_id,
         )
 
         # Delete existing line items and re-insert
