@@ -54,21 +54,6 @@ def client():
         yield test_client
 
 
-def test_root_endpoint_updates_metrics_state(client):
-    first_response = client.get("/")
-
-    assert first_response.status_code == 200
-    assert first_response.json() == {"message": "Hellooooooo"}
-    assert app.state.request_count == 1
-    assert app.version == "0.1.0"
-    assert app.state.start_time > 0
-
-    second_response = client.get("/")
-
-    assert second_response.status_code == 200
-    assert app.state.request_count == 2
-
-
 def test_create_order_returns_201_and_persists_full_order(client):
     payload = build_payload()
 

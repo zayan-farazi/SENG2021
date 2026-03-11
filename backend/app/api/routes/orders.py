@@ -27,11 +27,6 @@ logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
 
 
-# @router.get("/")
-# def root():
-#     return {"message": "Hellooooooo"}
-
-
 @router.post("/v1/order/create", status_code=201)
 def create_order(req: OrderRequest):
     try:
