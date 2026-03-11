@@ -12,6 +12,11 @@ ORDERS: dict[str, dict[str, Any]] = {}
 class OrderPersistenceError(RuntimeError):
     """Raised when the database verification step fails."""
 
+class OrderNotFoundError(KeyError):
+    """Raised when the requested orderId does not exist."""
+
+class OrderConflictLockedError(ValueError):
+    """Raised when the order cannot be updated/deleted due to its current state."""
 
 def now_z() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -91,7 +96,7 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
         raise OrderNotFoundError(order_id)
 
     status = existing.get("status", "DRAFT")
-    if status not in EDITABLE_STATUSES:
+    if status != "DRAFT":
         # Order is not in an editable status
         raise OrderConflictLockedError(f"Order cannot be updated in status '{status}'.")
 
