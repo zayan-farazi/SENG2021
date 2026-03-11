@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import monotonic
+
 import pytest
 
 from app.api.routes.orders import ORDERS
@@ -12,13 +14,11 @@ def reset_order_state(request, monkeypatch):
     ORDERS.clear()
     if request.node.module.__name__ != "test_order_store":
         monkeypatch.setattr(order_store, "persist_order_to_database", lambda _req: 1)
-    for attr in ("request_count", "start_time", "version"):
-        if hasattr(app.state, attr):
-            delattr(app.state, attr)
+    app.state.start_time = monotonic()
+    app.state.request_count = 0
 
     yield
 
     ORDERS.clear()
-    for attr in ("request_count", "start_time", "version"):
-        if hasattr(app.state, attr):
-            delattr(app.state, attr)
+    app.state.start_time = monotonic()
+    app.state.request_count = 0

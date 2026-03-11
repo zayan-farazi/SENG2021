@@ -60,7 +60,7 @@ def test_root_endpoint_updates_metrics_state(client):
     assert first_response.status_code == 200
     assert first_response.json() == {"message": "Hellooooooo"}
     assert app.state.request_count == 1
-    assert app.state.version == "0.1.0"
+    assert app.version == "0.1.0"
     assert app.state.start_time > 0
 
     second_response = client.get("/")
