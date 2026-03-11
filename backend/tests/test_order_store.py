@@ -111,7 +111,9 @@ def test_delete_order_record_removes_db_rows_before_in_memory_order(monkeypatch)
         "dbOrderId": "42",
     }
 
-    monkeypatch.setattr(other, "deleteOrderDetails", lambda order_id: events.append(("details", order_id)))
+    monkeypatch.setattr(
+        other, "deleteOrderDetails", lambda order_id: events.append(("details", order_id))
+    )
     monkeypatch.setattr(other, "deleteOrder", lambda order_id: events.append(("order", order_id)))
 
     deleted = order_store.delete_order_record("ord_db")
@@ -133,7 +135,9 @@ def test_delete_order_record_preserves_in_memory_order_when_db_delete_fails(monk
         "dbOrderId": "99",
     }
 
-    monkeypatch.setattr(other, "deleteOrderDetails", lambda order_id: (_ for _ in ()).throw(RuntimeError(order_id)))
+    monkeypatch.setattr(
+        other, "deleteOrderDetails", lambda order_id: (_ for _ in ()).throw(RuntimeError(order_id))
+    )
 
     with pytest.raises(OrderPersistenceError, match="Order could not be deleted from Supabase."):
         order_store.delete_order_record("ord_db_fail")
