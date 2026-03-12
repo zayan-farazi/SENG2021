@@ -12,11 +12,14 @@ ORDERS: dict[str, dict[str, Any]] = {}
 class OrderPersistenceError(RuntimeError):
     """Raised when the database verification step fails."""
 
+
 class OrderNotFoundError(KeyError):
     """Raised when the requested orderId does not exist."""
 
+
 class OrderConflictLockedError(ValueError):
     """Raised when the order cannot be updated/deleted due to its current state."""
+
 
 def now_z() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -120,11 +123,12 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
     ORDERS[order_id] = existing
     return existing
 
+
 def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> None:
     from app.other import (
+        deleteOrderDetails,
         findOrders,
         saveOrder,
-        deleteOrderDetails,
         saveOrderDetails,
     )
 
