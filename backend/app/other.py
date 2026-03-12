@@ -50,6 +50,7 @@ def get_supabase_client() -> Client:
 
 
 # saves or updates order information and returns order Id
+# creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
     buyername,
     sellername,
@@ -59,12 +60,10 @@ def saveOrder(
     deliverycountry,
     notes,
     issueDate=None,
-    status="Pending",
-    currency="AUD",
+    status=None,
+    currency=None,
+    orderId=None,
 ):
-    if issueDate is None:
-        issueDate = datetime.now()
-
     query = {
         "buyername": buyername,
         "sellername": sellername,
@@ -72,12 +71,25 @@ def saveOrder(
         "deliverycity": deliverycity,
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
-        "status": status,
         "notes": notes,
-        "currency": currency,
-        "issuedate": issueDate.isoformat(),
         "lastchanged": datetime.now().isoformat(),
     }
+
+    if orderId is None:
+        if issueDate is None:
+            issueDate = datetime.now()
+        query["issuedate"] = issueDate.isoformat()
+
+        if status is None:
+            status = "Pending"
+        if currency is None:
+            currency = "AUD"
+    else:
+        query["id"] = orderId
+    if status is not None:
+        query["status"] = status
+    if currency is not None:
+        query["currency"] = currency
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -86,7 +98,7 @@ def saveOrder(
         raise RuntimeError(f"Failed to save order: {e}") from e
 
 
-# saves or updates a single line of order details, does not return anything
+# saves a single line of order details, does not return anything
 # NEEDS ORDER ID TO ATTATCH TO
 def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
     if orderId is None:
@@ -106,7 +118,7 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
         raise RuntimeError(f"Failed to save order details: {e}") from e
 
 
-# (greedily) returns all tuples mathing the filter(s).
+# (greedily) returns all tuples matching the filter(s).
 # must write the variable name as all fields have empty default values
 # if there are several matches, it returns list (up to 1000 tuples)
 # if there is only one match, it returns it as well as its order line list
@@ -171,18 +183,14 @@ def findOrderDetails(orderId):
     )
 
 
+# deletes all order lines related to a query
 def deleteOrderDetails(orderId):
-    try:
-        return get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
-    except Exception as e:
-        raise RuntimeError(f"Failed to delete order details: {e}") from e
+    get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
 
 
+# deletes given order (including order details)
 def deleteOrder(orderId):
-    try:
-        return get_supabase_client().table("orders").delete().eq("id", orderId).execute()
-    except Exception as e:
-        raise RuntimeError(f"Failed to delete order: {e}") from e
+    get_supabase_client().table("orders").delete().eq("id", orderId).execute()
 
 
 # mostly for debug purposes, returns all information stored in both databases
