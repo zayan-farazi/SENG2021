@@ -59,6 +59,8 @@ def saveOrder(
     deliverypostcode,
     deliverycountry,
     notes,
+    buyeremail=None,
+    selleremail=None,
     issueDate=None,
     status=None,
     currency=None,
@@ -91,6 +93,13 @@ def saveOrder(
     if currency is not None:
         query["currency"] = currency
 
+    # TODO remove if conditions when people have changeed their functions
+
+    if buyeremail:
+        query["buyeremail"] = buyeremail
+    if selleremail:
+        query["selleremail"] = selleremail
+
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
         return response.data[0]["id"]
@@ -120,12 +129,14 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
 
 # (greedily) returns all tuples matching the filter(s).
 # must write the variable name as all fields have empty default values
-# if there are several matches, it returns list (up to 1000 tuples)
-# if there is only one match, it returns it as well as its order line list
+# if there are matches, it returns list (up to 1000 tuples)
+# res.count gives you the total number of tuples, even if >1000
 def findOrders(
     orderId=None,
     buyername=None,
+    buyeremail=None,  # TODO remove this after everyone updates their functions
     sellername=None,
+    selleremail=None,  # TODO remove this too
     deliverystreet=None,
     deliverycity=None,
     deliverypostcode=None,
@@ -134,6 +145,8 @@ def findOrders(
     issueDate=None,
     lastChanged=None,
     status=None,
+    fromDate: datetime | None = None,
+    toDate: datetime | None = None,
 ):
     query = get_supabase_client().table("orders").select("*", count="exact")
 
@@ -161,6 +174,17 @@ def findOrders(
         query = query.eq("lastchanged", lastChanged)
     if status:
         query = query.eq("status", status)
+    if fromDate:
+        query = query.gte("issuedate", fromDate.isoformat())
+    if toDate:
+        query = query.lte("issuedate", toDate.isoformat())
+
+    # Remove if conditions after everyone has fixed their functions so buyer and seller emails are mandatory
+
+    if buyeremail:
+        query = query.eq("buyeremail", buyeremail)
+    if selleremail:
+        query = query.eq("selleremail", selleremail)
 
     res = query.execute()
     orders = res.data
@@ -168,6 +192,7 @@ def findOrders(
     if res.count == 1:
         details = findOrderDetails(orders[0]["id"])
         orders[0]["details"] = details.data
+        orders[0]["count"] = details.count
 
     return orders
 
@@ -177,7 +202,7 @@ def findOrderDetails(orderId):
     return (
         get_supabase_client()
         .table("orderdetails")
-        .select("productname", "unitcode", "quantity", "unitprice")
+        .select("productname", "unitcode", "quantity", "unitprice", count="exact")
         .eq("orderid", orderId)
         .execute()
     )
