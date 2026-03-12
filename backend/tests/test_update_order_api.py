@@ -141,7 +141,6 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     # Call update
     update_resp = client.put(f"/v1/order/{order_id}", json=build_payload())
     assert update_resp.status_code == 409
-    # exact message depends on your implementation; this matches our earlier logic
     assert "cannot be updated" in update_resp.json()["detail"].lower()
 
 
