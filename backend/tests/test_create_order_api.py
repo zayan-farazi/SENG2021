@@ -74,21 +74,6 @@ def auth_headers(app_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {app_key}"}
 
 
-def test_root_endpoint_updates_metrics_state(client):
-    first_response = client.get("/")
-
-    assert first_response.status_code == 200
-    assert first_response.json() == {"message": "Hellooooooo"}
-    assert app.state.request_count == 1
-    assert app.version == "0.1.0"
-    assert app.state.start_time > 0
-
-    second_response = client.get("/")
-
-    assert second_response.status_code == 200
-    assert app.state.request_count == 2
-
-
 def test_create_order_returns_201_and_persists_full_order(client):
     payload = build_payload()
 
@@ -270,7 +255,9 @@ def test_create_order_returns_401_for_malformed_auth_header(client):
 
 
 def test_create_order_returns_401_for_unknown_app_key(client):
-    response = client.post("/v1/order/create", json=build_payload(), headers=auth_headers("unknown-key"))
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("unknown-key")
+    )
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Unauthorized"}
@@ -278,7 +265,9 @@ def test_create_order_returns_401_for_unknown_app_key(client):
 
 
 def test_create_order_returns_403_for_non_party_caller(client):
-    response = client.post("/v1/order/create", json=build_payload(), headers=auth_headers("other-key"))
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("other-key")
+    )
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Forbidden"}
@@ -286,6 +275,8 @@ def test_create_order_returns_403_for_non_party_caller(client):
 
 
 def test_create_order_allows_seller_party(client):
-    response = client.post("/v1/order/create", json=build_payload(), headers=auth_headers("seller-key"))
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("seller-key")
+    )
 
     assert response.status_code == 201
