@@ -31,11 +31,6 @@ logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
 
 
-@router.get("/")
-def root():
-    return {"message": "Hellooooooo"}
-
-
 @router.post("/v1/order/create", status_code=201)
 def create_order(req: OrderRequest):
     try:
@@ -48,6 +43,18 @@ def create_order(req: OrderRequest):
         raise HTTPException(status_code=500, detail="Unable to persist order.") from exc
 
     return order_store.build_order_response(record)
+
+
+@router.delete("/v1/order/{order_id}", status_code=204)
+def delete_order(order_id: str):
+    try:
+        deleted = order_store.delete_order_record(order_id)
+    except OrderPersistenceError as exc:
+        logger.exception("Order delete failed")
+        raise HTTPException(status_code=500, detail="Unable to delete order.") from exc
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 @router.websocket("/v1/order/draft/ws")

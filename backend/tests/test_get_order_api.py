@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.services import order_store
+from app.services.order_store import OrderPersistenceError
 from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
 NS = {
@@ -133,3 +135,36 @@ def test_get_order_with_missing_ubl_xml_returns_error(client, created_order):
     # Return 500 (internal error)
     assert response.status_code == 500
     assert response.json() == {"detail": "Order XML missing."}
+
+
+def test_delete_existing_order_returns_204_and_removes_order(client, created_order):
+    order_id, _record = created_order
+
+    delete_response = client.delete(f"/v1/order/{order_id}")
+    get_response = client.get(f"/v1/order/{order_id}")
+
+    assert delete_response.status_code == 204
+    assert delete_response.text == ""
+    assert get_response.status_code == 404
+    assert get_response.json() == {"detail": "Not Found"}
+
+
+def test_delete_nonexistent_order_returns_404(client):
+    response = client.delete("/v1/order/nonexistent123")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_delete_order_returns_500_when_store_delete_fails(client, created_order, monkeypatch):
+    order_id, _record = created_order
+
+    def fail_delete_order_record(order_id: str):  # noqa: ARG001
+        raise OrderPersistenceError("delete failed")
+
+    monkeypatch.setattr(order_store, "delete_order_record", fail_delete_order_record)
+
+    response = client.delete(f"/v1/order/{order_id}")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to delete order."}
