@@ -49,7 +49,14 @@ def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_
 
 
 @router.delete("/v1/order/{order_id}", status_code=204)
-def delete_order(order_id: str):
+def delete_order(order_id: str, current_party_id: str = Depends(get_current_party_id)):
+    existing = ORDERS.get(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = existing.get("payload", {})
+    _assert_order_access(current_party_id, payload)
+
     try:
         deleted = order_store.delete_order_record(order_id)
     except OrderPersistenceError as exc:
