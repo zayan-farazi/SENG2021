@@ -63,3 +63,15 @@ class HealthResponse(BaseModel):
     uptimeSeconds: float
     version: str
     requestCount: int
+
+
+class PartyRegistrationRequest(BaseModel):
+    partyName: str = Field(..., min_length=1)
+    contactEmail: str = Field(..., min_length=3)
+
+
+class PartyRegistrationResponse(BaseModel):
+    partyId: str
+    partyName: str
+    appKey: str
+    message: str
