@@ -14,7 +14,9 @@ from app.services.order_store import OrderPersistenceError
 
 def build_request() -> OrderRequest:
     return OrderRequest(
+        buyerId="buyer-123",
         buyerName="Acme Books",
+        sellerId="seller-456",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 10),

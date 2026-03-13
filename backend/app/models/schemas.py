@@ -23,7 +23,9 @@ class Delivery(BaseModel):
 
 
 class OrderRequest(BaseModel):
+    buyerId: str = Field(..., min_length=1)
     buyerName: str = Field(..., min_length=1)
+    sellerId: str = Field(..., min_length=1)
     sellerName: str = Field(..., min_length=1)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     issueDate: date | None = None
@@ -49,7 +51,9 @@ class DraftDelivery(BaseModel):
 
 
 class OrderDraft(BaseModel):
+    buyerId: str | None = Field(default=None, min_length=1)
     buyerName: str | None = Field(default=None, min_length=1)
+    sellerId: str | None = Field(default=None, min_length=1)
     sellerName: str | None = Field(default=None, min_length=1)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     issueDate: date | None = None
@@ -63,3 +67,15 @@ class HealthResponse(BaseModel):
     uptimeSeconds: float
     version: str
     requestCount: int
+
+
+class PartyRegistrationRequest(BaseModel):
+    partyName: str = Field(..., min_length=1)
+    contactEmail: str = Field(..., min_length=3)
+
+
+class PartyRegistrationResponse(BaseModel):
+    partyId: str
+    partyName: str
+    appKey: str
+    message: str

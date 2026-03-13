@@ -183,6 +183,54 @@ def findOrderDetails(orderId):
     )
 
 
+def findPartyByContactEmail(contactEmail):
+    response = (
+        get_supabase_client()
+        .table("parties")
+        .select("*")
+        .eq("contact_email", contactEmail)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+def findPartyByPartyId(partyId):
+    response = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
+    return response.data[0] if response.data else None
+
+
+def findAppKeyByHash(keyHash):
+    response = get_supabase_client().table("app_keys").select("*").eq("key_hash", keyHash).execute()
+    return response.data[0] if response.data else None
+
+
+def saveParty(partyId, partyName, contactEmail):
+    response = (
+        get_supabase_client()
+        .table("parties")
+        .insert(
+            {
+                "party_id": partyId,
+                "party_name": partyName,
+                "contact_email": contactEmail,
+                "is_active": True,
+            }
+        )
+        .execute()
+    )
+    return response.data[0]
+
+
+def saveAppKey(partyId, keyHash):
+    response = (
+        get_supabase_client()
+        .table("app_keys")
+        .insert({"party_id": partyId, "key_hash": keyHash})
+        .execute()
+    )
+    return response.data[0]
+
+
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
     get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()

@@ -248,7 +248,9 @@ def test_validate_draft_for_commit_reports_missing_required_fields():
 
     assert req is None
     assert [error["loc"] for error in errors] == [
+        ("buyerId",),
         ("buyerName",),
+        ("sellerId",),
         ("sellerName",),
         ("lines", 0, "quantity"),
     ]

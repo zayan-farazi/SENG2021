@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import orders
 from app.main import app
-from app.services import order_store
+from app.services import app_key_auth, order_store
 from app.services.order_store import OrderPersistenceError
+from app.services.party_registration import hash_app_key
 from app.services.ubl_order import OrderGenerationError
 
 NS = {
@@ -19,7 +20,9 @@ NS = {
 
 def build_payload() -> dict:
     return {
+        "buyerId": "buyer-123",
         "buyerName": "Acme Books",
+        "sellerId": "seller-456",
         "sellerName": "Digital Book Supply",
         "currency": "AUD",
         "issueDate": "2026-03-07",
@@ -60,6 +63,23 @@ def reset_orders_state():
     orders.ORDERS.clear()
 
 
+@pytest.fixture(autouse=True)
+def stub_app_key_lookup(monkeypatch):
+    app.dependency_overrides.clear()
+    key_map = {
+        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
+        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("other-key"): {"party_id": "other-party"},
+    }
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    yield
+    app.dependency_overrides.clear()
+
+
+def auth_headers(app_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {app_key}"}
+
+
 def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monkeypatch):
     # Create original payload
     create_payload = build_payload()
@@ -69,7 +89,9 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
     # Create original order
-    create_resp = client.post("/v1/order/create", json=create_payload)
+    create_resp = client.post(
+        "/v1/order/create", json=create_payload, headers=auth_headers("buyer-key")
+    )
     assert create_resp.status_code == 201
     created = create_resp.json()
     order_id = created["orderId"]
@@ -86,7 +108,11 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     update_payload["lines"][0]["unitPrice"] = "99.99"
 
     # Call update order
-    update_resp = client.put(f"/v1/order/{order_id}", json=update_payload)
+    update_resp = client.put(
+        f"/v1/order/{order_id}",
+        json=update_payload,
+        headers=auth_headers("buyer-key"),
+    )
     assert update_resp.status_code == 200
 
     # Check that order is the same order, but has updated
@@ -120,7 +146,7 @@ def test_update_order_returns_404_when_order_not_found(client):
     payload = build_payload()
 
     # Call update with no orderId
-    resp = client.put("/v1/order/ord_doesnotexist", json=payload)
+    resp = client.put("/v1/order/ord_doesnotexist", json=payload, headers=auth_headers("buyer-key"))
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Not Found"}
 
@@ -131,7 +157,9 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
     # Create original order
-    create_resp = client.post("/v1/order/create", json=build_payload())
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
 
@@ -139,7 +167,11 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     orders.ORDERS[order_id]["status"] = "SUBMITTED"
 
     # Call update
-    update_resp = client.put(f"/v1/order/{order_id}", json=build_payload())
+    update_resp = client.put(
+        f"/v1/order/{order_id}",
+        json=build_payload(),
+        headers=auth_headers("buyer-key"),
+    )
     assert update_resp.status_code == 409
     assert "cannot be updated" in update_resp.json()["detail"].lower()
 
@@ -148,6 +180,7 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     ("mutator", "expected_loc"),
     [
         (lambda payload: payload.pop("buyerName"), ["body", "buyerName"]),
+        (lambda payload: payload.pop("buyerId"), ["body", "buyerId"]),
         (lambda payload: payload.update({"lines": []}), ["body", "lines"]),
         (
             lambda payload: payload["lines"][0].update({"quantity": 0}),
@@ -161,7 +194,9 @@ def test_update_order_returns_422_for_invalid_payload(client, monkeypatch, mutat
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
     # Create original order
-    create_resp = client.post("/v1/order/create", json=build_payload())
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
 
@@ -170,7 +205,7 @@ def test_update_order_returns_422_for_invalid_payload(client, monkeypatch, mutat
     mutator(payload)
 
     # Call update
-    resp = client.put(f"/v1/order/{order_id}", json=payload)
+    resp = client.put(f"/v1/order/{order_id}", json=payload, headers=auth_headers("buyer-key"))
     assert resp.status_code == 422
     assert expected_loc in [error["loc"] for error in resp.json()["detail"]]
 
@@ -181,7 +216,9 @@ def test_update_order_returns_500_when_xml_generation_fails(client, monkeypatch)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
     # Create original order
-    create_resp = client.post("/v1/order/create", json=build_payload())
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
 
@@ -192,7 +229,11 @@ def test_update_order_returns_500_when_xml_generation_fails(client, monkeypatch)
     monkeypatch.setattr(order_store, "generate_ubl_order_xml", fail_generate_ubl_order_xml)
 
     # Call update
-    resp = client.put(f"/v1/order/{order_id}", json=build_payload())
+    resp = client.put(
+        f"/v1/order/{order_id}",
+        json=build_payload(),
+        headers=auth_headers("buyer-key"),
+    )
     assert resp.status_code == 500
     assert resp.json() == {"detail": "Unable to update order."}
 
@@ -202,7 +243,9 @@ def test_update_order_returns_500_when_database_update_fails(client, monkeypatch
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
 
     # Create original order
-    create_resp = client.post("/v1/order/create", json=build_payload())
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
 
@@ -213,6 +256,117 @@ def test_update_order_returns_500_when_database_update_fails(client, monkeypatch
     monkeypatch.setattr(order_store, "persist_order_update_to_database", fail_persist_update)
 
     # Call update
-    resp = client.put(f"/v1/order/{order_id}", json=build_payload())
+    resp = client.put(
+        f"/v1/order/{order_id}",
+        json=build_payload(),
+        headers=auth_headers("buyer-key"),
+    )
     assert resp.status_code == 500
     assert resp.json() == {"detail": "Unable to persist updated order."}
+
+
+def test_update_order_returns_401_when_auth_header_is_missing(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    resp = client.put(f"/v1/order/{order_id}", json=build_payload())
+
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Unauthorized"}
+
+
+def test_update_order_returns_401_for_malformed_auth_header(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    resp = client.put(
+        f"/v1/order/{order_id}",
+        json=build_payload(),
+        headers={"Authorization": "Basic buyer-key"},
+    )
+
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Unauthorized"}
+
+
+def test_update_order_returns_401_for_unknown_app_key(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    resp = client.put(
+        f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("unknown-key")
+    )
+
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Unauthorized"}
+
+
+def test_update_order_returns_403_for_non_party_caller(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    resp = client.put(
+        f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("other-key")
+    )
+
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "Forbidden"}
+
+
+def test_update_order_allows_seller_party(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    resp = client.put(
+        f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("seller-key")
+    )
+
+    assert resp.status_code == 200
+
+
+def test_update_order_returns_409_when_request_changes_order_parties(client, monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
+
+    create_resp = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("buyer-key")
+    )
+    assert create_resp.status_code == 201
+    order_id = create_resp.json()["orderId"]
+
+    payload = build_payload()
+    payload["sellerId"] = "seller-999"
+    resp = client.put(f"/v1/order/{order_id}", json=payload, headers=auth_headers("buyer-key"))
+
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "Order parties cannot be changed."}

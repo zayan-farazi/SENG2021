@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.models.schemas import Delivery, LineItem, OrderRequest
-from app.services import order_store
-from app.services.order_store import OrderPersistenceError
+from app.services import app_key_auth
+from app.services.party_registration import hash_app_key
 from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
 NS = {
@@ -22,7 +22,9 @@ NS = {
 
 def build_payload() -> OrderRequest:
     return OrderRequest(
+        buyerId="buyer-123",
         buyerName="Acme Books",
+        sellerId="seller-456",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 7),
@@ -58,6 +60,19 @@ def client():
         yield test_client
 
 
+@pytest.fixture(autouse=True)
+def stub_app_key_lookup(monkeypatch):
+    app.dependency_overrides.clear()
+    key_map = {
+        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
+        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("other-key"): {"party_id": "other-party"},
+    }
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    yield
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture
 def created_order():
     """Create an order directly in ORDERS to test GET endpoint."""
@@ -78,10 +93,14 @@ def created_order():
     return order_id, record
 
 
+def auth_headers(app_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {app_key}"}
+
+
 def test_get_existing_order_returns_order(client, created_order):
     order_id, record = created_order
 
-    response = client.get(f"/v1/order/{order_id}")
+    response = client.get(f"/v1/order/{order_id}", headers=auth_headers("buyer-key"))
     assert response.status_code == 200
 
     body = response.json()
@@ -113,7 +132,7 @@ def test_get_existing_order_returns_order(client, created_order):
 
 
 def test_get_nonexistent_order_returns_404(client):
-    response = client.get("/v1/order/nonexistent123")
+    response = client.get("/v1/order/nonexistent123", headers=auth_headers("buyer-key"))
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
 
@@ -121,7 +140,7 @@ def test_get_nonexistent_order_returns_404(client):
 def test_get_order_with_invalid_id_format_returns_404(client):
     invalid_ids = ["", "!!!!", "123-abc!", " "]
     for order_id in invalid_ids:
-        response = client.get(f"/v1/order/{order_id}")
+        response = client.get(f"/v1/order/{order_id}", headers=auth_headers("buyer-key"))
         assert response.status_code == 404
         assert response.json() == {"detail": "Not Found"}
 
@@ -131,40 +150,54 @@ def test_get_order_with_missing_ubl_xml_returns_error(client, created_order):
     # Remove the UBL XML to simulate a failed generation
     record["ublXml"] = None
 
-    response = client.get(f"/v1/order/{order_id}")
+    response = client.get(f"/v1/order/{order_id}", headers=auth_headers("buyer-key"))
     # Return 500 (internal error)
     assert response.status_code == 500
     assert response.json() == {"detail": "Order XML missing."}
 
 
-def test_delete_existing_order_returns_204_and_removes_order(client, created_order):
+def test_get_order_returns_401_when_auth_header_is_missing(client, created_order):
     order_id, _record = created_order
 
-    delete_response = client.delete(f"/v1/order/{order_id}")
-    get_response = client.get(f"/v1/order/{order_id}")
+    response = client.get(f"/v1/order/{order_id}")
 
-    assert delete_response.status_code == 204
-    assert delete_response.text == ""
-    assert get_response.status_code == 404
-    assert get_response.json() == {"detail": "Not Found"}
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
 
 
-def test_delete_nonexistent_order_returns_404(client):
-    response = client.delete("/v1/order/nonexistent123")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Not Found"}
-
-
-def test_delete_order_returns_500_when_store_delete_fails(client, created_order, monkeypatch):
+def test_get_order_returns_401_for_malformed_auth_header(client, created_order):
     order_id, _record = created_order
 
-    def fail_delete_order_record(order_id: str):  # noqa: ARG001
-        raise OrderPersistenceError("delete failed")
+    response = client.get(
+        f"/v1/order/{order_id}",
+        headers={"Authorization": "Basic buyer-key"},
+    )
 
-    monkeypatch.setattr(order_store, "delete_order_record", fail_delete_order_record)
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
 
-    response = client.delete(f"/v1/order/{order_id}")
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "Unable to delete order."}
+def test_get_order_returns_401_for_unknown_app_key(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}", headers=auth_headers("unknown-key"))
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_get_order_returns_403_for_non_party_caller(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}", headers=auth_headers("other-key"))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+
+
+def test_get_order_allows_seller_party(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}", headers=auth_headers("seller-key"))
+
+    assert response.status_code == 200

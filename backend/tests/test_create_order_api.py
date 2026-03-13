@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import orders
 from app.main import app
-from app.services import order_store
+from app.services import app_key_auth, order_store
 from app.services.order_store import OrderPersistenceError
+from app.services.party_registration import hash_app_key
 from app.services.ubl_order import OrderGenerationError
 
 NS = {
@@ -19,7 +20,9 @@ NS = {
 
 def build_payload() -> dict:
     return {
+        "buyerId": "buyer-123",
         "buyerName": "Acme Books",
+        "sellerId": "seller-456",
         "sellerName": "Digital Book Supply",
         "currency": "AUD",
         "issueDate": "2026-03-07",
@@ -54,10 +57,27 @@ def client():
         yield test_client
 
 
+@pytest.fixture(autouse=True)
+def stub_app_key_lookup(monkeypatch):
+    app.dependency_overrides.clear()
+    key_map = {
+        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
+        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("other-key"): {"party_id": "other-party"},
+    }
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    yield
+    app.dependency_overrides.clear()
+
+
+def auth_headers(app_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {app_key}"}
+
+
 def test_create_order_returns_201_and_persists_full_order(client):
     payload = build_payload()
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 201
     body = response.json()
@@ -112,12 +132,14 @@ def test_create_order_returns_201_and_persists_full_order(client):
 
 def test_create_order_applies_defaults_for_optional_fields(client):
     payload = {
+        "buyerId": "buyer-123",
         "buyerName": "Acme Books",
+        "sellerId": "seller-456",
         "sellerName": "Digital Book Supply",
         "lines": [{"productName": "Working Effectively with Legacy Code", "quantity": 1}],
     }
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 201
     body = response.json()
@@ -142,6 +164,7 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     ("mutator", "expected_loc"),
     [
         (lambda payload: payload.pop("buyerName"), ["body", "buyerName"]),
+        (lambda payload: payload.pop("buyerId"), ["body", "buyerId"]),
         (lambda payload: payload.update({"lines": []}), ["body", "lines"]),
         (
             lambda payload: payload["lines"][0].update({"quantity": 0}),
@@ -158,7 +181,7 @@ def test_create_order_rejects_invalid_payloads(client, mutator, expected_loc):
     payload = build_payload()
     mutator(payload)
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 422
     assert expected_loc in [error["loc"] for error in response.json()["detail"]]
@@ -173,7 +196,7 @@ def test_create_order_returns_500_when_id_generation_fails(client, monkeypatch):
 
     monkeypatch.setattr(order_store, "generate_order_id", fail_generate_order_id)
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to create order."}
@@ -189,7 +212,7 @@ def test_create_order_returns_500_when_xml_generation_fails(client, monkeypatch)
     monkeypatch.setattr(order_store, "generate_order_id", lambda: "ord_fixedfailure01")
     monkeypatch.setattr(order_store, "generate_ubl_order_xml", fail_generate_ubl_order_xml)
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to create order."}
@@ -204,8 +227,56 @@ def test_create_order_returns_500_when_database_verification_fails(client, monke
 
     monkeypatch.setattr(order_store, "persist_order_to_database", fail_persist_order_to_database)
 
-    response = client.post("/v1/order/create", json=payload)
+    response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to persist order."}
     assert orders.ORDERS == {}
+
+
+def test_create_order_returns_401_when_auth_header_is_missing(client):
+    response = client.post("/v1/order/create", json=build_payload())
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+    assert orders.ORDERS == {}
+
+
+def test_create_order_returns_401_for_malformed_auth_header(client):
+    response = client.post(
+        "/v1/order/create",
+        json=build_payload(),
+        headers={"Authorization": "Basic buyer-key"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+    assert orders.ORDERS == {}
+
+
+def test_create_order_returns_401_for_unknown_app_key(client):
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("unknown-key")
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+    assert orders.ORDERS == {}
+
+
+def test_create_order_returns_403_for_non_party_caller(client):
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("other-key")
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+    assert orders.ORDERS == {}
+
+
+def test_create_order_allows_seller_party(client):
+    response = client.post(
+        "/v1/order/create", json=build_payload(), headers=auth_headers("seller-key")
+    )
+
+    assert response.status_code == 201
