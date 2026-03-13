@@ -17,7 +17,11 @@ from app.services.order_draft import (
     serialize_state,
     validate_draft_for_commit,
 )
-from app.services.order_store import OrderPersistenceError
+from app.services.order_store import (
+    OrderConflictLockedError,
+    OrderNotFoundError,
+    OrderPersistenceError,
+)
 from app.services.ubl_order import OrderGenerationError
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
@@ -258,4 +262,34 @@ def get_order(order_id: str):
         "updatedAt": order["updatedAt"],
         "ublXml": order["ublXml"],
         "warnings": order["warnings"],
+    }
+
+
+@router.put("/v1/order/{order_id}")
+def update_order(order_id: str, req: OrderRequest):
+    try:
+        record = order_store.update_order_record(order_id, req)
+
+    except OrderNotFoundError as exc:
+        # Order could not be found with order_id
+        raise HTTPException(status_code=404, detail="Not Found") from exc
+
+    except OrderConflictLockedError as exc:
+        # Order is not in an editable status
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    except OrderGenerationError as exc:
+        logger.exception("Order update failed")
+        raise HTTPException(status_code=500, detail="Unable to update order.") from exc
+
+    except OrderPersistenceError as exc:
+        logger.exception("Order update persistence verification failed")
+        raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
+
+    return {
+        "orderId": record["orderId"],
+        "status": record["status"],
+        "updatedAt": record["updatedAt"],
+        "ublXml": record["ublXml"],
+        "warnings": record["warnings"],
     }
