@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.models.schemas import OrderRequest
 from app.services import groq_order_extractor, order_store
+from app.services.app_key_auth import get_current_party_id
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -37,7 +38,9 @@ def root():
 
 
 @router.post("/v1/order/create", status_code=201)
-def create_order(req: OrderRequest):
+def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_party_id)):
+    _assert_party_access(current_party_id, req.buyerId, req.sellerId)
+
     try:
         record = order_store.create_order_record(req)
     except OrderGenerationError as exc:
@@ -246,11 +249,14 @@ async def _send_error(
 
 
 @router.get("/v1/order/{order_id}")
-def get_order(order_id: str):
+def get_order(order_id: str, current_party_id: str = Depends(get_current_party_id)):
     order = ORDERS.get(order_id)
 
     if order is None:
         raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = order.get("payload", {})
+    _assert_order_access(current_party_id, payload)
 
     if not order.get("ublXml"):
         raise HTTPException(status_code=500, detail="Order XML missing.")
@@ -266,7 +272,18 @@ def get_order(order_id: str):
 
 
 @router.put("/v1/order/{order_id}")
-def update_order(order_id: str, req: OrderRequest):
+def update_order(
+    order_id: str, req: OrderRequest, current_party_id: str = Depends(get_current_party_id)
+):
+    existing = ORDERS.get(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = existing.get("payload", {})
+    _assert_order_access(current_party_id, payload)
+    if req.buyerId != payload.get("buyerId") or req.sellerId != payload.get("sellerId"):
+        raise HTTPException(status_code=409, detail="Order parties cannot be changed.")
+
     try:
         record = order_store.update_order_record(order_id, req)
 
@@ -293,3 +310,17 @@ def update_order(order_id: str, req: OrderRequest):
         "ublXml": record["ublXml"],
         "warnings": record["warnings"],
     }
+
+
+def _assert_order_access(current_party_id: str, payload: dict[str, Any]) -> None:
+    buyer_id = payload.get("buyerId")
+    seller_id = payload.get("sellerId")
+    if not isinstance(buyer_id, str) or not isinstance(seller_id, str):
+        raise HTTPException(status_code=500, detail="Order party information missing.")
+
+    _assert_party_access(current_party_id, buyer_id, seller_id)
+
+
+def _assert_party_access(current_party_id: str, buyer_id: str, seller_id: str) -> None:
+    if current_party_id not in {buyer_id, seller_id}:
+        raise HTTPException(status_code=403, detail="Forbidden")

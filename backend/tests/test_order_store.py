@@ -13,7 +13,9 @@ from app.services import order_store
 
 def build_request() -> OrderRequest:
     return OrderRequest(
+        buyerId="buyer-123",
         buyerName="Acme Books",
+        sellerId="seller-456",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 10),

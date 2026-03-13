@@ -225,7 +225,7 @@ def saveAppKey(partyId, keyHash):
     response = (
         get_supabase_client()
         .table("app_keys")
-        .insert({"party_id": partyId, "key_hash": keyHash, "revoked": False})
+        .insert({"party_id": partyId, "key_hash": keyHash})
         .execute()
     )
     return response.data[0]
