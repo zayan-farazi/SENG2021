@@ -24,6 +24,7 @@ from app.services.order_store import (
     OrderPersistenceError,
 )
 from app.services.ubl_order import OrderGenerationError
+################ from app.services.analytics_service import ____ #######################
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
@@ -543,3 +544,20 @@ async def validate_order(
 ) -> ValidationResponse:
     _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
     return _validate_order(order)
+
+@router.get("/v1/analytics/orders", status_code=200)
+def get_order_analytics(fromDate: datetime | None = None, toDate: datetime | None = None, current_party_email: str = Depends(get_current_party_email)):
+    if current_party_email is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        analytics = get_user_analytics_seller(
+            username=current_party_email,
+            fromDate=fromDate,
+            toDate=toDate,
+        )
+    except Exception as exc:
+        logger.exception("Analytics generation failed")
+        raise HTTPException(status_code=500, detail="Unable to generate analytics.") from exc
+
+    return analytics
