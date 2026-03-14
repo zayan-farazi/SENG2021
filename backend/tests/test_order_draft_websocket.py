@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import groq_order_extractor
+from app.services import groq_order_extractor, order_store
 from app.services.order_draft import (
     HostedDeliveryFieldUpdates,
     HostedFieldUpdates,
@@ -41,6 +42,16 @@ def build_patch(
         lineActions=line_actions or [],
         warnings=[],
         unresolvedReason=unresolved_reason,
+    )
+
+
+@pytest.fixture(autouse=True)
+def stub_order_persistence(monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_runtime_metadata_to_database",
+        lambda *args, **kwargs: None,
     )
 
 

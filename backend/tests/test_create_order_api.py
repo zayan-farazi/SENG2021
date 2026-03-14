@@ -77,6 +77,16 @@ def stub_app_key_lookup(monkeypatch):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def stub_runtime_metadata_persistence(monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_runtime_metadata_to_database",
+        lambda *args, **kwargs: None,
+    )
+
+
 def auth_headers(app_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {app_key}"}
 

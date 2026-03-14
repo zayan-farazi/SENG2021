@@ -3,8 +3,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.api.routes.orders import Severity, _validate_order
+from app.main import app
 from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.services import app_key_auth
+from app.services.party_registration import hash_app_key
 
 
 def valid_line(**overrides) -> LineItem:
@@ -33,9 +39,9 @@ def valid_delivery(**overrides) -> Delivery:
 
 def valid_order(**overrides) -> OrderRequest:
     data = dict(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Corp",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Widget Co",
         currency="AUD",
         issueDate=date(2026, 3, 14),
@@ -47,12 +53,49 @@ def valid_order(**overrides) -> OrderRequest:
     return OrderRequest(**data)
 
 
+def valid_payload(**overrides) -> dict:
+    payload = valid_order().model_dump(mode="json")
+    payload.update(overrides)
+    return payload
+
+
 def issue_paths(result) -> list[str]:
     return [i.path for i in result.issues]
 
 
 def warning_paths(result) -> list[str]:
     return [i.path for i in result.warnings]
+
+
+@pytest.fixture
+def client():
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+
+
+@pytest.fixture(autouse=True)
+def stub_app_key_lookup(monkeypatch):
+    app.dependency_overrides.clear()
+    key_map = {
+        hash_app_key("buyer-key"): {"party_id": "buyer-party"},
+        hash_app_key("seller-key"): {"party_id": "seller-party"},
+        hash_app_key("other-key"): {"party_id": "other-party"},
+        hash_app_key("missing-email-key"): {"party_id": "missing-email-party"},
+    }
+    party_map = {
+        "buyer-party": {"contact_email": "buyer@example.com"},
+        "seller-party": {"contact_email": "seller@example.com"},
+        "other-party": {"contact_email": "other@example.com"},
+        "missing-email-party": {},
+    }
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
+    yield
+    app.dependency_overrides.clear()
+
+
+def auth_headers(app_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {app_key}"}
 
 
 def test_valid_order_passes():
@@ -67,12 +110,12 @@ def test_valid_order_has_no_warnings_when_complete():
     assert result.warnings == []
 
 
-def test_missing_buyer_id():
+def test_missing_buyer_email():
     order = valid_order()
-    order.buyerId = ""
+    order.buyerEmail = ""
     result = _validate_order(order)
     assert result.valid is False
-    assert "buyerId" in issue_paths(result)
+    assert "buyerEmail" in issue_paths(result)
 
 
 def test_missing_buyer_name():
@@ -83,12 +126,12 @@ def test_missing_buyer_name():
     assert "buyerName" in issue_paths(result)
 
 
-def test_missing_seller_id():
+def test_missing_seller_email():
     order = valid_order()
-    order.sellerId = ""
+    order.sellerEmail = ""
     result = _validate_order(order)
     assert result.valid is False
-    assert "sellerId" in issue_paths(result)
+    assert "sellerEmail" in issue_paths(result)
 
 
 def test_missing_seller_name():
@@ -202,3 +245,64 @@ def test_warnings_always_have_warning_severity():
     result = _validate_order(valid_order(delivery=None, issueDate=None))
     for warning in result.warnings:
         assert warning.severity == Severity.warning
+
+
+def test_validate_endpoint_allows_buyer(client):
+    response = client.post(
+        "/v1/orders/validate",
+        json=valid_payload(),
+        headers=auth_headers("buyer-key"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is True
+
+
+def test_validate_endpoint_allows_seller(client):
+    response = client.post(
+        "/v1/orders/validate",
+        json=valid_payload(),
+        headers=auth_headers("seller-key"),
+    )
+
+    assert response.status_code == 200
+
+
+def test_validate_endpoint_returns_401_when_auth_header_is_missing(client):
+    response = client.post("/v1/orders/validate", json=valid_payload())
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_validate_endpoint_returns_401_for_unknown_app_key(client):
+    response = client.post(
+        "/v1/orders/validate",
+        json=valid_payload(),
+        headers=auth_headers("unknown-key"),
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_validate_endpoint_returns_401_when_registered_party_has_no_email(client):
+    response = client.post(
+        "/v1/orders/validate",
+        json=valid_payload(),
+        headers=auth_headers("missing-email-key"),
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_validate_endpoint_returns_403_for_unrelated_party(client):
+    response = client.post(
+        "/v1/orders/validate",
+        json=valid_payload(),
+        headers=auth_headers("other-key"),
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
