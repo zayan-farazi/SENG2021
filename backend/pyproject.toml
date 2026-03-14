@@ -22,6 +22,10 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "integration: exercises the real app and Supabase-backed flows",
+  "unit: fast isolated tests with mocked dependencies",
+]
 
 [dependency-groups]
 dev = [
