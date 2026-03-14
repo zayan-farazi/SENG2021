@@ -46,6 +46,7 @@ def build_payload() -> dict:
                 "productName": "Clean Architecture",
                 "quantity": 1,
                 "unitCode": "BX",
+                "unitPrice": "19.99",
             },
         ],
     }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -91,3 +92,23 @@ class PartyRegistrationResponse(BaseModel):
     partyName: str
     appKey: str
     message: str
+
+
+class Severity(StrEnum):
+    error = "error"
+    warning = "warning"
+    info = "info"
+
+
+class Issue(BaseModel):
+    path: str
+    issue: str
+    severity: Severity
+    hint: str
+
+
+class ValidationResponse(BaseModel):
+    valid: bool
+    issues: list[Issue]
+    warnings: list[Issue]
+    score: float | None = None
