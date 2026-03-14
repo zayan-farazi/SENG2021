@@ -17,9 +17,19 @@ from fastapi import (
 from pydantic import ValidationError
 
 from app.models.schemas import (
+    ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE,
+    ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE,
+    ORDER_CREATE_RESPONSE_EXAMPLE,
+    ORDER_FETCH_RESPONSE_EXAMPLE,
+    ORDER_UPDATE_RESPONSE_EXAMPLE,
+    VALIDATION_RESPONSE_INVALID_EXAMPLE,
+    VALIDATION_RESPONSE_VALID_EXAMPLE,
     Issue,
     OrderConversionResponse,
+    OrderCreateResponse,
+    OrderFetchResponse,
     OrderRequest,
+    OrderUpdateResponse,
     Severity,
     TranscriptConversionRequest,
     ValidationResponse,
@@ -44,12 +54,76 @@ from app.services.ubl_order import OrderGenerationError
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
-router = APIRouter()
+router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
 
+UNAUTHORIZED_RESPONSE = {
+    "description": "Missing, malformed, or unknown Bearer app key.",
+    "content": {
+        "application/json": {
+            "example": {"detail": "Unauthorized"},
+        }
+    },
+}
 
-@router.post("/v1/order/create", status_code=201)
+FORBIDDEN_RESPONSE = {
+    "description": "The authenticated party is not the buyer or seller on this order.",
+    "content": {
+        "application/json": {
+            "example": {"detail": "Forbidden"},
+        }
+    },
+}
+
+NOT_FOUND_RESPONSE = {
+    "description": "The requested order was not found.",
+    "content": {
+        "application/json": {
+            "example": {"detail": "Not Found"},
+        }
+    },
+}
+
+VALIDATION_FAILURE_RESPONSE = {
+    "description": "The order payload failed validation.",
+    "content": {
+        "application/json": {
+            "example": {
+                "detail": VALIDATION_RESPONSE_INVALID_EXAMPLE["issues"],
+            }
+        }
+    },
+}
+
+CSV_SAMPLE = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
+orders@buyerco.example,Buyer Co,sales@supplier.example,Supplier Pty Ltd,AUD,2026-03-14,Please deliver before noon.,123 Harbour Street,Sydney,NSW,2000,AU,2026-03-20,Oranges,4,EA,3.50"""
+
+
+@router.post(
+    "/v1/order/create",
+    response_model=OrderCreateResponse,
+    status_code=201,
+    summary="Create an order (Bearer app key required)",
+    description=(
+        "Create a new order as either the buyer or the seller. "
+        "Send `Authorization: Bearer <appKey>` and include the caller's registered email as "
+        "either `buyerEmail` or `sellerEmail` in the request body."
+    ),
+    responses={
+        201: {
+            "description": "Order created successfully.",
+            "content": {"application/json": {"example": ORDER_CREATE_RESPONSE_EXAMPLE}},
+        },
+        400: VALIDATION_FAILURE_RESPONSE,
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        500: {
+            "description": "Order generation or persistence failed.",
+            "content": {"application/json": {"example": {"detail": "Unable to create order."}}},
+        },
+    },
+)
 def create_order(req: OrderRequest, current_party_email: str = Depends(get_current_party_email)):
     _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
 
@@ -74,7 +148,31 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
     return order_store.build_order_response(record)
 
 
-@router.post("/v1/orders/convert/transcript", response_model=OrderConversionResponse)
+@router.post(
+    "/v1/orders/convert/transcript",
+    response_model=OrderConversionResponse,
+    summary="Convert transcript to order payload (Bearer app key required)",
+    description=(
+        "Interpret free-form transcript text and return an `OrderRequest`-shaped payload without "
+        "creating an order. Use this to prepare payloads for create or update after authenticating "
+        "with a Bearer app key."
+    ),
+    responses={
+        200: {
+            "description": "Transcript converted into a normalized order payload or partial draft.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "success": {"value": ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE},
+                        "incomplete": {"value": ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE},
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+    },
+)
 async def convert_transcript_to_order_payload(
     request: TranscriptConversionRequest,
     current_party_email: str = Depends(get_current_party_email),
@@ -92,7 +190,56 @@ async def convert_transcript_to_order_payload(
     )
 
 
-@router.post("/v1/orders/convert/csv", response_model=OrderConversionResponse)
+@router.post(
+    "/v1/orders/convert/csv",
+    response_model=OrderConversionResponse,
+    summary="Convert CSV to order payload (Bearer app key required)",
+    description=(
+        "Upload a canonical CSV file and receive an `OrderRequest`-shaped payload without creating "
+        "an order. Required CSV headers:\n\n"
+        "`buyerEmail`, `buyerName`, `sellerEmail`, `sellerName`, `currency`, `issueDate`, `notes`, "
+        "`deliveryStreet`, `deliveryCity`, `deliveryState`, `deliveryPostcode`, "
+        "`deliveryCountry`, `deliveryRequestedDate`, `productName`, `quantity`, `unitCode`, "
+        "`unitPrice`.\n\n"
+        f"Example CSV:\n```csv\n{CSV_SAMPLE}\n```"
+    ),
+    responses={
+        200: {
+            "description": "CSV converted into a normalized order payload or partial draft.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "success": {
+                            "value": {
+                                **ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE,
+                                "source": "csv",
+                            }
+                        },
+                        "malformed": {
+                            "value": {
+                                **ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE,
+                                "source": "csv",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "The uploaded file or `currentPayload` input is invalid.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "wrongFileType": {"value": {"detail": "CSV upload must use a .csv file."}},
+                        "badJson": {"value": {"detail": "currentPayload must be valid JSON."}},
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+    },
+)
 async def convert_csv_to_order_payload(
     file: Annotated[UploadFile, File(...)],
     currentPayload: Annotated[str | None, Form()] = None,
@@ -123,7 +270,26 @@ async def convert_csv_to_order_payload(
     )
 
 
-@router.delete("/v1/order/{order_id}", status_code=204)
+@router.delete(
+    "/v1/order/{order_id}",
+    status_code=204,
+    summary="Delete an order (Bearer app key required)",
+    description=(
+        "Delete an existing order as either the buyer or the seller. "
+        "The caller must authenticate with a Bearer app key whose registered email matches "
+        "the stored `buyerEmail` or `sellerEmail`."
+    ),
+    responses={
+        204: {"description": "Order deleted successfully."},
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        500: {
+            "description": "The order could not be deleted from persistent storage.",
+            "content": {"application/json": {"example": {"detail": "Unable to delete order."}}},
+        },
+    },
+)
 def delete_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
     existing = order_store.get_order_record(order_id)
     if existing is None:
@@ -337,7 +503,28 @@ async def _send_error(
     await websocket.send_json({"type": "error", "payload": payload})
 
 
-@router.get("/v1/order/{order_id}")
+@router.get(
+    "/v1/order/{order_id}",
+    response_model=OrderFetchResponse,
+    summary="Get an order (Bearer app key required)",
+    description=(
+        "Fetch the latest persisted order by its public `orderId`. "
+        "Only the buyer or seller on the order may access it."
+    ),
+    responses={
+        200: {
+            "description": "Order fetched successfully.",
+            "content": {"application/json": {"example": ORDER_FETCH_RESPONSE_EXAMPLE}},
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        500: {
+            "description": "The stored order XML is missing.",
+            "content": {"application/json": {"example": {"detail": "Order XML missing."}}},
+        },
+    },
+)
 def get_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
     order = order_store.get_order_record(order_id)
 
@@ -360,7 +547,51 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
     }
 
 
-@router.put("/v1/order/{order_id}")
+@router.put(
+    "/v1/order/{order_id}",
+    response_model=OrderUpdateResponse,
+    summary="Update an order (Bearer app key required)",
+    description=(
+        "Update an existing order as either the buyer or the seller. "
+        "`buyerEmail` and `sellerEmail` are immutable after create; changing parties requires a new order."
+    ),
+    responses={
+        200: {
+            "description": "Order updated successfully.",
+            "content": {"application/json": {"example": ORDER_UPDATE_RESPONSE_EXAMPLE}},
+        },
+        400: VALIDATION_FAILURE_RESPONSE,
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        409: {
+            "description": "The order is locked or the participant emails were changed.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "immutableParticipants": {
+                            "value": {"detail": "Order participant emails cannot be changed."}
+                        },
+                        "locked": {
+                            "value": {"detail": "Order cannot be updated in status 'SUBMITTED'."}
+                        },
+                    }
+                }
+            },
+        },
+        500: {
+            "description": "The order could not be regenerated or persisted.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "updateFailed": {"value": {"detail": "Unable to update order."}},
+                        "persistFailed": {"value": {"detail": "Unable to persist updated order."}},
+                    }
+                }
+            },
+        },
+    },
+)
 def update_order(
     order_id: str, req: OrderRequest, current_party_email: str = Depends(get_current_party_email)
 ):
@@ -670,7 +901,30 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
     )
 
 
-@router.post("/v1/orders/validate")
+@router.post(
+    "/v1/orders/validate",
+    response_model=ValidationResponse,
+    summary="Validate an order payload (Bearer app key required)",
+    description=(
+        "Run the same validation rules used by create and update without mutating any order state. "
+        "The authenticated caller must still be the buyer or seller in the provided payload."
+    ),
+    responses={
+        200: {
+            "description": "Validation result for the supplied payload.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "valid": {"value": VALIDATION_RESPONSE_VALID_EXAMPLE},
+                        "invalid": {"value": VALIDATION_RESPONSE_INVALID_EXAMPLE},
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+    },
+)
 async def validate_order(
     order: OrderRequest, current_party_email: str = Depends(get_current_party_email)
 ) -> ValidationResponse:

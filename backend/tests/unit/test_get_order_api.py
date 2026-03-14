@@ -157,14 +157,27 @@ def test_get_existing_order_returns_order(client, created_order):
     # parse XML and check key values
     root = ET.fromstring(body["ublXml"])
     assert root.find("cbc:ID", NS).text == order_id
+    assert root.find("cbc:CustomizationID", NS).text
+    assert root.find("cbc:ProfileID", NS).text
+    assert root.find("cbc:UUID", NS).text
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
     assert (
         root.find("cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name", NS).text
         == record["payload"]["buyerName"]
     )
     assert (
+        root.find("cac:BuyerCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail", NS).text
+        == record["payload"]["buyerEmail"]
+    )
+    assert (
         root.find("cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name", NS).text
         == record["payload"]["sellerName"]
     )
+    assert (
+        root.find("cac:SellerSupplierParty/cac:Party/cac:Contact/cbc:ElectronicMail", NS).text
+        == record["payload"]["sellerEmail"]
+    )
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "25.00"
 
 
 def test_get_nonexistent_order_returns_404(client):

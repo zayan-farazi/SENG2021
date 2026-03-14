@@ -8,7 +8,24 @@ from app.models.schemas import HealthResponse
 router = APIRouter(prefix="/v1", tags=["Health"])
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Health check",
+    description=(
+        "Return basic service health, uptime, API version, and request count. "
+        "This endpoint does not require authentication."
+    ),
+    responses={
+        200: {
+            "description": "Service is healthy.",
+        },
+        503: {
+            "description": "Service is unhealthy.",
+            "content": {"application/json": {"example": {"detail": "Service unhealthy"}}},
+        },
+    },
+)
 def health_check(request: Request):
 
     healthy = True

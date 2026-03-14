@@ -46,7 +46,7 @@ def build_payload() -> dict:
             {
                 "productName": "Clean Architecture",
                 "quantity": 1,
-                "unitCode": "BX",
+                "unitCode": "EA",
                 "unitPrice": "19.99",
             },
         ],
@@ -174,13 +174,18 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     # UBL XML has been updated
     root = ET.fromstring(body["ublXml"])
     assert root.find("cbc:ID", NS).text == order_id
-    assert root.find("cbc:Note", NS).text == "Deliver to reception"
+    assert root.find("cbc:UUID", NS).text
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == update_payload["currency"]
+    assert root.find("cac:TransactionConditions/cbc:Description", NS).text == "Deliver to reception"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "999 Updated St"
     qty = root.find(".//cbc:Quantity", NS)
     assert qty.text == "5"
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "519.94"
+    assert root.find("cac:OrderLine/cac:LineItem/cbc:LineExtensionAmount", NS).text == "499.95"
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
     assert price_amount.text == "99.99"
     assert price_amount.attrib["currencyID"] == update_payload["currency"]
+    assert root.find(".//cac:Price/cbc:BaseQuantity", NS).text == "5"
 
 
 def test_update_order_returns_404_when_order_not_found(client):

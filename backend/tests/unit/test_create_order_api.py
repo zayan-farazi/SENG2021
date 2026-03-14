@@ -118,9 +118,14 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert record["warnings"] == []
 
     root = ET.fromstring(body["ublXml"])
+    assert root.find("cbc:CustomizationID", NS).text
+    assert root.find("cbc:ProfileID", NS).text
     assert root.find("cbc:ID", NS).text == body["orderId"]
+    assert root.find("cbc:CopyIndicator", NS).text == "false"
+    assert root.find("cbc:UUID", NS).text
     assert root.find("cbc:IssueDate", NS).text == payload["issueDate"]
-    assert root.find("cbc:Note", NS).text == payload["notes"]
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == payload["currency"]
+    assert root.find("cac:TransactionConditions/cbc:Description", NS).text == payload["notes"]
     assert (
         root.find(
             "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
@@ -130,10 +135,24 @@ def test_create_order_returns_201_and_persists_full_order(client):
     )
     assert (
         root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == payload["buyerEmail"]
+    )
+    assert (
+        root.find(
             "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
             NS,
         ).text
         == payload["sellerName"]
+    )
+    assert (
+        root.find(
+            "cac:SellerSupplierParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == payload["sellerEmail"]
     )
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "123 Test St"
     assert (
@@ -143,10 +162,12 @@ def test_create_order_returns_201_and_persists_full_order(client):
         ).text
         == payload["delivery"]["requestedDate"]
     )
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "44.99"
 
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
     assert price_amount.text == payload["lines"][0]["unitPrice"]
     assert price_amount.attrib["currencyID"] == payload["currency"]
+    assert root.find(".//cac:Price/cbc:BaseQuantity", NS).text == "2"
 
 
 def test_create_order_applies_defaults_for_optional_fields(client):
@@ -172,11 +193,13 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     assert record["payload"]["lines"][0]["unitPrice"] is None
 
     root = ET.fromstring(body["ublXml"])
-    assert root.find("cbc:Note", NS) is None
+    assert root.find("cac:TransactionConditions", NS) is None
     assert root.find("cac:Delivery", NS) is None
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
     quantity = root.find(".//cbc:Quantity", NS)
     assert quantity.attrib["unitCode"] == "EA"
     assert root.find(".//cbc:PriceAmount", NS) is None
+    assert root.find("cac:AnticipatedMonetaryTotal", NS) is None
 
 
 @pytest.mark.parametrize(
