@@ -113,7 +113,15 @@ def build_compact_context_payload(
 def compact_draft_context(draft: OrderDraft) -> dict[str, Any]:
     compact: dict[str, Any] = {}
 
-    for field_name in ("buyerName", "sellerName", "currency", "issueDate", "notes"):
+    for field_name in (
+        "buyerEmail",
+        "buyerName",
+        "sellerEmail",
+        "sellerName",
+        "currency",
+        "issueDate",
+        "notes",
+    ):
         value = getattr(draft, field_name)
         if value is not None:
             compact[field_name] = value.isoformat() if hasattr(value, "isoformat") else value
@@ -171,6 +179,7 @@ Convert ordering transcripts into a JSON patch for the current order draft.
 Rules:
 - Return only changes to apply to the current draft.
 - Use null for untouched scalar fields.
+- Populate buyerEmail and sellerEmail when the transcript includes them.
 - delivery must include all keys, using null for untouched values.
 - lineActions may add, update, or delete items in order.
 - Use ISO dates for issueDate and requestedDate.

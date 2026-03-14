@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -112,3 +113,16 @@ class ValidationResponse(BaseModel):
     issues: list[Issue]
     warnings: list[Issue]
     score: float | None = None
+
+
+class TranscriptConversionRequest(BaseModel):
+    transcript: str = Field(..., min_length=1)
+    currentPayload: OrderRequest | None = None
+
+
+class OrderConversionResponse(BaseModel):
+    payload: OrderRequest | None
+    valid: bool
+    issues: list[Issue]
+    warnings: list[Issue]
+    source: Literal["transcript", "csv"]
