@@ -16,7 +16,9 @@ from app.services.order_draft import (
 
 def build_patch(
     *,
+    buyer_email: str | None = None,
     buyer_name: str | None = None,
+    seller_email: str | None = None,
     seller_name: str | None = None,
     currency: str | None = None,
     issue_date: str | None = None,
@@ -25,7 +27,9 @@ def build_patch(
 ) -> HostedTranscriptPatch:
     return HostedTranscriptPatch(
         fieldUpdates=HostedFieldUpdates(
+            buyerEmail=buyer_email,
             buyerName=buyer_name,
+            sellerEmail=seller_email,
             sellerName=seller_name,
             currency=currency,
             issueDate=issue_date,

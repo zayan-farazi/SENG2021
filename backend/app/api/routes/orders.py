@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from json import JSONDecodeError
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import ValidationError
 
-from app.models.schemas import Issue, OrderRequest, Severity, ValidationResponse
-from app.services import groq_order_extractor, order_store
+from app.models.schemas import (
+    Issue,
+    OrderConversionResponse,
+    OrderRequest,
+    Severity,
+    TranscriptConversionRequest,
+    ValidationResponse,
+)
+from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.app_key_auth import get_current_party_email
 from app.services.order_draft import (
     DraftSessionState,
@@ -55,6 +72,55 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
 
     record["warnings"] = [w.model_dump() for w in validation.warnings]
     return order_store.build_order_response(record)
+
+
+@router.post("/v1/orders/convert/transcript", response_model=OrderConversionResponse)
+async def convert_transcript_to_order_payload(
+    request: TranscriptConversionRequest,
+    current_party_email: str = Depends(get_current_party_email),
+):
+    conversion = await order_conversion.convert_transcript_to_draft(
+        request.transcript,
+        request.currentPayload,
+    )
+    return _build_conversion_response(
+        source="transcript",
+        draft=order_conversion.prefill_caller_email(conversion.draft, current_party_email),
+        conversion_warnings=conversion.warnings,
+        conversion_issues=conversion.issues,
+        current_party_email=current_party_email,
+    )
+
+
+@router.post("/v1/orders/convert/csv", response_model=OrderConversionResponse)
+async def convert_csv_to_order_payload(
+    file: Annotated[UploadFile, File(...)],
+    currentPayload: Annotated[str | None, Form()] = None,
+    current_party_email: str = Depends(get_current_party_email),
+):
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSV upload must use a .csv file.")
+
+    try:
+        current_payload = order_conversion.parse_current_payload_json(currentPayload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.errors()) from exc
+    except (ValueError, JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="currentPayload must be valid JSON.") from exc
+
+    try:
+        csv_text = (await file.read()).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="CSV file must be UTF-8 encoded.") from exc
+
+    conversion = order_conversion.convert_csv_to_draft(csv_text, current_payload)
+    return _build_conversion_response(
+        source="csv",
+        draft=order_conversion.prefill_caller_email(conversion.draft, current_party_email),
+        conversion_warnings=conversion.warnings,
+        conversion_issues=conversion.issues,
+        current_party_email=current_party_email,
+    )
 
 
 @router.delete("/v1/order/{order_id}", status_code=204)
@@ -344,6 +410,57 @@ def update_order(
     }
 
 
+def _build_conversion_response(
+    *,
+    source: str,
+    draft: Any,
+    conversion_warnings: list[str],
+    conversion_issues: list[Any],
+    current_party_email: str,
+) -> OrderConversionResponse:
+    issues = [
+        Issue(
+            path=issue.path,
+            issue=issue.issue,
+            severity=Severity.error,
+            hint=issue.hint,
+        )
+        for issue in conversion_issues
+    ]
+    warnings = [
+        Issue(
+            path="conversion",
+            issue=message,
+            severity=Severity.warning,
+            hint="Review the generated payload before submitting create or update.",
+        )
+        for message in conversion_warnings
+    ]
+
+    payload, draft_errors = order_conversion.finalize_payload(draft)
+    if payload is not None:
+        _assert_email_access(current_party_email, payload.buyerEmail, payload.sellerEmail)
+        validation = _validate_order(payload)
+        issues.extend(validation.issues)
+        warnings.extend(validation.warnings)
+        return OrderConversionResponse(
+            payload=payload,
+            valid=len(issues) == 0,
+            issues=issues,
+            warnings=warnings,
+            source=source,
+        )
+
+    issues.extend(_draft_errors_to_issues(draft_errors))
+    return OrderConversionResponse(
+        payload=None,
+        valid=False,
+        issues=issues,
+        warnings=warnings,
+        source=source,
+    )
+
+
 def _assert_order_access(current_party_email: str, payload: dict[str, Any]) -> None:
     buyer_email = payload.get("buyerEmail")
     seller_email = payload.get("sellerEmail")
@@ -359,6 +476,22 @@ def _assert_email_access(current_party_email: str, buyer_email: str, seller_emai
     normalized_seller = seller_email.strip().lower()
     if normalized_current not in {normalized_buyer, normalized_seller}:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _draft_errors_to_issues(errors: list[dict[str, Any]]) -> list[Issue]:
+    issues: list[Issue] = []
+    for error in errors:
+        location = error.get("loc", ())
+        path = ".".join(str(part) for part in location) if location else "payload"
+        issues.append(
+            Issue(
+                path=path,
+                issue=error.get("msg", "Invalid payload."),
+                severity=Severity.error,
+                hint="Provide values that satisfy the order payload requirements.",
+            )
+        )
+    return issues
 
 
 def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:

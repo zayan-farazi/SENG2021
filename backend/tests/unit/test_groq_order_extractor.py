@@ -40,7 +40,9 @@ def test_extract_transcript_patch_parses_valid_structured_response(monkeypatch):
                             "content": """
                             {
                               "fieldUpdates": {
+                                "buyerEmail": "buyer@example.com",
                                 "buyerName": "James",
+                                "sellerEmail": "seller@example.com",
                                 "sellerName": "Grocery Store",
                                 "currency": "AUD",
                                 "issueDate": "2026-03-08",
@@ -84,7 +86,9 @@ def test_extract_transcript_patch_parses_valid_structured_response(monkeypatch):
     )
 
     assert result.patch is not None
+    assert result.patch.fieldUpdates.buyerEmail == "buyer@example.com"
     assert result.patch.fieldUpdates.buyerName == "James"
+    assert result.patch.fieldUpdates.sellerEmail == "seller@example.com"
     assert result.patch.fieldUpdates.currency == "AUD"
     assert result.patch.lineActions[0].productName == "oranges"
     assert result.patch.lineActions[0].unitPrice == "4.00"
@@ -96,7 +100,9 @@ def test_compact_draft_context_omits_empty_fields():
 
 def test_compact_draft_context_preserves_only_populated_values():
     draft = OrderDraft(
+        buyerEmail="buyer@example.com",
         buyerName="James",
+        sellerEmail="seller@example.com",
         issueDate=date(2026, 3, 8),
         delivery=DraftDelivery(city="Sydney"),
         lines=[
@@ -108,7 +114,9 @@ def test_compact_draft_context_preserves_only_populated_values():
     )
 
     assert groq_order_extractor.compact_draft_context(draft) == {
+        "buyerEmail": "buyer@example.com",
         "buyerName": "James",
+        "sellerEmail": "seller@example.com",
         "issueDate": "2026-03-08",
         "delivery": {"city": "Sydney"},
         "lines": [
@@ -134,7 +142,9 @@ def test_select_recent_transcripts_keeps_latest_two_final_entries():
 
 def test_build_request_body_uses_compact_context_and_preserves_latest_transcript():
     draft = OrderDraft(
+        buyerEmail="buyer@example.com",
         buyerName="James",
+        sellerEmail="seller@example.com",
         lines=[DraftLineItem(productName="oranges", quantity=2, unitCode="EA")],
     )
     transcript_log = [
@@ -153,7 +163,9 @@ def test_build_request_body_uses_compact_context_and_preserves_latest_transcript
 
     assert payload == {
         "currentDraft": {
+            "buyerEmail": "buyer@example.com",
             "buyerName": "James",
+            "sellerEmail": "seller@example.com",
             "lines": [{"productName": "oranges", "quantity": 2, "unitCode": "EA"}],
         },
         "recentFinalTranscripts": [
@@ -201,7 +213,9 @@ def test_extract_transcript_patch_loads_api_key_from_env_file(monkeypatch, tmp_p
                             "content": json_module.dumps(
                                 {
                                     "fieldUpdates": {
+                                        "buyerEmail": "buyer@example.com",
                                         "buyerName": "Zion",
+                                        "sellerEmail": None,
                                         "sellerName": None,
                                         "currency": None,
                                         "issueDate": None,

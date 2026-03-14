@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -27,7 +28,9 @@ class HostedDeliveryFieldUpdates(BaseModel):
 class HostedFieldUpdates(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    buyerEmail: str | None
     buyerName: str | None
+    sellerEmail: str | None
     sellerName: str | None
     currency: str | None
     issueDate: str | None
@@ -207,11 +210,23 @@ def _apply_field_updates(
     applied_changes: list[str] = []
     working_draft = draft
 
+    if field_updates.buyerEmail:
+        working_draft = working_draft.model_copy(
+            update={"buyerEmail": field_updates.buyerEmail.strip().lower()}
+        )
+        applied_changes.append("Updated buyer email.")
+
     if field_updates.buyerName:
         working_draft = working_draft.model_copy(
             update={"buyerName": field_updates.buyerName.strip()}
         )
         applied_changes.append("Updated buyer name.")
+
+    if field_updates.sellerEmail:
+        working_draft = working_draft.model_copy(
+            update={"sellerEmail": field_updates.sellerEmail.strip().lower()}
+        )
+        applied_changes.append("Updated seller email.")
 
     if field_updates.sellerName:
         working_draft = working_draft.model_copy(
@@ -298,7 +313,7 @@ def _apply_line_actions(
         if action.unitCode is not None:
             patch["unitCode"] = action.unitCode.strip()
         if action.unitPrice is not None:
-            patch["unitPrice"] = action.unitPrice.strip()
+            patch["unitPrice"] = Decimal(action.unitPrice.strip())
 
         line_index = next(
             (
