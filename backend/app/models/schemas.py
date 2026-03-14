@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 PARTY_REGISTRATION_REQUEST_EXAMPLE = {
     "partyName": "Acme Books",
@@ -246,7 +246,15 @@ class PartyRegistrationRequest(BaseModel):
     )
 
     partyName: str = Field(..., min_length=1)
-    contactEmail: str = Field(..., min_length=3)
+    contactEmail: EmailStr = Field(
+        ...,
+        description="Must be a valid email address, for example orders@acmebooks.example.",
+    )
+
+    @field_validator("contactEmail")
+    @classmethod
+    def normalize_contact_email(cls, value: EmailStr) -> str:
+        return str(value).strip().lower()
 
 
 class PartyRegistrationResponse(BaseModel):

@@ -64,6 +64,9 @@ def test_register_party_returns_409_for_duplicate_contact_email(client, monkeypa
         {"partyName": "Acme Books"},
         {"partyName": "", "contactEmail": "team@acmebooks.com"},
         {"partyName": "Acme Books", "contactEmail": ""},
+        {"partyName": "Acme Books", "contactEmail": "test@test"},
+        {"partyName": "Acme Books", "contactEmail": "testing@testing"},
+        {"partyName": "Acme Books", "contactEmail": "lockedout@test"},
     ],
 )
 def test_register_party_rejects_invalid_payloads(client, payload):
