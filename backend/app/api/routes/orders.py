@@ -40,9 +40,9 @@ def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_
 
     if not validation.valid:
         raise HTTPException(
-        status_code=400,
-        detail=[i.model_dump() for i in validation.issues],
-    )
+            status_code=400,
+            detail=[i.model_dump() for i in validation.issues],
+        )
 
     try:
         record = order_store.create_order_record(req)
@@ -306,7 +306,7 @@ def update_order(
     _assert_order_access(current_party_id, payload)
     if req.buyerId != payload.get("buyerId") or req.sellerId != payload.get("sellerId"):
         raise HTTPException(status_code=409, detail="Order parties cannot be changed.")
-    
+
     validation = _validate_order(req)
 
     if not validation.valid:
@@ -535,5 +535,7 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
 
 
 @router.post("/v1/orders/validate")
-async def validate_order(order: OrderRequest, current_party_id: str = Depends(get_current_party_id)) -> ValidationResponse:
+async def validate_order(
+    order: OrderRequest, current_party_id: str = Depends(get_current_party_id)
+) -> ValidationResponse:
     return _validate_order(order)
