@@ -60,10 +60,15 @@ def saveOrder(
     deliverycity,
     deliverypostcode,
     deliverycountry,
+    requesteddate,
     notes,
     issueDate=None,
     status=None,
     currency=None,
+    externalOrderId=None,
+    ublXml=None,
+    createdAt=None,
+    updatedAt=None,
     orderId=None,
 ):
     query = {
@@ -75,8 +80,9 @@ def saveOrder(
         "deliverycity": deliverycity,
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
+        "requesteddate": requesteddate,
         "notes": notes,
-        "lastchanged": datetime.now().isoformat(),
+        "lastchanged": updatedAt or datetime.now().isoformat(),
     }
 
     if orderId is None:
@@ -94,6 +100,14 @@ def saveOrder(
         query["status"] = status
     if currency is not None:
         query["currency"] = currency
+    if externalOrderId is not None:
+        query["order_id"] = externalOrderId
+    if ublXml is not None:
+        query["ublxml"] = ublXml
+    if createdAt is not None:
+        query["createdat"] = createdAt
+    if updatedAt is not None:
+        query["updatedat"] = updatedAt
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -128,7 +142,10 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
 # if there is only one match, it returns it as well as its order line list
 def findOrders(
     orderId=None,
+    externalOrderId=None,
+    buyeremail=None,
     buyername=None,
+    selleremail=None,
     sellername=None,
     deliverystreet=None,
     deliverycity=None,
@@ -143,8 +160,14 @@ def findOrders(
 
     if orderId:
         query = query.eq("id", orderId)
+    if externalOrderId:
+        query = query.eq("order_id", externalOrderId)
+    if buyeremail:
+        query = query.eq("buyeremail", buyeremail)
     if buyername:
         query = query.eq("buyername", buyername)
+    if selleremail:
+        query = query.eq("selleremail", selleremail)
     if sellername:
         query = query.eq("sellername", sellername)
     if deliverystreet:
@@ -174,6 +197,11 @@ def findOrders(
         orders[0]["details"] = details.data
 
     return orders
+
+
+def findOrderByExternalId(externalOrderId):
+    orders = findOrders(externalOrderId=externalOrderId)
+    return orders[0] if orders else None
 
 
 # looks for order detail list through order id
@@ -226,6 +254,28 @@ def saveAppKey(partyId, keyHash):
         .execute()
     )
     return response.data[0]
+
+
+def updateOrderRuntimeMetadata(orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None):
+    query = {}
+    if externalOrderId is not None:
+        query["order_id"] = externalOrderId
+    if ublXml is not None:
+        query["ublxml"] = ublXml
+    if createdAt is not None:
+        query["createdat"] = createdAt
+    if updatedAt is not None:
+        query["updatedat"] = updatedAt
+        query["lastchanged"] = updatedAt
+
+    if not query:
+        return None
+
+    try:
+        response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
 # deletes all order lines related to a query

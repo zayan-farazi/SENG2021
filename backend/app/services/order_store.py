@@ -41,6 +41,13 @@ def create_order_record(req: OrderRequest) -> dict[str, Any]:
     }
     db_order_id = persist_order_to_database(req)
     record["dbOrderId"] = str(db_order_id)
+    persist_order_runtime_metadata_to_database(
+        db_order_id,
+        external_order_id=order_id,
+        ubl_xml=ubl_xml,
+        created_at=created_at,
+        updated_at=created_at,
+    )
     ORDERS[order_id] = record
     return record
 
@@ -56,7 +63,7 @@ def build_order_response(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_order_record(order_id: str) -> bool:
-    record = ORDERS.get(order_id)
+    record = get_order_record(order_id)
     if record is None:
         return False
 
@@ -74,6 +81,19 @@ def delete_order_record(order_id: str) -> bool:
     return True
 
 
+def get_order_record(order_id: str) -> dict[str, Any] | None:
+    existing = ORDERS.get(order_id)
+    if existing is not None:
+        return existing
+
+    record = load_order_record_from_database(order_id)
+    if record is None:
+        return None
+
+    ORDERS[order_id] = record
+    return record
+
+
 def persist_order_to_database(req: OrderRequest) -> Any:
     from app.other import findOrders, saveOrder, saveOrderDetails
 
@@ -88,6 +108,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
             deliverycity=delivery.city if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
+            requesteddate=delivery.requestedDate.isoformat() if delivery and delivery.requestedDate else None,
             notes=req.notes,
             issueDate=req.issueDate,
             status="DRAFT",
@@ -114,7 +135,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
 
 
 def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
-    existing = ORDERS.get(order_id)
+    existing = get_order_record(order_id)
     if existing is None:
         # Order can't be found with order_id
         raise OrderNotFoundError(order_id)
@@ -134,6 +155,12 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
 
     # Persist to DB
     persist_order_update_to_database(db_order_id, req)
+    persist_order_runtime_metadata_to_database(
+        db_order_id,
+        external_order_id=order_id,
+        ubl_xml=ubl_xml,
+        updated_at=updated_at,
+    )
 
     # Update in-memory record
     existing["updatedAt"] = updated_at
@@ -165,6 +192,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
             deliverycity=delivery.city if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
+            requesteddate=delivery.requestedDate.isoformat() if delivery and delivery.requestedDate else None,
             notes=req.notes,
             issueDate=req.issueDate,
             status="DRAFT",
@@ -190,3 +218,131 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
 
     if not orders:
         raise OrderPersistenceError("Order update could not be verified in Supabase.")
+
+
+def persist_order_runtime_metadata_to_database(
+    db_order_id: Any,
+    *,
+    external_order_id: str,
+    ubl_xml: str,
+    created_at: str | None = None,
+    updated_at: str | None = None,
+) -> None:
+    from app.other import updateOrderRuntimeMetadata
+
+    try:
+        updateOrderRuntimeMetadata(
+            db_order_id,
+            externalOrderId=external_order_id,
+            ublXml=ubl_xml,
+            createdAt=created_at,
+            updatedAt=updated_at,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise OrderPersistenceError("Order metadata could not be persisted in Supabase.") from exc
+
+
+def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
+    from app.other import findOrderByExternalId
+
+    row = findOrderByExternalId(order_id)
+    if row is None:
+        return None
+
+    return _record_from_database_row(order_id, row)
+
+
+def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "buyerEmail": _normalize_email(row.get("buyeremail")),
+        "buyerName": row.get("buyername"),
+        "sellerEmail": _normalize_email(row.get("selleremail")),
+        "sellerName": row.get("sellername"),
+        "currency": row.get("currency"),
+        "issueDate": _coerce_date_string(row.get("issuedate")),
+        "notes": row.get("notes"),
+        "delivery": _build_delivery_payload(row),
+        "lines": _build_lines_payload(row.get("details")),
+    }
+
+    created_at = _first_non_empty(row.get("createdat"), row.get("issuedate")) or now_z()
+    updated_at = _first_non_empty(row.get("updatedat"), row.get("lastchanged"), created_at)
+    status = row.get("status") or "DRAFT"
+
+    return {
+        "orderId": order_id,
+        "status": status,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+        "payload": payload,
+        "ublXml": row.get("ublxml"),
+        "warnings": [],
+        "dbOrderId": str(row["id"]) if row.get("id") is not None else None,
+    }
+
+
+def _build_delivery_payload(row: dict[str, Any]) -> dict[str, Any] | None:
+    delivery = {
+        "street": row.get("deliverystreet"),
+        "city": row.get("deliverycity"),
+        "state": row.get("deliverystate"),
+        "postcode": row.get("deliverypostcode"),
+        "country": row.get("deliverycountry"),
+        "requestedDate": _coerce_date_string(row.get("requesteddate")),
+    }
+    if not any(value is not None for value in delivery.values()):
+        return None
+    return delivery
+
+
+def _build_lines_payload(details: Any) -> list[dict[str, Any]]:
+    if not isinstance(details, list):
+        return []
+
+    lines: list[dict[str, Any]] = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        line = {
+            "productName": detail.get("productname"),
+            "quantity": _coerce_quantity(detail.get("quantity")),
+            "unitCode": detail.get("unitcode"),
+            "unitPrice": _coerce_price(detail.get("unitprice")),
+        }
+        lines.append(line)
+    return lines
+
+
+def _coerce_date_string(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    if "T" in value:
+        return value.split("T", 1)[0]
+    return value
+
+
+def _coerce_quantity(value: Any) -> int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _coerce_price(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _normalize_email(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.strip().lower()
+
+
+def _first_non_empty(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value:
+            return value
+    return None

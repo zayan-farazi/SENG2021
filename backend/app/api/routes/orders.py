@@ -59,7 +59,7 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
 
 @router.delete("/v1/order/{order_id}", status_code=204)
 def delete_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
-    existing = ORDERS.get(order_id)
+    existing = order_store.get_order_record(order_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Not Found")
 
@@ -273,7 +273,7 @@ async def _send_error(
 
 @router.get("/v1/order/{order_id}")
 def get_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
-    order = ORDERS.get(order_id)
+    order = order_store.get_order_record(order_id)
 
     if order is None:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -298,7 +298,7 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
 def update_order(
     order_id: str, req: OrderRequest, current_party_email: str = Depends(get_current_party_email)
 ):
-    existing = ORDERS.get(order_id)
+    existing = order_store.get_order_record(order_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Not Found")
 
@@ -362,13 +362,13 @@ def _assert_email_access(current_party_email: str, buyer_email: str, seller_emai
 
 
 def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:
-    if not order.buyerId:
+    if not order.buyerEmail:
         issues.append(
             Issue(
-                path="buyerId",
-                issue="buyerId is required",
+                path="buyerEmail",
+                issue="buyerEmail is required",
                 severity=Severity.error,
-                hint="Provide a valid buyer party ID.",
+                hint="Provide a valid buyer email address.",
             )
         )
     if not order.buyerName:
@@ -380,13 +380,13 @@ def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:
                 hint="Provide the full name or company name of the buyer.",
             )
         )
-    if not order.sellerId:
+    if not order.sellerEmail:
         issues.append(
             Issue(
-                path="sellerId",
-                issue="sellerId is required",
+                path="sellerEmail",
+                issue="sellerEmail is required",
                 severity=Severity.error,
-                hint="Provide a valid seller party ID.",
+                hint="Provide a valid seller email address.",
             )
         )
     if not order.sellerName:
@@ -518,9 +518,9 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
     _validate_dates(order, warnings)
 
     fields = [
-        order.buyerId,
+        order.buyerEmail,
         order.buyerName,
-        order.sellerId,
+        order.sellerEmail,
         order.sellerName,
         order.currency,
         order.issueDate,
@@ -539,6 +539,7 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
 
 @router.post("/v1/orders/validate")
 async def validate_order(
-    order: OrderRequest, current_party_id: str = Depends(get_current_party_id)
+    order: OrderRequest, current_party_email: str = Depends(get_current_party_email)
 ) -> ValidationResponse:
+    _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
     return _validate_order(order)
