@@ -9,6 +9,8 @@ import app.other as other
 from app.main import app
 from app.services.party_registration import hash_app_key
 
+pytestmark = pytest.mark.integration
+
 
 def build_payload() -> dict:
     return {

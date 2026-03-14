@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -20,9 +21,9 @@ NS = {
 
 def build_payload() -> dict:
     return {
-        "buyerId": "buyer-123",
+        "buyerEmail": "buyer@example.com",
         "buyerName": "Acme Books",
-        "sellerId": "seller-456",
+        "sellerEmail": "seller@example.com",
         "sellerName": "Digital Book Supply",
         "currency": "AUD",
         "issueDate": "2026-03-07",
@@ -60,19 +61,56 @@ def client():
 
 @pytest.fixture(autouse=True)
 def reset_orders_state():
-    # Ensure each test starts clean
     orders.ORDERS.clear()
+    yield
+    orders.ORDERS.clear()
+
+
+@pytest.fixture(autouse=True)
+def stub_database_lookup(monkeypatch):
+    monkeypatch.setattr(order_store, "load_order_record_from_database", lambda order_id: None)
+
+
+@pytest.fixture
+def db_records(monkeypatch):
+    records: dict[str, dict] = {}
+
+    def load_order_record_from_database(order_id: str):
+        record = records.get(order_id)
+        return deepcopy(record) if record else None
+
+    monkeypatch.setattr(
+        order_store, "load_order_record_from_database", load_order_record_from_database
+    )
+    return records
+
+
+@pytest.fixture(autouse=True)
+def stub_runtime_metadata_persistence(monkeypatch):
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_runtime_metadata_to_database",
+        lambda *args, **kwargs: None,
+    )
 
 
 @pytest.fixture(autouse=True)
 def stub_app_key_lookup(monkeypatch):
     app.dependency_overrides.clear()
     key_map = {
-        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
-        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("buyer-key"): {"party_id": "buyer-party"},
+        hash_app_key("seller-key"): {"party_id": "seller-party"},
         hash_app_key("other-key"): {"party_id": "other-party"},
     }
+    party_map = {
+        "buyer-party": {"contact_email": "buyer@example.com"},
+        "seller-party": {"contact_email": "seller@example.com"},
+        "other-party": {"contact_email": "other@example.com"},
+    }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -81,7 +119,7 @@ def auth_headers(app_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {app_key}"}
 
 
-def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monkeypatch):
+def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monkeypatch, db_records):
     # Create original payload
     create_payload = build_payload()
 
@@ -97,7 +135,9 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     created = create_resp.json()
     order_id = created["orderId"]
 
-    before_record = orders.ORDERS[order_id]
+    before_record = deepcopy(orders.ORDERS[order_id])
+    db_records[order_id] = deepcopy(before_record)
+    orders.ORDERS.clear()
     before_updated_at = before_record["updatedAt"]
     assert before_record["status"] == "DRAFT"
 
@@ -124,7 +164,7 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     assert body["updatedAt"] != before_updated_at
     assert body["warnings"] == []
 
-    # Check order details have been updated
+    # Check order details have been updated from a cache miss
     record = orders.ORDERS[order_id]
     assert record["payload"]["notes"] == "Deliver to reception"
     assert record["payload"]["delivery"]["street"] == "999 Updated St"
@@ -152,7 +192,7 @@ def test_update_order_returns_404_when_order_not_found(client):
     assert resp.json() == {"detail": "Not Found"}
 
 
-def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
+def test_update_order_returns_409_when_order_not_editable(client, monkeypatch, db_records):
     # Dummy DB functions
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
@@ -164,8 +204,9 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
 
-    # Force status to something non-editable
-    orders.ORDERS[order_id]["status"] = "SUBMITTED"
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    db_records[order_id]["status"] = "SUBMITTED"
+    orders.ORDERS.clear()
 
     # Call update
     update_resp = client.put(
@@ -181,7 +222,7 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     ("mutator", "expected_loc"),
     [
         (lambda payload: payload.pop("buyerName"), ["body", "buyerName"]),
-        (lambda payload: payload.pop("buyerId"), ["body", "buyerId"]),
+        (lambda payload: payload.pop("buyerEmail"), ["body", "buyerEmail"]),
         (lambda payload: payload.update({"lines": []}), ["body", "lines"]),
         (
             lambda payload: payload["lines"][0].update({"quantity": 0}),
@@ -266,7 +307,7 @@ def test_update_order_returns_500_when_database_update_fails(client, monkeypatch
     assert resp.json() == {"detail": "Unable to persist updated order."}
 
 
-def test_update_order_returns_401_when_auth_header_is_missing(client, monkeypatch):
+def test_update_order_returns_401_when_auth_header_is_missing(client, monkeypatch, db_records):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -275,6 +316,8 @@ def test_update_order_returns_401_when_auth_header_is_missing(client, monkeypatc
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     resp = client.put(f"/v1/order/{order_id}", json=build_payload())
 
@@ -282,7 +325,7 @@ def test_update_order_returns_401_when_auth_header_is_missing(client, monkeypatc
     assert resp.json() == {"detail": "Unauthorized"}
 
 
-def test_update_order_returns_401_for_malformed_auth_header(client, monkeypatch):
+def test_update_order_returns_401_for_malformed_auth_header(client, monkeypatch, db_records):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -291,6 +334,8 @@ def test_update_order_returns_401_for_malformed_auth_header(client, monkeypatch)
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     resp = client.put(
         f"/v1/order/{order_id}",
@@ -302,7 +347,7 @@ def test_update_order_returns_401_for_malformed_auth_header(client, monkeypatch)
     assert resp.json() == {"detail": "Unauthorized"}
 
 
-def test_update_order_returns_401_for_unknown_app_key(client, monkeypatch):
+def test_update_order_returns_401_for_unknown_app_key(client, monkeypatch, db_records):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -311,6 +356,8 @@ def test_update_order_returns_401_for_unknown_app_key(client, monkeypatch):
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     resp = client.put(
         f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("unknown-key")
@@ -320,7 +367,7 @@ def test_update_order_returns_401_for_unknown_app_key(client, monkeypatch):
     assert resp.json() == {"detail": "Unauthorized"}
 
 
-def test_update_order_returns_403_for_non_party_caller(client, monkeypatch):
+def test_update_order_returns_403_for_non_party_caller(client, monkeypatch, db_records):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -329,6 +376,8 @@ def test_update_order_returns_403_for_non_party_caller(client, monkeypatch):
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     resp = client.put(
         f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("other-key")
@@ -338,7 +387,7 @@ def test_update_order_returns_403_for_non_party_caller(client, monkeypatch):
     assert resp.json() == {"detail": "Forbidden"}
 
 
-def test_update_order_allows_seller_party(client, monkeypatch):
+def test_update_order_allows_seller_party(client, monkeypatch, db_records):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -347,6 +396,8 @@ def test_update_order_allows_seller_party(client, monkeypatch):
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     resp = client.put(
         f"/v1/order/{order_id}", json=build_payload(), headers=auth_headers("seller-key")
@@ -355,7 +406,9 @@ def test_update_order_allows_seller_party(client, monkeypatch):
     assert resp.status_code == 200
 
 
-def test_update_order_returns_409_when_request_changes_order_parties(client, monkeypatch):
+def test_update_order_returns_409_when_request_changes_order_parties(
+    client, monkeypatch, db_records
+):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 
@@ -364,10 +417,12 @@ def test_update_order_returns_409_when_request_changes_order_parties(client, mon
     )
     assert create_resp.status_code == 201
     order_id = create_resp.json()["orderId"]
+    db_records[order_id] = deepcopy(orders.ORDERS[order_id])
+    orders.ORDERS.clear()
 
     payload = build_payload()
-    payload["sellerId"] = "seller-999"
+    payload["sellerEmail"] = "seller-updated@example.com"
     resp = client.put(f"/v1/order/{order_id}", json=payload, headers=auth_headers("buyer-key"))
 
     assert resp.status_code == 409
-    assert resp.json() == {"detail": "Order parties cannot be changed."}
+    assert resp.json() == {"detail": "Order participant emails cannot be changed."}

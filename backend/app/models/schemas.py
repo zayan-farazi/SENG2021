@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LineItem(BaseModel):
@@ -24,15 +24,20 @@ class Delivery(BaseModel):
 
 
 class OrderRequest(BaseModel):
-    buyerId: str = Field(..., min_length=1)
+    buyerEmail: str = Field(..., min_length=3)
     buyerName: str = Field(..., min_length=1)
-    sellerId: str = Field(..., min_length=1)
+    sellerEmail: str = Field(..., min_length=3)
     sellerName: str = Field(..., min_length=1)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     issueDate: date | None = None
     notes: str | None = None
     delivery: Delivery | None = None
     lines: list[LineItem] = Field(..., min_length=1)
+
+    @field_validator("buyerEmail", "sellerEmail")
+    @classmethod
+    def normalize_emails(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 class DraftLineItem(BaseModel):
@@ -52,15 +57,22 @@ class DraftDelivery(BaseModel):
 
 
 class OrderDraft(BaseModel):
-    buyerId: str | None = Field(default=None, min_length=1)
+    buyerEmail: str | None = Field(default=None, min_length=3)
     buyerName: str | None = Field(default=None, min_length=1)
-    sellerId: str | None = Field(default=None, min_length=1)
+    sellerEmail: str | None = Field(default=None, min_length=3)
     sellerName: str | None = Field(default=None, min_length=1)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     issueDate: date | None = None
     notes: str | None = None
     delivery: DraftDelivery | None = None
     lines: list[DraftLineItem] = Field(default_factory=list)
+
+    @field_validator("buyerEmail", "sellerEmail")
+    @classmethod
+    def normalize_optional_emails(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip().lower()
 
 
 class HealthResponse(BaseModel):

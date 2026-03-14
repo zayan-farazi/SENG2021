@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 from xml.etree import ElementTree as ET
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.models.schemas import Delivery, LineItem, OrderRequest
-from app.services import app_key_auth
+from app.services import app_key_auth, order_store
 from app.services.party_registration import hash_app_key
 from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
@@ -22,9 +23,9 @@ NS = {
 
 def build_payload() -> OrderRequest:
     return OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 7),
@@ -61,21 +62,54 @@ def client():
 
 
 @pytest.fixture(autouse=True)
+def reset_order_cache():
+    orders.ORDERS.clear()
+    yield
+    orders.ORDERS.clear()
+
+
+@pytest.fixture(autouse=True)
+def stub_database_lookup(monkeypatch):
+    monkeypatch.setattr(order_store, "load_order_record_from_database", lambda order_id: None)
+
+
+@pytest.fixture(autouse=True)
 def stub_app_key_lookup(monkeypatch):
     app.dependency_overrides.clear()
     key_map = {
-        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
-        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("buyer-key"): {"party_id": "buyer-party"},
+        hash_app_key("seller-key"): {"party_id": "seller-party"},
         hash_app_key("other-key"): {"party_id": "other-party"},
     }
+    party_map = {
+        "buyer-party": {"contact_email": "buyer@example.com"},
+        "seller-party": {"contact_email": "seller@example.com"},
+        "other-party": {"contact_email": "other@example.com"},
+    }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def created_order():
-    """Create an order directly in ORDERS to test GET endpoint."""
+def db_records(monkeypatch):
+    records: dict[str, dict] = {}
+
+    def load_order_record_from_database(order_id: str):
+        record = records.get(order_id)
+        return deepcopy(record) if record else None
+
+    monkeypatch.setattr(
+        order_store, "load_order_record_from_database", load_order_record_from_database
+    )
+    return records
+
+
+@pytest.fixture
+def created_order(db_records):
     req = build_payload()
     order_id = generate_order_id()
     ubl_xml = generate_ubl_order_xml(order_id, req)
@@ -88,8 +122,9 @@ def created_order():
         "payload": req.model_dump(mode="json"),
         "ublXml": ubl_xml,
         "warnings": [],
+        "dbOrderId": "123",
     }
-    orders.ORDERS[order_id] = record
+    db_records[order_id] = record
     return order_id, record
 
 
@@ -111,6 +146,7 @@ def test_get_existing_order_returns_order(client, created_order):
     assert body["updatedAt"] == record["updatedAt"]
     assert body["ublXml"] == record["ublXml"]
     assert body["warnings"] == record["warnings"]
+    assert orders.ORDERS[order_id]["dbOrderId"] == "123"
 
     # Check internal payload separately
     assert record["payload"]["buyerName"] == "Acme Books"
