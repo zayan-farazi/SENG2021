@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from app.models.schemas import OrderRequest
+from app.models.schemas import Issue, OrderRequest, Severity, ValidationResponse
 from app.services import groq_order_extractor, order_store
 from app.services.app_key_auth import get_current_party_id
 from app.services.order_draft import (
@@ -36,6 +36,8 @@ ORDERS = order_store.ORDERS
 def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_party_id)):
     _assert_party_access(current_party_id, req.buyerId, req.sellerId)
 
+    validation = _validate_order(req)
+
     try:
         record = order_store.create_order_record(req)
     except OrderGenerationError as exc:
@@ -45,6 +47,7 @@ def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_
         logger.exception("Order persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist order.") from exc
 
+    record["warnings"] = [w.model_dump() for w in validation.warnings]
     return order_store.build_order_response(record)
 
 
@@ -338,3 +341,184 @@ def _assert_order_access(current_party_id: str, payload: dict[str, Any]) -> None
 def _assert_party_access(current_party_id: str, buyer_id: str, seller_id: str) -> None:
     if current_party_id not in {buyer_id, seller_id}:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:
+    if not order.buyerId:
+        issues.append(
+            Issue(
+                path="buyerId",
+                issue="buyerId is required",
+                severity=Severity.error,
+                hint="Provide a valid buyer party ID.",
+            )
+        )
+    if not order.buyerName:
+        issues.append(
+            Issue(
+                path="buyerName",
+                issue="buyerName is required",
+                severity=Severity.error,
+                hint="Provide the full name or company name of the buyer.",
+            )
+        )
+    if not order.sellerId:
+        issues.append(
+            Issue(
+                path="sellerId",
+                issue="sellerId is required",
+                severity=Severity.error,
+                hint="Provide a valid seller party ID.",
+            )
+        )
+    if not order.sellerName:
+        issues.append(
+            Issue(
+                path="sellerName",
+                issue="sellerName is required",
+                severity=Severity.error,
+                hint="Provide the full name or company name of the seller.",
+            )
+        )
+
+
+def _validate_lines(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
+    for i, line in enumerate(order.lines):
+        if not line.productName:
+            issues.append(
+                Issue(
+                    path=f"lines[{i}].productName",
+                    issue="productName is required",
+                    severity=Severity.error,
+                    hint="Provide a product or service name for this line.",
+                )
+            )
+        if line.unitPrice is None:
+            issues.append(
+                Issue(
+                    path=f"lines[{i}].unitPrice",
+                    issue="unitPrice is missing",
+                    severity=Severity.error,
+                    hint="Provide a unit price so the order total can be calculated.",
+                )
+            )
+        if line.unitCode is None:
+            warnings.append(
+                Issue(
+                    path=f"lines[{i}].unitCode",
+                    issue="unitCode is missing",
+                    severity=Severity.warning,
+                    hint="unitCode defaults to 'EA' (each) if not provided.",
+                )
+            )
+
+
+def _validate_delivery(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
+    if order.delivery is None:
+        warnings.append(
+            Issue(
+                path="delivery",
+                issue="delivery is missing",
+                severity=Severity.warning,
+                hint="Provide a delivery object if physical shipment is required.",
+            )
+        )
+        return
+
+    for field in ("street", "city", "country"):
+        if not getattr(order.delivery, field):
+            issues.append(
+                Issue(
+                    path=f"delivery.{field}",
+                    issue=f"delivery.{field} is required",
+                    severity=Severity.error,
+                    hint=f"Provide a value for delivery.{field}.",
+                )
+            )
+
+    if not order.delivery.postcode:
+        warnings.append(
+            Issue(
+                path="delivery.postcode",
+                issue="delivery.postcode is missing",
+                severity=Severity.warning,
+                hint="Postcode improves delivery accuracy and may be required by some carriers.",
+            )
+        )
+    if not order.delivery.state:
+        warnings.append(
+            Issue(
+                path="delivery.state",
+                issue="delivery.state is missing",
+                severity=Severity.warning,
+                hint="State/province may be required for certain countries.",
+            )
+        )
+
+
+def _validate_currency(order: OrderRequest, issues: list[Issue]) -> None:
+    if order.currency is None:
+        issues.append(
+            Issue(
+                path="currency",
+                issue="currency is required",
+                severity=Severity.error,
+                hint="Use an ISO 4217 currency code, e.g. 'AUD'.",
+            )
+        )
+
+
+def _validate_dates(order: OrderRequest, warnings: list[Issue]) -> None:
+    if order.issueDate is None:
+        warnings.append(
+            Issue(
+                path="issueDate",
+                issue="issueDate is missing",
+                severity=Severity.warning,
+                hint="Provide an issue date for the order.",
+            )
+        )
+    if order.delivery and order.delivery.requestedDate is None:
+        warnings.append(
+            Issue(
+                path="delivery.requestedDate",
+                issue="delivery.requestedDate is missing",
+                severity=Severity.warning,
+                hint="Provide a requested delivery date.",
+            )
+        )
+
+
+def _validate_order(order: OrderRequest) -> ValidationResponse:
+    issues: list[Issue] = []
+    warnings: list[Issue] = []
+
+    _validate_buyer_seller(order, issues)
+    _validate_lines(order, issues, warnings)
+    _validate_delivery(order, issues, warnings)
+    _validate_currency(order, issues)
+    _validate_dates(order, warnings)
+
+    fields = [
+        order.buyerId,
+        order.buyerName,
+        order.sellerId,
+        order.sellerName,
+        order.currency,
+        order.issueDate,
+        order.delivery,
+        order.lines,
+    ]
+    score = round(sum(bool(f) for f in fields) / len(fields), 2)
+
+    return ValidationResponse(
+        valid=len(issues) == 0,
+        issues=issues,
+        warnings=warnings,
+        score=score,
+    )
+
+
+@router.post("/v1/orders/validate")
+async def validate_order(order: OrderRequest) -> ValidationResponse:
+    return _validate_order(order)
