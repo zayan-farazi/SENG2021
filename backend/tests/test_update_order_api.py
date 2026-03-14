@@ -20,9 +20,9 @@ NS = {
 
 def build_payload() -> dict:
     return {
-        "buyerId": "buyer-123",
+        "buyerEmail": "buyer@example.com",
         "buyerName": "Acme Books",
-        "sellerId": "seller-456",
+        "sellerEmail": "seller@example.com",
         "sellerName": "Digital Book Supply",
         "currency": "AUD",
         "issueDate": "2026-03-07",
@@ -67,11 +67,17 @@ def reset_orders_state():
 def stub_app_key_lookup(monkeypatch):
     app.dependency_overrides.clear()
     key_map = {
-        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
-        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("buyer-key"): {"party_id": "buyer-party"},
+        hash_app_key("seller-key"): {"party_id": "seller-party"},
         hash_app_key("other-key"): {"party_id": "other-party"},
     }
+    party_map = {
+        "buyer-party": {"contact_email": "buyer@example.com"},
+        "seller-party": {"contact_email": "seller@example.com"},
+        "other-party": {"contact_email": "other@example.com"},
+    }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
     yield
     app.dependency_overrides.clear()
 
@@ -180,7 +186,7 @@ def test_update_order_returns_409_when_order_not_editable(client, monkeypatch):
     ("mutator", "expected_loc"),
     [
         (lambda payload: payload.pop("buyerName"), ["body", "buyerName"]),
-        (lambda payload: payload.pop("buyerId"), ["body", "buyerId"]),
+        (lambda payload: payload.pop("buyerEmail"), ["body", "buyerEmail"]),
         (lambda payload: payload.update({"lines": []}), ["body", "lines"]),
         (
             lambda payload: payload["lines"][0].update({"quantity": 0}),
@@ -365,8 +371,8 @@ def test_update_order_returns_409_when_request_changes_order_parties(client, mon
     order_id = create_resp.json()["orderId"]
 
     payload = build_payload()
-    payload["sellerId"] = "seller-999"
+    payload["sellerEmail"] = "seller-updated@example.com"
     resp = client.put(f"/v1/order/{order_id}", json=payload, headers=auth_headers("buyer-key"))
 
     assert resp.status_code == 409
-    assert resp.json() == {"detail": "Order parties cannot be changed."}
+    assert resp.json() == {"detail": "Order participant emails cannot be changed."}

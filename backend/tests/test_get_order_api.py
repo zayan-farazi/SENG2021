@@ -22,9 +22,9 @@ NS = {
 
 def build_payload() -> OrderRequest:
     return OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 7),
@@ -64,11 +64,17 @@ def client():
 def stub_app_key_lookup(monkeypatch):
     app.dependency_overrides.clear()
     key_map = {
-        hash_app_key("buyer-key"): {"party_id": "buyer-123"},
-        hash_app_key("seller-key"): {"party_id": "seller-456"},
+        hash_app_key("buyer-key"): {"party_id": "buyer-party"},
+        hash_app_key("seller-key"): {"party_id": "seller-party"},
         hash_app_key("other-key"): {"party_id": "other-party"},
     }
+    party_map = {
+        "buyer-party": {"contact_email": "buyer@example.com"},
+        "seller-party": {"contact_email": "seller@example.com"},
+        "other-party": {"contact_email": "other@example.com"},
+    }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
+    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
     yield
     app.dependency_overrides.clear()
 

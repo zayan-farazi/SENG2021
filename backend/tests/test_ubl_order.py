@@ -36,9 +36,9 @@ def test_generate_order_id_wraps_uuid_failures(monkeypatch):
 
 def test_generate_ubl_order_xml_includes_full_structure():
     req = OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 7),
@@ -120,9 +120,9 @@ def test_generate_ubl_order_xml_uses_today_and_omits_absent_optional_elements(mo
     monkeypatch.setattr(ubl_order, "date", FakeDate)
 
     req = OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         lines=[LineItem(productName="Refactoring", quantity=3, unitPrice="7.25")],
     )
@@ -141,9 +141,9 @@ def test_generate_ubl_order_xml_uses_today_and_omits_absent_optional_elements(mo
 
 def test_generate_ubl_order_xml_wraps_serialization_failures(monkeypatch):
     req = OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         lines=[LineItem(productName="Refactoring", quantity=1)],
     )

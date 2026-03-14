@@ -180,9 +180,9 @@ def test_commit_is_blocked_when_required_fields_are_missing():
 
     assert blocked["type"] == "commit.blocked"
     assert [error["loc"] for error in blocked["payload"]["errors"]] == [
-        ["buyerId"],
+        ["buyerEmail"],
         ["buyerName"],
-        ["sellerId"],
+        ["sellerEmail"],
         ["sellerName"],
         ["lines"],
     ]
@@ -197,9 +197,9 @@ def test_commit_succeeds_when_draft_is_valid():
                     "type": "session.start",
                     "payload": {
                         "draft": {
-                            "buyerId": "buyer-123",
+                            "buyerEmail": "buyer@example.com",
                             "buyerName": "Acme Books",
-                            "sellerId": "seller-456",
+                            "sellerEmail": "seller@example.com",
                             "sellerName": "Digital Book Supply",
                             "lines": [{"productName": "oranges", "quantity": 4, "unitCode": "EA"}],
                         }

@@ -14,9 +14,9 @@ from app.services.order_store import OrderPersistenceError
 
 def build_request() -> OrderRequest:
     return OrderRequest(
-        buyerId="buyer-123",
+        buyerEmail="buyer@example.com",
         buyerName="Acme Books",
-        sellerId="seller-456",
+        sellerEmail="seller@example.com",
         sellerName="Digital Book Supply",
         currency="AUD",
         issueDate=date(2026, 3, 10),
@@ -66,7 +66,9 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
         persisted_orders = other.findOrders(orderId=db_order_id)
 
         assert persisted_orders
+        assert persisted_orders[0]["buyeremail"] == req.buyerEmail
         assert persisted_orders[0]["buyername"] == req.buyerName
+        assert persisted_orders[0]["selleremail"] == req.sellerEmail
         assert persisted_orders[0]["sellername"] == req.sellerName
         assert persisted_orders[0]["currency"] == req.currency
         assert len(persisted_orders[0]["details"]) == len(req.lines)
