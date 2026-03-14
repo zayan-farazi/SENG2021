@@ -64,7 +64,9 @@ def stub_app_key_lookup(monkeypatch):
         "other-party": {"contact_email": "other@example.com"},
     }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
-    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -85,7 +87,9 @@ def db_records(monkeypatch):
         if doomed is not None:
             records.pop(doomed, None)
 
-    monkeypatch.setattr(order_store, "load_order_record_from_database", load_order_record_from_database)
+    monkeypatch.setattr(
+        order_store, "load_order_record_from_database", load_order_record_from_database
+    )
     monkeypatch.setattr(other, "deleteOrderDetails", lambda order_id: None)
     monkeypatch.setattr(other, "deleteOrder", delete_order)
     return records

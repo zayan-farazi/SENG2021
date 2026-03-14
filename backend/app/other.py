@@ -2,13 +2,16 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from supabase import Client, create_client
+from supabase.lib.client_options import SyncClientOptions
 
 _SUPABASE_CLIENT: Client | None = None
+_SUPABASE_HTTPX_CLIENT: httpx.Client | None = None
 
 
 def get_supabase_client() -> Client:
-    global _SUPABASE_CLIENT
+    global _SUPABASE_CLIENT, _SUPABASE_HTTPX_CLIENT
 
     if _SUPABASE_CLIENT is None:
         _load_local_env_files()
@@ -18,7 +21,9 @@ def get_supabase_client() -> Client:
             raise RuntimeError("SUPABASE_URL is not configured.")
         if not supabase_key:
             raise RuntimeError("SUPABASE_KEY is not configured.")
-        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
+        _SUPABASE_HTTPX_CLIENT = httpx.Client(timeout=120.0)
+        options = SyncClientOptions(httpx_client=_SUPABASE_HTTPX_CLIENT)
+        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key, options=options)
 
     return _SUPABASE_CLIENT
 
@@ -256,7 +261,9 @@ def saveAppKey(partyId, keyHash):
     return response.data[0]
 
 
-def updateOrderRuntimeMetadata(orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None):
+def updateOrderRuntimeMetadata(
+    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None
+):
     query = {}
     if externalOrderId is not None:
         query["order_id"] = externalOrderId

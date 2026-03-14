@@ -82,7 +82,9 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
         assert len(persisted_orders[0]["details"]) == len(req.lines)
     except OrderPersistenceError as exc:
         if exc.__cause__ is not None and "requesteddate" in str(exc.__cause__).lower():
-            pytest.skip("Supabase orders schema is missing requesteddate; apply the order metadata migration first.")
+            pytest.skip(
+                "Supabase orders schema is missing requesteddate; apply the order metadata migration first."
+            )
         raise
     finally:
         client = None
@@ -244,7 +246,9 @@ def test_delete_order_record_deletes_database_order_when_cache_is_empty(monkeypa
     monkeypatch.setattr(
         other, "deleteOrderDetails", lambda order_id: events.append(("details", str(order_id)))
     )
-    monkeypatch.setattr(other, "deleteOrder", lambda order_id: events.append(("order", str(order_id))))
+    monkeypatch.setattr(
+        other, "deleteOrder", lambda order_id: events.append(("order", str(order_id)))
+    )
 
     deleted = order_store.delete_order_record("ord_db_delete")
 

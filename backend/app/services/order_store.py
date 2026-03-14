@@ -108,7 +108,9 @@ def persist_order_to_database(req: OrderRequest) -> Any:
             deliverycity=delivery.city if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
-            requesteddate=delivery.requestedDate.isoformat() if delivery and delivery.requestedDate else None,
+            requesteddate=delivery.requestedDate.isoformat()
+            if delivery and delivery.requestedDate
+            else None,
             notes=req.notes,
             issueDate=req.issueDate,
             status="DRAFT",
@@ -192,7 +194,9 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
             deliverycity=delivery.city if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
-            requesteddate=delivery.requestedDate.isoformat() if delivery and delivery.requestedDate else None,
+            requesteddate=delivery.requestedDate.isoformat()
+            if delivery and delivery.requestedDate
+            else None,
             notes=req.notes,
             issueDate=req.issueDate,
             status="DRAFT",

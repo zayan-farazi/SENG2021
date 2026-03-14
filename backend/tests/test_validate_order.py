@@ -89,7 +89,9 @@ def stub_app_key_lookup(monkeypatch):
         "missing-email-party": {},
     }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
-    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 

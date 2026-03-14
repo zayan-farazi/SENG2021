@@ -79,7 +79,9 @@ def db_records(monkeypatch):
         record = records.get(order_id)
         return deepcopy(record) if record else None
 
-    monkeypatch.setattr(order_store, "load_order_record_from_database", load_order_record_from_database)
+    monkeypatch.setattr(
+        order_store, "load_order_record_from_database", load_order_record_from_database
+    )
     return records
 
 
@@ -106,7 +108,9 @@ def stub_app_key_lookup(monkeypatch):
         "other-party": {"contact_email": "other@example.com"},
     }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
-    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -402,7 +406,9 @@ def test_update_order_allows_seller_party(client, monkeypatch, db_records):
     assert resp.status_code == 200
 
 
-def test_update_order_returns_409_when_request_changes_order_parties(client, monkeypatch, db_records):
+def test_update_order_returns_409_when_request_changes_order_parties(
+    client, monkeypatch, db_records
+):
     monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
     monkeypatch.setattr(order_store, "persist_order_update_to_database", lambda dbid, req: None)
 

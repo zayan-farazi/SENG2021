@@ -87,7 +87,9 @@ def stub_app_key_lookup(monkeypatch):
         "other-party": {"contact_email": "other@example.com"},
     }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
-    monkeypatch.setattr(app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id))
+    monkeypatch.setattr(
+        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -100,7 +102,9 @@ def db_records(monkeypatch):
         record = records.get(order_id)
         return deepcopy(record) if record else None
 
-    monkeypatch.setattr(order_store, "load_order_record_from_database", load_order_record_from_database)
+    monkeypatch.setattr(
+        order_store, "load_order_record_from_database", load_order_record_from_database
+    )
     return records
 
 
