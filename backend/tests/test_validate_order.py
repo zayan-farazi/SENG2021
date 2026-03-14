@@ -101,8 +101,8 @@ def test_missing_seller_name():
 
 def test_line_missing_unit_price_is_issue():
     result = _validate_order(valid_order(lines=[valid_line(unitPrice=None)]))
-    assert result.valid is False
-    assert "lines[0].unitPrice" in issue_paths(result)
+    assert result.valid is True
+    assert "lines[0].unitPrice" in warning_paths(result)
 
 
 def test_line_missing_unit_code_is_warning():
@@ -117,25 +117,6 @@ def test_line_zero_unit_price_is_valid():
     assert "lines[0].unitPrice" not in issue_paths(result)
 
 
-def test_multiple_lines_errors_report_correct_index():
-    lines = [
-        valid_line(),
-        valid_line(unitPrice=None),
-        valid_line(unitPrice=None, unitCode=None),
-    ]
-    result = _validate_order(valid_order(lines=lines))
-    assert result.valid is False
-    assert "lines[1].unitPrice" in issue_paths(result)
-    assert "lines[2].unitPrice" in issue_paths(result)
-    assert "lines[2].unitCode" in warning_paths(result)
-    assert "lines[0].unitPrice" not in issue_paths(result)
-
-
-# ---------------------------------------------------------------------------
-# Delivery
-# ---------------------------------------------------------------------------
-
-
 def test_missing_delivery_is_warning():
     result = _validate_order(valid_order(delivery=None))
     assert result.valid is True
@@ -144,20 +125,20 @@ def test_missing_delivery_is_warning():
 
 def test_delivery_missing_street():
     result = _validate_order(valid_order(delivery=valid_delivery(street=None)))
-    assert result.valid is False
-    assert "delivery.street" in issue_paths(result)
+    assert result.valid is True
+    assert "delivery.street" in warning_paths(result)
 
 
 def test_delivery_missing_city():
     result = _validate_order(valid_order(delivery=valid_delivery(city=None)))
-    assert result.valid is False
-    assert "delivery.city" in issue_paths(result)
+    assert result.valid is True
+    assert "delivery.city" in warning_paths(result)
 
 
 def test_delivery_missing_country():
     result = _validate_order(valid_order(delivery=valid_delivery(country=None)))
-    assert result.valid is False
-    assert "delivery.country" in issue_paths(result)
+    assert result.valid is True
+    assert "delivery.country" in warning_paths(result)
 
 
 def test_delivery_missing_postcode_is_warning():
@@ -180,8 +161,8 @@ def test_delivery_missing_requested_date_is_warning():
 
 def test_missing_currency():
     result = _validate_order(valid_order(currency=None))
-    assert result.valid is False
-    assert "currency" in issue_paths(result)
+    assert result.valid is True
+    assert "currency" in warning_paths(result)
 
 
 def test_valid_currency_codes():

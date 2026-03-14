@@ -38,6 +38,12 @@ def create_order(req: OrderRequest, current_party_id: str = Depends(get_current_
 
     validation = _validate_order(req)
 
+    if not validation.valid:
+        raise HTTPException(
+        status_code=400,
+        detail=[i.model_dump() for i in validation.issues],
+    )
+
     try:
         record = order_store.create_order_record(req)
     except OrderGenerationError as exc:
@@ -300,6 +306,14 @@ def update_order(
     _assert_order_access(current_party_id, payload)
     if req.buyerId != payload.get("buyerId") or req.sellerId != payload.get("sellerId"):
         raise HTTPException(status_code=409, detail="Order parties cannot be changed.")
+    
+    validation = _validate_order(req)
+
+    if not validation.valid:
+        raise HTTPException(
+            status_code=400,
+            detail=[i.model_dump() for i in validation.issues],
+        )
 
     try:
         record = order_store.update_order_record(order_id, req)
@@ -320,6 +334,7 @@ def update_order(
         logger.exception("Order update persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
 
+    record["warnings"] = [w.model_dump() for w in validation.warnings]
     return {
         "orderId": record["orderId"],
         "status": record["status"],
@@ -394,11 +409,11 @@ def _validate_lines(order: OrderRequest, issues: list[Issue], warnings: list[Iss
                 )
             )
         if line.unitPrice is None:
-            issues.append(
+            warnings.append(
                 Issue(
                     path=f"lines[{i}].unitPrice",
                     issue="unitPrice is missing",
-                    severity=Severity.error,
+                    severity=Severity.warning,
                     hint="Provide a unit price so the order total can be calculated.",
                 )
             )
@@ -427,11 +442,11 @@ def _validate_delivery(order: OrderRequest, issues: list[Issue], warnings: list[
 
     for field in ("street", "city", "country"):
         if not getattr(order.delivery, field):
-            issues.append(
+            warnings.append(
                 Issue(
                     path=f"delivery.{field}",
                     issue=f"delivery.{field} is required",
-                    severity=Severity.error,
+                    severity=Severity.warning,
                     hint=f"Provide a value for delivery.{field}.",
                 )
             )
@@ -456,13 +471,13 @@ def _validate_delivery(order: OrderRequest, issues: list[Issue], warnings: list[
         )
 
 
-def _validate_currency(order: OrderRequest, issues: list[Issue]) -> None:
+def _validate_currency(order: OrderRequest, warnings: list[Issue]) -> None:
     if order.currency is None:
-        issues.append(
+        warnings.append(
             Issue(
                 path="currency",
                 issue="currency is required",
-                severity=Severity.error,
+                severity=Severity.warning,
                 hint="Use an ISO 4217 currency code, e.g. 'AUD'.",
             )
         )
@@ -496,7 +511,7 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
     _validate_buyer_seller(order, issues)
     _validate_lines(order, issues, warnings)
     _validate_delivery(order, issues, warnings)
-    _validate_currency(order, issues)
+    _validate_currency(order, warnings)
     _validate_dates(order, warnings)
 
     fields = [
@@ -520,5 +535,5 @@ def _validate_order(order: OrderRequest) -> ValidationResponse:
 
 
 @router.post("/v1/orders/validate")
-async def validate_order(order: OrderRequest) -> ValidationResponse:
+async def validate_order(order: OrderRequest, current_party_id: str = Depends(get_current_party_id)) -> ValidationResponse:
     return _validate_order(order)
