@@ -52,7 +52,9 @@ def get_supabase_client() -> Client:
 # saves or updates order information and returns order Id
 # creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
+    buyeremail,
     buyername,
+    selleremail,
     sellername,
     deliverystreet,
     deliverycity,
@@ -65,7 +67,9 @@ def saveOrder(
     orderId=None,
 ):
     query = {
+        "buyeremail": buyeremail,
         "buyername": buyername,
+        "selleremail": selleremail,
         "sellername": sellername,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
@@ -208,14 +212,7 @@ def saveParty(partyId, partyName, contactEmail):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert(
-            {
-                "party_id": partyId,
-                "party_name": partyName,
-                "contact_email": contactEmail,
-                "is_active": True,
-            }
-        )
+        .insert({"party_id": partyId, "party_name": partyName, "contact_email": contactEmail})
         .execute()
     )
     return response.data[0]

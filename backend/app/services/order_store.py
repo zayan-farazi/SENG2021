@@ -80,7 +80,9 @@ def persist_order_to_database(req: OrderRequest) -> Any:
     try:
         delivery = req.delivery
         db_order_id = saveOrder(
+            buyeremail=req.buyerEmail,
             buyername=req.buyerName,
+            selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
             deliverycity=delivery.city if delivery else None,
@@ -155,7 +157,9 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
         # Update order using orderId
         delivery = req.delivery
         saveOrder(
+            buyeremail=req.buyerEmail,
             buyername=req.buyerName,
+            selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
             deliverycity=delivery.city if delivery else None,
