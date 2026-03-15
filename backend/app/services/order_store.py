@@ -7,6 +7,9 @@ from app.models.schemas import OrderRequest
 from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
 ORDERS: dict[str, dict[str, Any]] = {}
+DEFAULT_ORDER_LIST_LIMIT = 20
+DEFAULT_ORDER_LIST_OFFSET = 0
+MAX_ORDER_LIST_LIMIT = 100
 
 
 class OrderPersistenceError(RuntimeError):
@@ -92,6 +95,33 @@ def get_order_record(order_id: str) -> dict[str, Any] | None:
 
     ORDERS[order_id] = record
     return record
+
+
+def list_orders_for_party(
+    current_party_email: str,
+    *,
+    limit: int = DEFAULT_ORDER_LIST_LIMIT,
+    offset: int = DEFAULT_ORDER_LIST_OFFSET,
+) -> dict[str, Any]:
+    normalized_email = _normalize_email(current_party_email)
+    if normalized_email is None:
+        return {
+            "items": [],
+            "page": {"limit": limit, "offset": offset, "hasMore": False, "total": 0},
+        }
+
+    rows = _fetch_order_rows_for_party(normalized_email)
+    summaries = [_order_summary_from_database_row(row) for row in rows]
+    summaries.sort(key=lambda item: (item["updatedAt"], item["orderId"]), reverse=True)
+    summaries = _dedupe_order_summaries(summaries)
+    total = len(summaries)
+    items = summaries[offset : offset + limit]
+    has_more = offset + len(items) < total
+
+    return {
+        "items": items,
+        "page": {"limit": limit, "offset": offset, "hasMore": has_more, "total": total},
+    }
 
 
 def persist_order_to_database(req: OrderRequest) -> Any:
@@ -256,6 +286,21 @@ def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
     return _record_from_database_row(order_id, row)
 
 
+def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]]:
+    from app.other import get_supabase_client
+
+    response = (
+        get_supabase_client()
+        .table("orders")
+        .select(
+            "id,order_id,status,createdat,updatedat,lastchanged,buyeremail,buyername,selleremail,sellername,issuedate"
+        )
+        .or_(f"buyeremail.eq.{current_party_email},selleremail.eq.{current_party_email}")
+        .execute()
+    )
+    return response.data or []
+
+
 def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "buyerEmail": _normalize_email(row.get("buyeremail")),
@@ -282,6 +327,25 @@ def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, A
         "ublXml": row.get("ublxml"),
         "warnings": [],
         "dbOrderId": str(row["id"]) if row.get("id") is not None else None,
+    }
+
+
+def _order_summary_from_database_row(row: dict[str, Any]) -> dict[str, Any]:
+    order_id = row.get("order_id")
+    if not isinstance(order_id, str) or not order_id:
+        raise OrderPersistenceError("Order row is missing order_id.")
+
+    created_at = _first_non_empty(row.get("createdat"), row.get("issuedate")) or now_z()
+    updated_at = _first_non_empty(row.get("updatedat"), row.get("lastchanged"), created_at)
+
+    return {
+        "orderId": order_id,
+        "status": row.get("status") or "DRAFT",
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+        "buyerName": row.get("buyername"),
+        "sellerName": row.get("sellername"),
+        "issueDate": _coerce_date_string(row.get("issuedate")),
     }
 
 
@@ -350,3 +414,15 @@ def _first_non_empty(*values: Any) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _dedupe_order_summaries(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique_items: list[dict[str, Any]] = []
+    seen_order_ids: set[str] = set()
+    for item in items:
+        order_id = item["orderId"]
+        if order_id in seen_order_ids:
+            continue
+        seen_order_ids.add(order_id)
+        unique_items.append(item)
+    return unique_items

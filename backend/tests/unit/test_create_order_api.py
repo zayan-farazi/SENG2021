@@ -104,7 +104,11 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert body["orderId"].startswith("ord_")
     assert body["status"] == "DRAFT"
     assert body["createdAt"].endswith("Z")
-    assert body["warnings"] == []
+    assert body == {
+        "orderId": body["orderId"],
+        "status": "DRAFT",
+        "createdAt": body["createdAt"],
+    }
 
     record = orders.ORDERS[body["orderId"]]
     assert record["createdAt"] == body["createdAt"]
@@ -117,10 +121,15 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert record["payload"]["lines"][0]["unitPrice"] == payload["lines"][0]["unitPrice"]
     assert record["warnings"] == []
 
-    root = ET.fromstring(body["ublXml"])
+    root = ET.fromstring(record["ublXml"])
+    assert root.find("cbc:CustomizationID", NS).text
+    assert root.find("cbc:ProfileID", NS).text
     assert root.find("cbc:ID", NS).text == body["orderId"]
+    assert root.find("cbc:CopyIndicator", NS).text == "false"
+    assert root.find("cbc:UUID", NS).text
     assert root.find("cbc:IssueDate", NS).text == payload["issueDate"]
-    assert root.find("cbc:Note", NS).text == payload["notes"]
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == payload["currency"]
+    assert root.find("cac:TransactionConditions/cbc:Description", NS).text == payload["notes"]
     assert (
         root.find(
             "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
@@ -130,10 +139,24 @@ def test_create_order_returns_201_and_persists_full_order(client):
     )
     assert (
         root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == payload["buyerEmail"]
+    )
+    assert (
+        root.find(
             "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
             NS,
         ).text
         == payload["sellerName"]
+    )
+    assert (
+        root.find(
+            "cac:SellerSupplierParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == payload["sellerEmail"]
     )
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "123 Test St"
     assert (
@@ -143,10 +166,12 @@ def test_create_order_returns_201_and_persists_full_order(client):
         ).text
         == payload["delivery"]["requestedDate"]
     )
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "44.99"
 
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
     assert price_amount.text == payload["lines"][0]["unitPrice"]
     assert price_amount.attrib["currencyID"] == payload["currency"]
+    assert root.find(".//cac:Price/cbc:BaseQuantity", NS).text == "2"
 
 
 def test_create_order_applies_defaults_for_optional_fields(client):
@@ -164,6 +189,12 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     body = response.json()
     record = orders.ORDERS[body["orderId"]]
 
+    assert body == {
+        "orderId": body["orderId"],
+        "status": "DRAFT",
+        "createdAt": body["createdAt"],
+    }
+
     assert record["payload"]["currency"] is None
     assert record["payload"]["issueDate"] is None
     assert record["payload"]["notes"] is None
@@ -171,12 +202,14 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     assert record["payload"]["lines"][0]["unitCode"] == "EA"
     assert record["payload"]["lines"][0]["unitPrice"] is None
 
-    root = ET.fromstring(body["ublXml"])
-    assert root.find("cbc:Note", NS) is None
+    root = ET.fromstring(record["ublXml"])
+    assert root.find("cac:TransactionConditions", NS) is None
     assert root.find("cac:Delivery", NS) is None
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
     quantity = root.find(".//cbc:Quantity", NS)
     assert quantity.attrib["unitCode"] == "EA"
     assert root.find(".//cbc:PriceAmount", NS) is None
+    assert root.find("cac:AnticipatedMonetaryTotal", NS) is None
 
 
 @pytest.mark.parametrize(
@@ -203,7 +236,19 @@ def test_create_order_rejects_invalid_payloads(client, mutator, expected_loc):
     response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 422
-    assert expected_loc in [error["loc"] for error in response.json()["detail"]]
+    body = response.json()
+    assert body["message"] == "Request validation failed."
+    source, *path_segments = expected_loc
+    expected_path = path_segments[0]
+    for segment in path_segments[1:]:
+        expected_path = (
+            f"{expected_path}[{segment}]"
+            if isinstance(segment, int)
+            else f"{expected_path}.{segment}"
+        )
+    assert any(
+        error["source"] == source and error["path"] == expected_path for error in body["errors"]
+    )
     assert orders.ORDERS == {}
 
 

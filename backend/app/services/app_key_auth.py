@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.other import findAppKeyByHash, findPartyByPartyId
 from app.services.party_registration import hash_app_key
 
+http_bearer = HTTPBearer(
+    auto_error=False,
+    description="Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
+)
+
 
 def get_current_party_email(
-    authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
 ) -> str:
-    raw_app_key = extract_bearer_token(authorization)
+    raw_app_key = extract_bearer_token(credentials)
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:
@@ -35,11 +41,16 @@ def get_current_party_email(
 get_current_party_id = get_current_party_email
 
 
-def extract_bearer_token(authorization: str | None) -> str:
-    if authorization is None:
+def extract_bearer_token(credentials: HTTPAuthorizationCredentials | str | None) -> str:
+    if credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    scheme, _, token = authorization.partition(" ")
+    if isinstance(credentials, HTTPAuthorizationCredentials):
+        scheme = credentials.scheme
+        token = credentials.credentials
+    else:
+        scheme, _, token = credentials.partition(" ")
+
     if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status_code=401, detail="Unauthorized")
 
