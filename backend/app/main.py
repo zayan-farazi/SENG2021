@@ -90,7 +90,7 @@ app = FastAPI(
         "## Authentication\n"
         "1. Register once with `POST /v1/parties/register`.\n"
         "2. Save the returned `appKey` securely.\n"
-        "3. Call protected endpoints with `Authorization: Bearer <appKey>`.\n\n"
+        "3. Call protected endpoints with `Authorization: Bearer appKey`.\n\n"
         "Protected order endpoints only allow the authenticated party when their registered "
         "contact email matches the order's `buyerEmail` or `sellerEmail`. "
         "The app key must belong to either the buyer or the seller email used in the order body.\n\n"
@@ -111,7 +111,7 @@ app = FastAPI(
         "{\n"
         '  "partyId": "buyer-co",\n'
         '  "partyName": "Buyer Co",\n'
-        '  "appKey": "<appKey>",\n'
+        '  "appKey": "appKey",\n'
         '  "message": "Store this key securely. It will not be shown again."\n'
         "}\n"
         "```\n\n"
@@ -119,7 +119,7 @@ app = FastAPI(
         "Purpose: create a draft order using the same buyer identity and a seller email/name.\n\n"
         "```bash\n"
         "curl -X POST '<baseUrl>/v1/order/create' \\\n"
-        "  -H 'Authorization: Bearer <appKey>' \\\n"
+        "  -H 'Authorization: Bearer appKey' \\\n"
         "  -H 'Content-Type: application/json' \\\n"
         "  -d '{\n"
         '    "buyerEmail": "orders@buyerco.example",\n'
@@ -159,7 +159,7 @@ app = FastAPI(
         "Purpose: confirm the created order is visible to the authenticated party.\n\n"
         "```bash\n"
         "curl -X GET '<baseUrl>/v1/orders?limit=20&offset=0' \\\n"
-        "  -H 'Authorization: Bearer <appKey>'\n"
+        "  -H 'Authorization: Bearer appKey'\n"
         "```\n\n"
         "Look for:\n\n"
         "```json\n"
@@ -182,7 +182,7 @@ app = FastAPI(
         "Purpose: inspect the current order metadata by `orderId`.\n\n"
         "```bash\n"
         "curl -X GET '<baseUrl>/v1/order/<orderId>' \\\n"
-        "  -H 'Authorization: Bearer <appKey>'\n"
+        "  -H 'Authorization: Bearer appKey'\n"
         "```\n\n"
         "Look for:\n\n"
         "```json\n"
@@ -202,7 +202,7 @@ app = FastAPI(
         "```\n\n"
         "Look for raw XML output beginning with:\n\n"
         "```xml\n"
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
         "<Order ...>\n"
         "```\n\n"
         "`GET /v1/order/{order_id}/ubl` returns XML, not JSON.\n\n"
