@@ -7,6 +7,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -18,6 +19,8 @@ from app.models.schemas import (
     ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE,
     ORDER_CREATE_RESPONSE_EXAMPLE,
     ORDER_FETCH_RESPONSE_EXAMPLE,
+    ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE,
+    ORDER_LIST_RESPONSE_EXAMPLE,
     ORDER_UPDATE_RESPONSE_EXAMPLE,
     VALIDATION_RESPONSE_INVALID_EXAMPLE,
     VALIDATION_RESPONSE_VALID_EXAMPLE,
@@ -25,6 +28,7 @@ from app.models.schemas import (
     OrderConversionResponse,
     OrderCreateResponse,
     OrderFetchResponse,
+    OrderListResponse,
     OrderRequest,
     OrderUpdateResponse,
     Severity,
@@ -186,6 +190,46 @@ async def convert_transcript_to_order_payload(
         conversion_warnings=conversion.warnings,
         conversion_issues=conversion.issues,
         current_party_email=current_party_email,
+    )
+
+
+@router.get(
+    "/v1/orders",
+    response_model=OrderListResponse,
+    summary="List orders (Bearer app key required)",
+    description=(
+        "List orders where the authenticated party is either the buyer or seller. "
+        "Results are sorted newest-first by `updatedAt`, then `orderId`, and paginated with "
+        "`limit` and `offset`."
+    ),
+    responses={
+        200: {
+            "description": "A paginated list of the caller's orders.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "firstPage": {"value": ORDER_LIST_RESPONSE_EXAMPLE},
+                        "finalPage": {"value": ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE},
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+    },
+)
+def list_orders(
+    limit: int = Query(
+        default=order_store.DEFAULT_ORDER_LIST_LIMIT,
+        ge=1,
+        le=order_store.MAX_ORDER_LIST_LIMIT,
+    ),
+    offset: int = Query(default=order_store.DEFAULT_ORDER_LIST_OFFSET, ge=0),
+    current_party_email: str = Depends(get_current_party_email),
+):
+    return order_store.list_orders_for_party(
+        current_party_email,
+        limit=limit,
+        offset=offset,
     )
 
 
