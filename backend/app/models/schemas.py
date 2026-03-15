@@ -279,23 +279,6 @@ TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES = {
     }
 }
 
-CSV_CONVERSION_VALIDATION_ERROR_EXAMPLES = {
-    "missingFile": {
-        "summary": "Missing CSV upload",
-        "value": {
-            "message": "Request validation failed.",
-            "errors": [
-                {
-                    "source": "body",
-                    "path": "file",
-                    "message": "Field required",
-                    "code": "missing",
-                }
-            ],
-        },
-    }
-}
-
 REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/parties/register", "post"): {
         "description": "The registration payload is missing required party details or uses an invalid contact email.",
@@ -316,10 +299,6 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/orders/convert/transcript", "post"): {
         "description": "The transcript conversion request is missing the required transcript body.",
         "examples": TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES,
-    },
-    ("/v1/orders/convert/csv", "post"): {
-        "description": "The CSV conversion request is missing the uploaded file.",
-        "examples": CSV_CONVERSION_VALIDATION_ERROR_EXAMPLES,
     },
 }
 

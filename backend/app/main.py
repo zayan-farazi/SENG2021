@@ -5,15 +5,15 @@ from time import monotonic
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router
 from app.models.schemas import (
-    REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLES,
     REQUEST_VALIDATION_DISABLED_ROUTES,
+    REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLES,
     REQUEST_VALIDATION_ROUTE_DOCS,
     RequestValidationErrorResponse,
 )
@@ -29,9 +29,7 @@ SWAGGER_UI_VERSION = "5.32.0"
 SWAGGER_UI_CSS_URL = f"/static/swagger-ui-{SWAGGER_UI_VERSION}.css"
 SWAGGER_UI_JS_URL = f"/static/swagger-ui-bundle-{SWAGGER_UI_VERSION}.js"
 SWAGGER_UI_PLUGIN_URL = "/static/swagger-runtime-xml-plugin.js"
-REQUEST_VALIDATION_COMPONENT_REF = (
-    "#/components/schemas/RequestValidationErrorResponse"
-)
+REQUEST_VALIDATION_COMPONENT_REF = "#/components/schemas/RequestValidationErrorResponse"
 
 
 @asynccontextmanager

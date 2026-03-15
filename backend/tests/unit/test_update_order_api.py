@@ -264,9 +264,13 @@ def test_update_order_returns_422_for_invalid_payload(client, monkeypatch, mutat
     expected_path = path_segments[0]
     for segment in path_segments[1:]:
         expected_path = (
-            f"{expected_path}[{segment}]" if isinstance(segment, int) else f"{expected_path}.{segment}"
+            f"{expected_path}[{segment}]"
+            if isinstance(segment, int)
+            else f"{expected_path}.{segment}"
         )
-    assert any(error["source"] == source and error["path"] == expected_path for error in body["errors"])
+    assert any(
+        error["source"] == source and error["path"] == expected_path for error in body["errors"]
+    )
 
 
 def test_update_order_returns_500_when_xml_generation_fails(client, monkeypatch):
