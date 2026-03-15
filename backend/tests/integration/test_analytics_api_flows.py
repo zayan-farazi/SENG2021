@@ -34,7 +34,9 @@ def _auth_headers(app_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {app_key}"}
 
 
-def _order_payload(*, buyer: dict, seller: dict, tag: str, notes: str, quantity: int, unit_price: str) -> dict:
+def _order_payload(
+    *, buyer: dict, seller: dict, tag: str, notes: str, quantity: int, unit_price: str
+) -> dict:
     return {
         "buyerEmail": buyer["contactEmail"],
         "buyerName": buyer["partyName"],
@@ -62,7 +64,17 @@ def _order_payload(*, buyer: dict, seller: dict, tag: str, notes: str, quantity:
     }
 
 
-def _create_order(client, tracked, *, buyer: dict, seller: dict, tag: str, notes: str, quantity: int, unit_price: str):
+def _create_order(
+    client,
+    tracked,
+    *,
+    buyer: dict,
+    seller: dict,
+    tag: str,
+    notes: str,
+    quantity: int,
+    unit_price: str,
+):
     response = client.post(
         "/v1/order/create",
         json=_order_payload(
