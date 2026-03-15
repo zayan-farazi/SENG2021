@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.models.schemas import ORDER_REQUEST_EXAMPLE, Delivery, LineItem, OrderRequest
 from app.services import ubl_order
 from app.services.ubl_order import OrderGenerationError
 
@@ -217,3 +217,27 @@ def test_generate_ubl_order_xml_wraps_serialization_failures(monkeypatch):
 
     with pytest.raises(OrderGenerationError, match="Unable to generate UBL order XML."):
         ubl_order.generate_ubl_order_xml("ord_1234567890abcdef", req)
+
+
+def test_generate_docs_example_ubl_order_xml_is_deterministic():
+    req = OrderRequest.model_validate(ORDER_REQUEST_EXAMPLE)
+
+    generated = ubl_order.generate_docs_example_ubl_order_xml()
+    expected = ubl_order.generate_ubl_order_xml(
+        ubl_order.DOCS_EXAMPLE_ORDER_ID,
+        req,
+        document_uuid=ubl_order.DOCS_EXAMPLE_UUID,
+    )
+
+    assert generated == expected
+    assert generated == ubl_order.generate_docs_example_ubl_order_xml()
+    assert generated.startswith('<?xml version="1.0" encoding="utf-8"?>')
+    assert (
+        generated.splitlines()[1]
+        == '<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2" '
+        'xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" '
+        'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
+    )
+    assert '  <cbc:LineExtensionAmount currencyID="AUD">14.00</cbc:LineExtensionAmount>' in (
+        generated
+    )

@@ -250,3 +250,81 @@ def test_get_order_allows_seller_party(client, created_order):
     response = client.get(f"/v1/order/{order_id}", headers=auth_headers("seller-key"))
 
     assert response.status_code == 200
+
+
+def test_get_order_ubl_returns_raw_xml_for_buyer(client, created_order):
+    order_id, record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("buyer-key"))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/xml")
+    assert response.text == record["ublXml"]
+
+    root = ET.fromstring(response.text)
+    assert root.find("cbc:ID", NS).text == order_id
+
+
+def test_get_order_ubl_allows_seller_party(client, created_order):
+    order_id, record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("seller-key"))
+
+    assert response.status_code == 200
+    assert response.text == record["ublXml"]
+
+
+def test_get_order_ubl_returns_404_when_order_not_found(client):
+    response = client.get("/v1/order/nonexistent123/ubl", headers=auth_headers("buyer-key"))
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_get_order_ubl_returns_500_when_xml_is_missing(client, created_order):
+    order_id, record = created_order
+    record["ublXml"] = None
+
+    response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("buyer-key"))
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Order XML missing."}
+
+
+def test_get_order_ubl_returns_401_when_auth_header_is_missing(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/ubl")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_get_order_ubl_returns_401_for_malformed_auth_header(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(
+        f"/v1/order/{order_id}/ubl",
+        headers={"Authorization": "Basic buyer-key"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_get_order_ubl_returns_401_for_unknown_app_key(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("unknown-key"))
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_get_order_ubl_returns_403_for_non_party_caller(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("other-key"))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}

@@ -104,7 +104,11 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert body["orderId"].startswith("ord_")
     assert body["status"] == "DRAFT"
     assert body["createdAt"].endswith("Z")
-    assert body["warnings"] == []
+    assert body == {
+        "orderId": body["orderId"],
+        "status": "DRAFT",
+        "createdAt": body["createdAt"],
+    }
 
     record = orders.ORDERS[body["orderId"]]
     assert record["createdAt"] == body["createdAt"]
@@ -117,7 +121,7 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert record["payload"]["lines"][0]["unitPrice"] == payload["lines"][0]["unitPrice"]
     assert record["warnings"] == []
 
-    root = ET.fromstring(body["ublXml"])
+    root = ET.fromstring(record["ublXml"])
     assert root.find("cbc:CustomizationID", NS).text
     assert root.find("cbc:ProfileID", NS).text
     assert root.find("cbc:ID", NS).text == body["orderId"]
@@ -185,6 +189,12 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     body = response.json()
     record = orders.ORDERS[body["orderId"]]
 
+    assert body == {
+        "orderId": body["orderId"],
+        "status": "DRAFT",
+        "createdAt": body["createdAt"],
+    }
+
     assert record["payload"]["currency"] is None
     assert record["payload"]["issueDate"] is None
     assert record["payload"]["notes"] is None
@@ -192,7 +202,7 @@ def test_create_order_applies_defaults_for_optional_fields(client):
     assert record["payload"]["lines"][0]["unitCode"] == "EA"
     assert record["payload"]["lines"][0]["unitPrice"] is None
 
-    root = ET.fromstring(body["ublXml"])
+    root = ET.fromstring(record["ublXml"])
     assert root.find("cac:TransactionConditions", NS) is None
     assert root.find("cac:Delivery", NS) is None
     assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"

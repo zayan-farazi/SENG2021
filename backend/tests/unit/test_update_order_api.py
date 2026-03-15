@@ -162,7 +162,11 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     assert body["status"] == "DRAFT"
     assert body["updatedAt"].endswith("Z")
     assert body["updatedAt"] != before_updated_at
-    assert body["warnings"] == []
+    assert body == {
+        "orderId": order_id,
+        "status": "DRAFT",
+        "updatedAt": body["updatedAt"],
+    }
 
     # Check order details have been updated from a cache miss
     record = orders.ORDERS[order_id]
@@ -172,7 +176,7 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     assert record["payload"]["lines"][0]["unitPrice"] == "99.99"
 
     # UBL XML has been updated
-    root = ET.fromstring(body["ublXml"])
+    root = ET.fromstring(record["ublXml"])
     assert root.find("cbc:ID", NS).text == order_id
     assert root.find("cbc:UUID", NS).text
     assert root.find("cbc:DocumentCurrencyCode", NS).text == update_payload["currency"]

@@ -14,6 +14,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.responses import Response
 from pydantic import ValidationError
 
 from app.models.schemas import (
@@ -50,7 +51,7 @@ from app.services.order_store import (
     OrderNotFoundError,
     OrderPersistenceError,
 )
-from app.services.ubl_order import OrderGenerationError
+from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
@@ -98,6 +99,7 @@ VALIDATION_FAILURE_RESPONSE = {
 
 CSV_SAMPLE = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
 orders@buyerco.example,Buyer Co,sales@supplier.example,Supplier Pty Ltd,AUD,2026-03-14,Please deliver before noon.,123 Harbour Street,Sydney,NSW,2000,AU,2026-03-20,Oranges,4,EA,3.50"""
+ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
 
 
 @router.post(
@@ -145,7 +147,11 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
         raise HTTPException(status_code=500, detail="Unable to persist order.") from exc
 
     record["warnings"] = [w.model_dump() for w in validation.warnings]
-    return order_store.build_order_response(record)
+    return {
+        "orderId": record["orderId"],
+        "status": record["status"],
+        "createdAt": record["createdAt"],
+    }
 
 
 @router.post(
@@ -547,6 +553,44 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
     }
 
 
+@router.get(
+    "/v1/order/{order_id}/ubl",
+    operation_id="get_order_ubl_xml",
+    response_class=Response,
+    summary="Get order UBL XML (Bearer app key required)",
+    description=(
+        "Fetch the raw persisted UBL XML for an order by its public `orderId`. "
+        "Only the buyer or seller on the order may access it."
+    ),
+    responses={
+        200: {
+            "description": "Order XML fetched successfully.",
+            "content": {"application/xml": {"example": ORDER_FETCH_XML_EXAMPLE}},
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        500: {
+            "description": "The stored order XML is missing.",
+            "content": {"application/json": {"example": {"detail": "Order XML missing."}}},
+        },
+    },
+)
+def get_order_ubl(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+    order = order_store.get_order_record(order_id)
+
+    if order is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = order.get("payload", {})
+    _assert_order_access(current_party_email, payload)
+
+    if not order.get("ublXml"):
+        raise HTTPException(status_code=500, detail="Order XML missing.")
+
+    return Response(content=order["ublXml"], media_type="application/xml")
+
+
 @router.put(
     "/v1/order/{order_id}",
     response_model=OrderUpdateResponse,
@@ -636,8 +680,6 @@ def update_order(
         "orderId": record["orderId"],
         "status": record["status"],
         "updatedAt": record["updatedAt"],
-        "ublXml": record["ublXml"],
-        "warnings": record["warnings"],
     }
 
 

@@ -7,7 +7,7 @@ from xml.dom import minidom
 from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
 from xml.parsers.expat import ExpatError
 
-from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.models.schemas import ORDER_REQUEST_EXAMPLE, Delivery, LineItem, OrderRequest
 
 NS_ORDER = "urn:oasis:names:specification:ubl:schema:xsd:Order-2"
 NS_CBC = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
@@ -15,6 +15,8 @@ NS_CAC = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents
 CUSTOMIZATION_ID = "urn:oasis:names:specification:ubl:xpath:Order-2.1:sbs-1.0"
 PROFILE_ID = "bpid:urn:oasis:names:bpss:ubl-2-sbs-order-with-simple-response"
 DEFAULT_CURRENCY = "AUD"
+DOCS_EXAMPLE_ORDER_ID = "ord_abc123def456"
+DOCS_EXAMPLE_UUID = "82DC44A7-262C-4A01-BE63-1CB133EAC0FF"
 
 register_namespace("", NS_ORDER)
 register_namespace("cbc", NS_CBC)
@@ -154,7 +156,12 @@ def _add_monetary_total(order: Element, lines: list[LineItem], currency: str) ->
     _cbc(total_node, "PayableAmount", _format_decimal(total), currencyID=currency)
 
 
-def generate_ubl_order_xml(order_id: str, req: OrderRequest) -> str:
+def generate_ubl_order_xml(
+    order_id: str,
+    req: OrderRequest,
+    *,
+    document_uuid: str | None = None,
+) -> str:
     try:
         order = Element(f"{{{NS_ORDER}}}Order")
         currency = req.currency or DEFAULT_CURRENCY
@@ -164,7 +171,7 @@ def generate_ubl_order_xml(order_id: str, req: OrderRequest) -> str:
         _cbc(order, "ProfileID", PROFILE_ID)
         _cbc(order, "ID", order_id)
         _cbc(order, "CopyIndicator", "false")
-        _cbc(order, "UUID", str(uuid4()).upper())
+        _cbc(order, "UUID", document_uuid or str(uuid4()).upper())
         _cbc(order, "IssueDate", (req.issueDate or date.today()).isoformat())
         _cbc(order, "DocumentCurrencyCode", currency)
         if req.notes:
@@ -193,3 +200,12 @@ def generate_ubl_order_xml(order_id: str, req: OrderRequest) -> str:
         return pretty.decode("utf-8")
     except (ExpatError, TypeError, ValueError) as exc:
         raise OrderGenerationError("Unable to generate UBL order XML.") from exc
+
+
+def generate_docs_example_ubl_order_xml() -> str:
+    req = OrderRequest.model_validate(ORDER_REQUEST_EXAMPLE)
+    return generate_ubl_order_xml(
+        DOCS_EXAMPLE_ORDER_ID,
+        req,
+        document_uuid=DOCS_EXAMPLE_UUID,
+    )

@@ -106,6 +106,13 @@ def test_full_order_lifecycle_survives_cache_reset(integration_client, tracked_s
     )
     assert get_after_reset.status_code == 200
 
+    get_ubl_after_reset = integration_client.get(
+        f"/v1/order/{order_id}/ubl",
+        headers=_auth_headers(buyer["appKey"]),
+    )
+    assert get_ubl_after_reset.status_code == 200
+    assert "Lifecycle test order" in get_ubl_after_reset.text
+
     update_payload = _order_payload(
         buyer=buyer,
         seller=seller,
@@ -122,6 +129,7 @@ def test_full_order_lifecycle_survives_cache_reset(integration_client, tracked_s
         headers=_auth_headers(seller["appKey"]),
     )
     assert update_after_reset.status_code == 200
+    assert sorted(update_after_reset.json()) == ["orderId", "status", "updatedAt"]
 
     order_store.ORDERS.clear()
 
@@ -131,6 +139,13 @@ def test_full_order_lifecycle_survives_cache_reset(integration_client, tracked_s
     )
     assert get_after_update_reset.status_code == 200
     assert "Lifecycle test order updated" in get_after_update_reset.json()["ublXml"]
+
+    get_ubl_after_update = integration_client.get(
+        f"/v1/order/{order_id}/ubl",
+        headers=_auth_headers(seller["appKey"]),
+    )
+    assert get_ubl_after_update.status_code == 200
+    assert "Lifecycle test order updated" in get_ubl_after_update.text
 
     persisted = findOrders(externalOrderId=order_id)
     assert persisted
@@ -278,6 +293,13 @@ def test_unrelated_registered_party_is_forbidden_from_order_crud(
     assert (
         integration_client.get(
             f"/v1/order/{order_id}",
+            headers=_auth_headers(outsider["appKey"]),
+        ).status_code
+        == 403
+    )
+    assert (
+        integration_client.get(
+            f"/v1/order/{order_id}/ubl",
             headers=_auth_headers(outsider["appKey"]),
         ).status_code
         == 403
