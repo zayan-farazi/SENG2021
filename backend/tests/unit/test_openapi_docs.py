@@ -34,7 +34,6 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/order/{order_id}", "delete"),
         ("/v1/orders/validate", "post"),
         ("/v1/orders/convert/transcript", "post"),
-        ("/v1/orders/convert/csv", "post"),
     ]
 
     for path, method in protected_paths:
@@ -175,20 +174,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert transcript_422["examples"]["missingTranscript"]["value"]["errors"][0]["path"] == (
         "transcript"
     )
-
-    csv_post = schema["paths"]["/v1/orders/convert/csv"]["post"]
-    assert "buyerEmail,buyerName,sellerEmail" in csv_post["description"]
-    assert (
-        csv_post["responses"]["400"]["content"]["application/json"]["examples"]["wrongFileType"][
-            "value"
-        ]["detail"]
-        == "CSV upload must use a .csv file."
-    )
-    csv_422 = csv_post["responses"]["422"]["content"]["application/json"]
-    assert csv_post["responses"]["422"]["description"] == (
-        "The CSV conversion request is missing the uploaded file."
-    )
-    assert csv_422["examples"]["missingFile"]["value"]["errors"][0]["path"] == "file"
+    assert "/v1/orders/convert/csv" not in schema["paths"]
 
 
 def test_docs_route_uses_custom_swagger_wrapper_for_ubl_xml_example():

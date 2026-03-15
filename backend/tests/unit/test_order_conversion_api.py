@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -115,79 +113,3 @@ def test_transcript_conversion_returns_401_when_auth_header_is_missing(client):
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Unauthorized"}
-
-
-def test_csv_conversion_returns_payload_for_authorized_buyer(client):
-    csv_text = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-buyer@example.com,Buyer Co,seller@example.com,Seller Co,AUD,2026-03-14,CSV helper,1 Helper St,Sydney,NSW,2000,AU,2026-03-20,Oranges,3,EA,4.25
-"""
-
-    response = client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        headers=auth_headers("buyer-key"),
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["valid"] is True
-    assert body["source"] == "csv"
-    assert body["payload"]["notes"] == "CSV helper"
-
-
-def test_csv_conversion_accepts_current_payload_context(client):
-    payload = build_payload()
-    payload["notes"] = "Existing payload notes"
-    csv_text = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-,,,,,,,,,,,,,Oranges,3,EA,4.25
-"""
-
-    response = client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        data={"currentPayload": json.dumps(payload)},
-        headers=auth_headers("buyer-key"),
-    )
-
-    assert response.status_code == 200
-    assert response.json()["payload"]["notes"] == "Existing payload notes"
-
-
-def test_csv_conversion_returns_400_for_non_csv_upload(client):
-    response = client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.txt", "not,csv", "text/plain")},
-        headers=auth_headers("buyer-key"),
-    )
-
-    assert response.status_code == 400
-    assert response.json() == {"detail": "CSV upload must use a .csv file."}
-
-
-def test_csv_conversion_returns_400_for_invalid_current_payload(client):
-    csv_text = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-buyer@example.com,Buyer Co,seller@example.com,Seller Co,AUD,2026-03-14,CSV helper,1 Helper St,Sydney,NSW,2000,AU,2026-03-20,Oranges,3,EA,4.25
-"""
-
-    response = client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        data={"currentPayload": '{"broken": true'},
-        headers=auth_headers("buyer-key"),
-    )
-
-    assert response.status_code == 400
-
-
-def test_csv_conversion_returns_403_for_unrelated_party(client):
-    csv_text = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-buyer@example.com,Buyer Co,seller@example.com,Seller Co,AUD,2026-03-14,CSV helper,1 Helper St,Sydney,NSW,2000,AU,2026-03-20,Oranges,3,EA,4.25
-"""
-
-    response = client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        headers=auth_headers("other-key"),
-    )
-
-    assert response.status_code == 403

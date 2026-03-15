@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import logging
-from json import JSONDecodeError
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import (
     APIRouter,
     Depends,
-    File,
-    Form,
     HTTPException,
-    UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -96,9 +92,6 @@ VALIDATION_FAILURE_RESPONSE = {
         }
     },
 }
-
-CSV_SAMPLE = """buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-orders@buyerco.example,Buyer Co,sales@supplier.example,Supplier Pty Ltd,AUD,2026-03-14,Please deliver before noon.,123 Harbour Street,Sydney,NSW,2000,AU,2026-03-20,Oranges,4,EA,3.50"""
 ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
 
 
@@ -189,86 +182,6 @@ async def convert_transcript_to_order_payload(
     )
     return _build_conversion_response(
         source="transcript",
-        draft=order_conversion.prefill_caller_email(conversion.draft, current_party_email),
-        conversion_warnings=conversion.warnings,
-        conversion_issues=conversion.issues,
-        current_party_email=current_party_email,
-    )
-
-
-@router.post(
-    "/v1/orders/convert/csv",
-    response_model=OrderConversionResponse,
-    summary="Convert CSV to order payload (Bearer app key required)",
-    description=(
-        "Upload a canonical CSV file and receive an `OrderRequest`-shaped payload without creating "
-        "an order. Required CSV headers:\n\n"
-        "`buyerEmail`, `buyerName`, `sellerEmail`, `sellerName`, `currency`, `issueDate`, `notes`, "
-        "`deliveryStreet`, `deliveryCity`, `deliveryState`, `deliveryPostcode`, "
-        "`deliveryCountry`, `deliveryRequestedDate`, `productName`, `quantity`, `unitCode`, "
-        "`unitPrice`.\n\n"
-        f"Example CSV:\n```csv\n{CSV_SAMPLE}\n```"
-    ),
-    responses={
-        200: {
-            "description": "CSV converted into a normalized order payload or partial draft.",
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "success": {
-                            "value": {
-                                **ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE,
-                                "source": "csv",
-                            }
-                        },
-                        "malformed": {
-                            "value": {
-                                **ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE,
-                                "source": "csv",
-                            }
-                        },
-                    }
-                }
-            },
-        },
-        400: {
-            "description": "The uploaded file or `currentPayload` input is invalid.",
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "wrongFileType": {"value": {"detail": "CSV upload must use a .csv file."}},
-                        "badJson": {"value": {"detail": "currentPayload must be valid JSON."}},
-                    }
-                }
-            },
-        },
-        401: UNAUTHORIZED_RESPONSE,
-        403: FORBIDDEN_RESPONSE,
-    },
-)
-async def convert_csv_to_order_payload(
-    file: Annotated[UploadFile, File(...)],
-    currentPayload: Annotated[str | None, Form()] = None,
-    current_party_email: str = Depends(get_current_party_email),
-):
-    if not (file.filename or "").lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="CSV upload must use a .csv file.")
-
-    try:
-        current_payload = order_conversion.parse_current_payload_json(currentPayload)
-    except ValidationError as exc:
-        raise HTTPException(status_code=400, detail=exc.errors()) from exc
-    except (ValueError, JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail="currentPayload must be valid JSON.") from exc
-
-    try:
-        csv_text = (await file.read()).decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=400, detail="CSV file must be UTF-8 encoded.") from exc
-
-    conversion = order_conversion.convert_csv_to_draft(csv_text, current_payload)
-    return _build_conversion_response(
-        source="csv",
         draft=order_conversion.prefill_caller_email(conversion.draft, current_party_email),
         conversion_warnings=conversion.warnings,
         conversion_issues=conversion.issues,

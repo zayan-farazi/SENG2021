@@ -4,7 +4,6 @@ from time import time_ns
 
 import pytest
 
-from app.other import findOrders
 from app.services import groq_order_extractor, order_store
 from app.services.order_draft import (
     HostedDeliveryFieldUpdates,
@@ -168,83 +167,3 @@ def test_transcript_conversion_payload_can_drive_create_and_update(
     )
     assert get_ubl_response.status_code == 200
     assert "updated" in get_ubl_response.text
-
-
-def test_csv_conversion_payload_can_drive_create(integration_client, tracked_supabase_records):
-    tag = _tag()
-    buyer = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="CSV Buyer",
-        email_prefix="csv-buyer",
-        tag=tag,
-    )
-    seller = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="CSV Seller",
-        email_prefix="csv-seller",
-        tag=tag,
-    )
-
-    csv_text = f"""buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-{buyer["contactEmail"]},{buyer["partyName"]},{seller["contactEmail"]},{seller["partyName"]},AUD,2026-03-14,CSV order {tag},1 CSV Lane,Sydney,NSW,2000,AU,2026-03-20,Oranges,3,EA,4.25
-"""
-
-    convert_response = integration_client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        headers=_auth_headers(buyer["appKey"]),
-    )
-    assert convert_response.status_code == 200
-    payload = convert_response.json()["payload"]
-
-    create_response = integration_client.post(
-        "/v1/order/create",
-        json=payload,
-        headers=_auth_headers(buyer["appKey"]),
-    )
-    assert create_response.status_code == 201
-    order_id = create_response.json()["orderId"]
-    tracked_supabase_records["order_ids"].append(order_id)
-
-    assert findOrders(externalOrderId=order_id)
-
-
-def test_csv_conversion_forbids_unrelated_registered_party(
-    integration_client, tracked_supabase_records
-):
-    tag = _tag()
-    buyer = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="CSV Auth Buyer",
-        email_prefix="csv-auth-buyer",
-        tag=tag,
-    )
-    seller = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="CSV Auth Seller",
-        email_prefix="csv-auth-seller",
-        tag=tag,
-    )
-    outsider = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="CSV Auth Outsider",
-        email_prefix="csv-auth-outsider",
-        tag=tag,
-    )
-
-    csv_text = f"""buyerEmail,buyerName,sellerEmail,sellerName,currency,issueDate,notes,deliveryStreet,deliveryCity,deliveryState,deliveryPostcode,deliveryCountry,deliveryRequestedDate,productName,quantity,unitCode,unitPrice
-{buyer["contactEmail"]},{buyer["partyName"]},{seller["contactEmail"]},{seller["partyName"]},AUD,2026-03-14,CSV order {tag},1 CSV Lane,Sydney,NSW,2000,AU,2026-03-20,Oranges,3,EA,4.25
-"""
-
-    convert_response = integration_client.post(
-        "/v1/orders/convert/csv",
-        files={"file": ("order.csv", csv_text, "text/csv")},
-        headers=_auth_headers(outsider["appKey"]),
-    )
-
-    assert convert_response.status_code == 403
