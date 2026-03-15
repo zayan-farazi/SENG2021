@@ -6,8 +6,8 @@ from app.main import app
 from app.services.ubl_order import generate_docs_example_ubl_order_xml
 
 
-def _openapi() -> dict:
-    with TestClient(app, raise_server_exceptions=False) as client:
+def _openapi(base_url: str = "http://testserver") -> dict:
+    with TestClient(app, base_url=base_url, raise_server_exceptions=False) as client:
         response = client.get("/openapi.json")
 
     assert response.status_code == 200
@@ -18,11 +18,42 @@ def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
 
     assert "/" not in schema["paths"]
+    assert "## Authentication" in schema["info"]["description"]
+    assert "## Successful Use Case" in schema["info"]["description"]
+    assert "POST /v1/parties/register" in schema["info"]["description"]
+    assert "POST /v1/order/create" in schema["info"]["description"]
+    assert "<baseUrl>" not in schema["info"]["description"]
+    assert "http://testserver/v1/parties/register" in schema["info"]["description"]
+    assert "http://testserver/v1/order/create" in schema["info"]["description"]
+    assert "http://testserver/v1/orders?limit=20&offset=0" in schema["info"]["description"]
+    assert "http://testserver/v1/order/<orderId>" in schema["info"]["description"]
+    assert "http://testserver/v1/order/<orderId>/ubl" in schema["info"]["description"]
+    assert "Authorization: Bearer <appKey>" in schema["info"]["description"]
+    assert "app key must belong to either the buyer or the seller" in schema["info"]["description"]
+    assert '"buyerEmail": "orders@buyerco.example"' in schema["info"]["description"]
+    assert "`GET /v1/order/{order_id}/ubl` returns XML, not JSON." in schema["info"]["description"]
+    assert "POST /v1/orders/convert/transcript" in schema["info"]["description"]
+    assert schema["servers"] == [{"url": "http://testserver"}]
     assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
         "type": "http",
         "scheme": "bearer",
         "description": "Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
     }
+
+
+def test_openapi_description_uses_request_host_without_cross_request_leakage():
+    render_schema = _openapi("https://seng2021.onrender.com")
+    railway_schema = _openapi("https://lockedout.up.railway.app")
+
+    render_description = render_schema["info"]["description"]
+    railway_description = railway_schema["info"]["description"]
+
+    assert "https://seng2021.onrender.com/v1/parties/register" in render_description
+    assert render_schema["servers"] == [{"url": "https://seng2021.onrender.com"}]
+    assert "https://lockedout.up.railway.app/v1/parties/register" in railway_description
+    assert railway_schema["servers"] == [{"url": "https://lockedout.up.railway.app"}]
+    assert "https://lockedout.up.railway.app" not in render_description
+    assert "https://seng2021.onrender.com" not in railway_description
 
 
 def test_protected_order_routes_declare_bearer_security():
