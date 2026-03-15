@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from app.other import findOrders, findOrderDetails
+from app.other import findOrderDetails, findOrders
+
 
 def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetime | None):
 
     if fromDate is None or toDate is None:
-      raise ValueError("fromDate and toDate must be provided")
+        raise ValueError("fromDate and toDate must be provided")
 
     seller_orders = findOrders(selleremail=username, fromDate=fromDate, toDate=toDate)
     buyer_orders = findOrders(buyeremail=username, fromDate=fromDate, toDate=toDate)
@@ -38,6 +39,7 @@ def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetim
 
     return {"message": "No orders found"}
 
+
 def calculate_seller_analytics(res, fromDate, toDate):
 
     totalIncome = 0
@@ -50,12 +52,10 @@ def calculate_seller_analytics(res, fromDate, toDate):
     dateFreq = {}
 
     for order in res.data:
-
         orderLines = findOrderDetails(order["id"])
         data = orderLines.data
 
         for line in data:
-
             totalIncome += line["unitprice"] * line["quantity"]
             itemsSold += line["quantity"]
 
@@ -94,14 +94,14 @@ def calculate_seller_analytics(res, fromDate, toDate):
 
         if dateFreq:
             highestDaySales = max(dateFreq, key=dateFreq.get)
-        
+
         numDays = max((toDate - fromDate).days + 1, 1)
 
     return {
         "totalOrders": res.count,
         "totalIncome": totalIncome,
         "itemsSold": itemsSold,
-        "averageItemSoldPrice": totalIncome / itemsSold if itemsSold else 0 ,
+        "averageItemSoldPrice": totalIncome / itemsSold if itemsSold else 0,
         "averageOrderAmount": totalIncome / res.count if itemsSold else 0,
         "averageOrderItemNumber": itemsSold / res.count if itemsSold else 0,
         "averageDailyIncome": totalIncome / numDays,
@@ -116,17 +116,16 @@ def calculate_seller_analytics(res, fromDate, toDate):
         "mostPopularProductSales": productFreq[highestCode][highestProd],
     }
 
+
 def calculate_buyer_analytics(res, fromDate, toDate):
 
     totalSpent = 0
     itemsBought = 0
 
     for order in res.data:
-
         orderLines = findOrderDetails(order["id"])
 
         for line in orderLines.data:
-
             totalSpent += line["unitprice"] * line["quantity"]
             itemsBought += line["quantity"]
 
@@ -142,4 +141,3 @@ def calculate_buyer_analytics(res, fromDate, toDate):
         "averageDailySpend": totalSpent / numDays,
         "averageDailyOrders": res.count / numDays,
     }
-

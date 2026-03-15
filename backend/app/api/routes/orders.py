@@ -1,7 +1,7 @@
 from __future__ import annotations
-from datetime import datetime
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastapi import (
@@ -37,6 +37,7 @@ from app.models.schemas import (
     ValidationResponse,
 )
 from app.services import groq_order_extractor, order_conversion, order_store
+from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email
 from app.services.order_draft import (
     DraftSessionState,
@@ -53,7 +54,7 @@ from app.services.order_store import (
     OrderPersistenceError,
 )
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
-from app.services.analytics_service import get_user_analytics
+
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
 router = APIRouter(tags=["Orders"])
@@ -923,8 +924,13 @@ async def validate_order(
     _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
     return _validate_order(order)
 
+
 @router.get("/v1/analytics/orders", status_code=200)
-def get_order_analytics(fromDate: datetime | None = None, toDate: datetime | None = None, current_party_email: str = Depends(get_current_party_email)):
+def get_order_analytics(
+    fromDate: datetime | None = None,
+    toDate: datetime | None = None,
+    current_party_email: str = Depends(get_current_party_email),
+):
     if current_party_email is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 

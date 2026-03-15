@@ -1,8 +1,7 @@
-import pytest
 from datetime import datetime
-from types import SimpleNamespace
 
 from app.services.analytics_service import get_user_analytics
+
 
 class MockResponse:
     def __init__(self, data):
@@ -44,6 +43,7 @@ def test_seller_only_analytics(monkeypatch):
     assert result["analytics"]["itemsSold"] == 3
     assert result["analytics"]["totalIncome"] == 40
 
+
 def test_buyer_only_analytics(monkeypatch):
 
     orders = [
@@ -74,6 +74,7 @@ def test_buyer_only_analytics(monkeypatch):
     assert result["role"] == "buyer"
     assert result["analytics"]["totalSpent"] == 30
     assert result["analytics"]["itemsBought"] == 2
+
 
 def test_buyer_and_seller(monkeypatch):
 
@@ -113,6 +114,7 @@ def test_buyer_and_seller(monkeypatch):
     assert result["sellerAnalytics"]["totalIncome"] == 20
     assert result["buyerAnalytics"]["totalSpent"] == 10
     assert result["netProfit"] == 10
+
 
 def test_no_orders(monkeypatch):
 
