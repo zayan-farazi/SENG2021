@@ -190,8 +190,7 @@ app = FastAPI(
         '  "orderId": "<orderId>",\n'
         '  "status": "DRAFT",\n'
         '  "createdAt": "2026-03-14T10:30:00Z",\n'
-        '  "updatedAt": "2026-03-14T10:30:00Z",\n'
-        '  "warnings": []\n'
+        '  "updatedAt": "2026-03-14T10:30:00Z"\n'
         "}\n"
         "```\n\n"
         "### 5. Fetch the UBL XML\n"
@@ -219,8 +218,7 @@ app = FastAPI(
         {
             "name": "Orders",
             "description": (
-                "Order creation, retrieval, update, deletion, validation, and helper conversion "
-                "endpoints."
+                "Order creation, retrieval, update, deletion, and helper conversion endpoints."
             ),
         },
         {
@@ -346,8 +344,7 @@ def _render_swagger_html() -> str:
       "delete /v1/order/{{order_id}}": 3,
       "get /v1/orders": 4,
       "get /v1/order/{{order_id}}/ubl": 5,
-      "post /v1/orders/validate": 6,
-      "post /v1/orders/convert/transcript": 7
+      "post /v1/orders/convert/transcript": 6
     }};
 
     const getOperationKey = (operation) => {{

@@ -65,7 +65,6 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/order/{order_id}/ubl", "get"),
         ("/v1/order/{order_id}", "put"),
         ("/v1/order/{order_id}", "delete"),
-        ("/v1/orders/validate", "post"),
         ("/v1/orders/convert/transcript", "post"),
     ]
 
@@ -97,9 +96,7 @@ def test_http_endpoints_include_summaries_and_tags():
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
         "Get order UBL XML (Bearer app key required)"
     )
-    assert schema["paths"]["/v1/orders/validate"]["post"]["summary"] == (
-        "Validate an order payload (Bearer app key required)"
-    )
+    assert "/v1/orders/validate" not in schema["paths"]
 
 
 def test_key_schemas_include_examples():
@@ -113,9 +110,12 @@ def test_key_schemas_include_examples():
     assert "LineItem-Output" not in schemas
     assert "HTTPValidationError" not in schemas
     assert "ValidationError" not in schemas
+    assert "Severity" not in schemas
+    assert "Issue" not in schemas
+    assert "ValidationResponse" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
-    assert schemas["ValidationResponse"]["examples"][1]["valid"] is False
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
+    assert schemas["OrderConversionResponse"]["examples"][1]["issues"][0] == "buyerName: Field required"
     assert schemas["RequestValidationErrorResponse"]["examples"][0]["message"] == (
         "Request validation failed."
     )
@@ -176,6 +176,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
 
     get_order = schema["paths"]["/v1/order/{order_id}"]["get"]
     assert "ublXml" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
+    assert "warnings" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
     assert "500" not in get_order["responses"]
     assert "422" not in get_order["responses"]
 
@@ -217,18 +218,6 @@ def test_endpoint_responses_include_examples_for_common_flows():
         "contactEmail"
     )
 
-    validate_post = schema["paths"]["/v1/orders/validate"]["post"]
-    examples = validate_post["responses"]["200"]["content"]["application/json"]["examples"]
-    assert examples["valid"]["value"]["valid"] is True
-    assert examples["invalid"]["value"]["valid"] is False
-    validate_422 = validate_post["responses"]["422"]["content"]["application/json"]
-    assert validate_post["responses"]["422"]["description"] == (
-        "The order payload submitted for validation is malformed."
-    )
-    assert validate_422["examples"]["missingBuyerName"]["value"]["errors"][0]["path"] == (
-        "buyerName"
-    )
-
     transcript_post = schema["paths"]["/v1/orders/convert/transcript"]["post"]
     transcript_422 = transcript_post["responses"]["422"]["content"]["application/json"]
     assert transcript_post["responses"]["422"]["description"] == (
@@ -236,6 +225,15 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
     assert transcript_422["examples"]["missingTranscript"]["value"]["errors"][0]["path"] == (
         "transcript"
+    )
+    transcript_examples = transcript_post["responses"]["200"]["content"]["application/json"][
+        "examples"
+    ]
+    assert transcript_examples["success"]["value"]["issues"] == []
+    assert "warnings" not in transcript_examples["success"]["value"]
+    assert (
+        transcript_examples["incomplete"]["value"]["issues"][1]
+        == "currency: currency is recommended before create or update."
     )
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
@@ -259,8 +257,7 @@ def test_docs_routes_use_custom_swagger_wrapper_for_ubl_xml_example():
         assert '"delete /v1/order/{order_id}": 3' in response.text
         assert '"get /v1/orders": 4' in response.text
         assert '"get /v1/order/{order_id}/ubl": 5' in response.text
-        assert '"post /v1/orders/validate": 6' in response.text
-        assert '"post /v1/orders/convert/transcript": 7' in response.text
+        assert '"post /v1/orders/convert/transcript": 6' in response.text
 
 
 def test_custom_swagger_plugin_asset_is_served():

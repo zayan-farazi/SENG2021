@@ -40,7 +40,6 @@ def create_order_record(req: OrderRequest) -> dict[str, Any]:
         "updatedAt": created_at,
         "payload": req.model_dump(mode="json"),
         "ublXml": ubl_xml,
-        "warnings": [],
     }
     db_order_id = persist_order_to_database(req)
     record["dbOrderId"] = str(db_order_id)
@@ -61,7 +60,6 @@ def build_order_response(record: dict[str, Any]) -> dict[str, Any]:
         "status": record["status"],
         "createdAt": record["createdAt"],
         "ublXml": record["ublXml"],
-        "warnings": record["warnings"],
     }
 
 
@@ -198,7 +196,6 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
     existing["updatedAt"] = updated_at
     existing["payload"] = req.model_dump(mode="json")
     existing["ublXml"] = ubl_xml
-    existing["warnings"] = existing.get("warnings", [])
 
     ORDERS[order_id] = existing
     return existing
@@ -325,7 +322,6 @@ def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, A
         "updatedAt": updated_at,
         "payload": payload,
         "ublXml": row.get("ublxml"),
-        "warnings": [],
         "dbOrderId": str(row["id"]) if row.get("id") is not None else None,
     }
 

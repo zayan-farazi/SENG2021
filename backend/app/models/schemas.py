@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -137,7 +136,6 @@ ORDER_FETCH_RESPONSE_EXAMPLE = {
     "status": "DRAFT",
     "createdAt": "2026-03-14T10:30:00Z",
     "updatedAt": "2026-03-14T11:00:00Z",
-    "warnings": [],
 }
 
 ORDER_UPDATE_RESPONSE_EXAMPLE = {
@@ -330,10 +328,6 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
     },
     ("/v1/order/{order_id}", "put"): {
         "description": "The order update payload is missing required fields or contains invalid order values.",
-        "examples": ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES,
-    },
-    ("/v1/orders/validate", "post"): {
-        "description": "The order payload submitted for validation is malformed.",
         "examples": ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES,
     },
     ("/v1/orders/convert/transcript", "post"): {
@@ -735,34 +729,6 @@ UBL_FETCH_XML_OPENAPI_SCHEMA = {
     },
 }
 
-VALIDATION_RESPONSE_VALID_EXAMPLE = {
-    "valid": True,
-    "issues": [],
-    "warnings": [],
-    "score": 1.0,
-}
-
-VALIDATION_RESPONSE_INVALID_EXAMPLE = {
-    "valid": False,
-    "issues": [
-        {
-            "path": "buyerName",
-            "issue": "buyerName is required",
-            "severity": "error",
-            "hint": "Provide the full name or company name of the buyer.",
-        }
-    ],
-    "warnings": [
-        {
-            "path": "delivery.postcode",
-            "issue": "delivery.postcode is missing",
-            "severity": "warning",
-            "hint": "Postcode improves delivery accuracy and may be required by some carriers.",
-        }
-    ],
-    "score": 0.75,
-}
-
 TRANSCRIPT_CONVERSION_REQUEST_EXAMPLE = {
     "transcript": "Create an order from Buyer Co to Supplier Pty Ltd for four oranges at 3.50 each.",
     "currentPayload": None,
@@ -772,7 +738,6 @@ ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE = {
     "payload": ORDER_REQUEST_EXAMPLE,
     "valid": True,
     "issues": [],
-    "warnings": [],
     "source": "transcript",
 }
 
@@ -780,20 +745,8 @@ ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE = {
     "payload": None,
     "valid": False,
     "issues": [
-        {
-            "path": "buyerName",
-            "issue": "Field required",
-            "severity": "error",
-            "hint": "Provide values that satisfy the order payload requirements.",
-        }
-    ],
-    "warnings": [
-        {
-            "path": "conversion",
-            "issue": "Review the generated payload before submitting create or update.",
-            "severity": "warning",
-            "hint": "Review the generated payload before submitting create or update.",
-        }
+        "buyerName: Field required",
+        "currency: currency is recommended before create or update.",
     ],
     "source": "transcript",
 }
@@ -935,41 +888,6 @@ class PartyRegistrationResponse(BaseModel):
     message: str
 
 
-class Severity(StrEnum):
-    error = "error"
-    warning = "warning"
-    info = "info"
-
-
-class Issue(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": VALIDATION_RESPONSE_INVALID_EXAMPLE["issues"][0],
-        }
-    )
-
-    path: str
-    issue: str
-    severity: Severity
-    hint: str
-
-
-class ValidationResponse(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                VALIDATION_RESPONSE_VALID_EXAMPLE,
-                VALIDATION_RESPONSE_INVALID_EXAMPLE,
-            ]
-        }
-    )
-
-    valid: bool
-    issues: list[Issue]
-    warnings: list[Issue]
-    score: float | None = None
-
-
 class TranscriptConversionRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -993,9 +911,8 @@ class OrderConversionResponse(BaseModel):
 
     payload: OrderRequest | None
     valid: bool
-    issues: list[Issue]
-    warnings: list[Issue]
-    source: Literal["transcript", "csv"]
+    issues: list[str]
+    source: Literal["transcript"]
 
 
 class OrderCreateResponse(BaseModel):
@@ -1021,7 +938,6 @@ class OrderFetchResponse(BaseModel):
     status: str
     createdAt: str
     updatedAt: str
-    warnings: list[Issue]
 
 
 class OrderListItem(BaseModel):

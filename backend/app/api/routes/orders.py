@@ -22,18 +22,13 @@ from app.models.schemas import (
     ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE,
     ORDER_LIST_RESPONSE_EXAMPLE,
     ORDER_UPDATE_RESPONSE_EXAMPLE,
-    VALIDATION_RESPONSE_INVALID_EXAMPLE,
-    VALIDATION_RESPONSE_VALID_EXAMPLE,
-    Issue,
     OrderConversionResponse,
     OrderCreateResponse,
     OrderFetchResponse,
     OrderListResponse,
     OrderRequest,
     OrderUpdateResponse,
-    Severity,
     TranscriptConversionRequest,
-    ValidationResponse,
 )
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.app_key_auth import get_current_party_email
@@ -91,7 +86,9 @@ VALIDATION_FAILURE_RESPONSE = {
     "content": {
         "application/json": {
             "example": {
-                "detail": VALIDATION_RESPONSE_INVALID_EXAMPLE["issues"],
+                "detail": [
+                    {"path": "buyerName", "issue": "buyerName is required"},
+                ],
             }
         }
     },
@@ -126,13 +123,9 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
 def create_order(req: OrderRequest, current_party_email: str = Depends(get_current_party_email)):
     _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
 
-    validation = _validate_order(req)
-
-    if not validation.valid:
-        raise HTTPException(
-            status_code=400,
-            detail=[i.model_dump() for i in validation.issues],
-        )
+    issues = _validate_order(req)
+    if issues:
+        raise HTTPException(status_code=400, detail=issues)
 
     try:
         record = order_store.create_order_record(req)
@@ -143,7 +136,6 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
         logger.exception("Order persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist order.") from exc
 
-    record["warnings"] = [w.model_dump() for w in validation.warnings]
     return {
         "orderId": record["orderId"],
         "status": record["status"],
@@ -498,7 +490,6 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
         "status": order["status"],
         "createdAt": order["createdAt"],
         "updatedAt": order["updatedAt"],
-        "warnings": order["warnings"],
     }
 
 
@@ -597,13 +588,9 @@ def update_order(
     if req.buyerEmail != payload.get("buyerEmail") or req.sellerEmail != payload.get("sellerEmail"):
         raise HTTPException(status_code=409, detail="Order participant emails cannot be changed.")
 
-    validation = _validate_order(req)
-
-    if not validation.valid:
-        raise HTTPException(
-            status_code=400,
-            detail=[i.model_dump() for i in validation.issues],
-        )
+    issues = _validate_order(req)
+    if issues:
+        raise HTTPException(status_code=400, detail=issues)
 
     try:
         record = order_store.update_order_record(order_id, req)
@@ -624,7 +611,6 @@ def update_order(
         logger.exception("Order update persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
 
-    record["warnings"] = [w.model_dump() for w in validation.warnings]
     return {
         "orderId": record["orderId"],
         "status": record["status"],
@@ -640,36 +626,19 @@ def _build_conversion_response(
     conversion_issues: list[Any],
     current_party_email: str,
 ) -> OrderConversionResponse:
-    issues = [
-        Issue(
-            path=issue.path,
-            issue=issue.issue,
-            severity=Severity.error,
-            hint=issue.hint,
-        )
-        for issue in conversion_issues
-    ]
-    warnings = [
-        Issue(
-            path="conversion",
-            issue=message,
-            severity=Severity.warning,
-            hint="Review the generated payload before submitting create or update.",
-        )
-        for message in conversion_warnings
-    ]
+    issues = [_format_conversion_issue(issue.path, issue.issue) for issue in conversion_issues]
+    issues.extend(
+        f"conversion: {message}" for message in conversion_warnings if message.strip()
+    )
 
     payload, draft_errors = order_conversion.finalize_payload(draft)
     if payload is not None:
         _assert_email_access(current_party_email, payload.buyerEmail, payload.sellerEmail)
-        validation = _validate_order(payload)
-        issues.extend(validation.issues)
-        warnings.extend(validation.warnings)
+        issues.extend(_describe_order_completeness_issues(payload))
         return OrderConversionResponse(
             payload=payload,
             valid=len(issues) == 0,
             issues=issues,
-            warnings=warnings,
             source=source,
         )
 
@@ -678,7 +647,6 @@ def _build_conversion_response(
         payload=None,
         valid=False,
         issues=issues,
-        warnings=warnings,
         source=source,
     )
 
@@ -700,224 +668,87 @@ def _assert_email_access(current_party_email: str, buyer_email: str, seller_emai
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-def _draft_errors_to_issues(errors: list[dict[str, Any]]) -> list[Issue]:
-    issues: list[Issue] = []
+def _draft_errors_to_issues(errors: list[dict[str, Any]]) -> list[str]:
+    issues: list[str] = []
     for error in errors:
         location = error.get("loc", ())
         path = ".".join(str(part) for part in location) if location else "payload"
+        issues.append(_format_conversion_issue(path, error.get("msg", "Invalid payload.")))
+    return issues
+
+
+def _validate_buyer_seller(order: OrderRequest, issues: list[dict[str, str]]) -> None:
+    if not order.buyerEmail:
+        issues.append({"path": "buyerEmail", "issue": "buyerEmail is required"})
+    if not order.buyerName:
+        issues.append({"path": "buyerName", "issue": "buyerName is required"})
+    if not order.sellerEmail:
+        issues.append({"path": "sellerEmail", "issue": "sellerEmail is required"})
+    if not order.sellerName:
+        issues.append({"path": "sellerName", "issue": "sellerName is required"})
+
+
+def _validate_lines(order: OrderRequest, issues: list[dict[str, str]]) -> None:
+    for i, line in enumerate(order.lines):
+        if not line.productName:
+            issues.append({"path": f"lines[{i}].productName", "issue": "productName is required"})
+
+
+def _validate_order(order: OrderRequest) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    _validate_buyer_seller(order, issues)
+    _validate_lines(order, issues)
+    return issues
+
+
+def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
+    issues: list[str] = []
+    for line_index, line in enumerate(order.lines):
+        if line.unitPrice is None:
+            issues.append(
+                _format_conversion_issue(
+                    f"lines[{line_index}].unitPrice",
+                    "unitPrice is recommended before create or update.",
+                )
+            )
+        if line.unitCode is None:
+            issues.append(
+                _format_conversion_issue(
+                    f"lines[{line_index}].unitCode",
+                    "unitCode is recommended before create or update.",
+                )
+            )
+
+    if order.delivery is None:
         issues.append(
-            Issue(
-                path=path,
-                issue=error.get("msg", "Invalid payload."),
-                severity=Severity.error,
-                hint="Provide values that satisfy the order payload requirements.",
+            _format_conversion_issue(
+                "delivery",
+                "delivery is recommended before create or update.",
+            )
+        )
+    else:
+        for field in ("street", "city", "country", "postcode", "state", "requestedDate"):
+            if not getattr(order.delivery, field):
+                issues.append(
+                    _format_conversion_issue(
+                        f"delivery.{field}",
+                        f"delivery.{field} is recommended before create or update.",
+                    )
+                )
+
+    if order.currency is None:
+        issues.append(
+            _format_conversion_issue("currency", "currency is recommended before create or update.")
+        )
+    if order.issueDate is None:
+        issues.append(
+            _format_conversion_issue(
+                "issueDate",
+                "issueDate is recommended before create or update.",
             )
         )
     return issues
 
 
-def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:
-    if not order.buyerEmail:
-        issues.append(
-            Issue(
-                path="buyerEmail",
-                issue="buyerEmail is required",
-                severity=Severity.error,
-                hint="Provide a valid buyer email address.",
-            )
-        )
-    if not order.buyerName:
-        issues.append(
-            Issue(
-                path="buyerName",
-                issue="buyerName is required",
-                severity=Severity.error,
-                hint="Provide the full name or company name of the buyer.",
-            )
-        )
-    if not order.sellerEmail:
-        issues.append(
-            Issue(
-                path="sellerEmail",
-                issue="sellerEmail is required",
-                severity=Severity.error,
-                hint="Provide a valid seller email address.",
-            )
-        )
-    if not order.sellerName:
-        issues.append(
-            Issue(
-                path="sellerName",
-                issue="sellerName is required",
-                severity=Severity.error,
-                hint="Provide the full name or company name of the seller.",
-            )
-        )
-
-
-def _validate_lines(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
-    for i, line in enumerate(order.lines):
-        if not line.productName:
-            issues.append(
-                Issue(
-                    path=f"lines[{i}].productName",
-                    issue="productName is required",
-                    severity=Severity.error,
-                    hint="Provide a product or service name for this line.",
-                )
-            )
-        if line.unitPrice is None:
-            warnings.append(
-                Issue(
-                    path=f"lines[{i}].unitPrice",
-                    issue="unitPrice is missing",
-                    severity=Severity.warning,
-                    hint="Provide a unit price so the order total can be calculated.",
-                )
-            )
-        if line.unitCode is None:
-            warnings.append(
-                Issue(
-                    path=f"lines[{i}].unitCode",
-                    issue="unitCode is missing",
-                    severity=Severity.warning,
-                    hint="unitCode defaults to 'EA' (each) if not provided.",
-                )
-            )
-
-
-def _validate_delivery(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
-    if order.delivery is None:
-        warnings.append(
-            Issue(
-                path="delivery",
-                issue="delivery is missing",
-                severity=Severity.warning,
-                hint="Provide a delivery object if physical shipment is required.",
-            )
-        )
-        return
-
-    for field in ("street", "city", "country"):
-        if not getattr(order.delivery, field):
-            warnings.append(
-                Issue(
-                    path=f"delivery.{field}",
-                    issue=f"delivery.{field} is required",
-                    severity=Severity.warning,
-                    hint=f"Provide a value for delivery.{field}.",
-                )
-            )
-
-    if not order.delivery.postcode:
-        warnings.append(
-            Issue(
-                path="delivery.postcode",
-                issue="delivery.postcode is missing",
-                severity=Severity.warning,
-                hint="Postcode improves delivery accuracy and may be required by some carriers.",
-            )
-        )
-    if not order.delivery.state:
-        warnings.append(
-            Issue(
-                path="delivery.state",
-                issue="delivery.state is missing",
-                severity=Severity.warning,
-                hint="State/province may be required for certain countries.",
-            )
-        )
-
-
-def _validate_currency(order: OrderRequest, warnings: list[Issue]) -> None:
-    if order.currency is None:
-        warnings.append(
-            Issue(
-                path="currency",
-                issue="currency is required",
-                severity=Severity.warning,
-                hint="Use an ISO 4217 currency code, e.g. 'AUD'.",
-            )
-        )
-
-
-def _validate_dates(order: OrderRequest, warnings: list[Issue]) -> None:
-    if order.issueDate is None:
-        warnings.append(
-            Issue(
-                path="issueDate",
-                issue="issueDate is missing",
-                severity=Severity.warning,
-                hint="Provide an issue date for the order.",
-            )
-        )
-    if order.delivery and order.delivery.requestedDate is None:
-        warnings.append(
-            Issue(
-                path="delivery.requestedDate",
-                issue="delivery.requestedDate is missing",
-                severity=Severity.warning,
-                hint="Provide a requested delivery date.",
-            )
-        )
-
-
-def _validate_order(order: OrderRequest) -> ValidationResponse:
-    issues: list[Issue] = []
-    warnings: list[Issue] = []
-
-    _validate_buyer_seller(order, issues)
-    _validate_lines(order, issues, warnings)
-    _validate_delivery(order, issues, warnings)
-    _validate_currency(order, warnings)
-    _validate_dates(order, warnings)
-
-    fields = [
-        order.buyerEmail,
-        order.buyerName,
-        order.sellerEmail,
-        order.sellerName,
-        order.currency,
-        order.issueDate,
-        order.delivery,
-        order.lines,
-    ]
-    score = round(sum(bool(f) for f in fields) / len(fields), 2)
-
-    return ValidationResponse(
-        valid=len(issues) == 0,
-        issues=issues,
-        warnings=warnings,
-        score=score,
-    )
-
-
-@router.post(
-    "/v1/orders/validate",
-    response_model=ValidationResponse,
-    summary="Validate an order payload (Bearer app key required)",
-    description=(
-        "Run the same validation rules used by create and update without mutating any order state. "
-        "The authenticated caller must still be the buyer or seller in the provided payload."
-    ),
-    responses={
-        200: {
-            "description": "Validation result for the supplied payload.",
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "valid": {"value": VALIDATION_RESPONSE_VALID_EXAMPLE},
-                        "invalid": {"value": VALIDATION_RESPONSE_INVALID_EXAMPLE},
-                    }
-                }
-            },
-        },
-        401: UNAUTHORIZED_RESPONSE,
-        403: FORBIDDEN_RESPONSE,
-    },
-)
-async def validate_order(
-    order: OrderRequest, current_party_email: str = Depends(get_current_party_email)
-) -> ValidationResponse:
-    _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
-    return _validate_order(order)
+def _format_conversion_issue(path: str, message: str) -> str:
+    return f"{path}: {message}" if path else message

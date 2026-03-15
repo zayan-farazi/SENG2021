@@ -121,7 +121,6 @@ def created_order(db_records):
         "updatedAt": "2026-03-09T00:00:00Z",
         "payload": req.model_dump(mode="json"),
         "ublXml": ubl_xml,
-        "warnings": [],
         "dbOrderId": "123",
     }
     db_records[order_id] = record
@@ -144,8 +143,8 @@ def test_get_existing_order_returns_order(client, created_order):
     assert body["status"] == record["status"]
     assert body["createdAt"] == record["createdAt"]
     assert body["updatedAt"] == record["updatedAt"]
-    assert body["warnings"] == record["warnings"]
     assert "ublXml" not in body
+    assert "warnings" not in body
     assert orders.ORDERS[order_id]["dbOrderId"] == "123"
 
     # Check internal payload separately

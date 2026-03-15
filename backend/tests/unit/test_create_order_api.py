@@ -119,8 +119,6 @@ def test_create_order_returns_201_and_persists_full_order(client):
     assert record["payload"]["issueDate"] == payload["issueDate"]
     assert record["payload"]["delivery"]["requestedDate"] == payload["delivery"]["requestedDate"]
     assert record["payload"]["lines"][0]["unitPrice"] == payload["lines"][0]["unitPrice"]
-    assert record["warnings"] == []
-
     root = ET.fromstring(record["ublXml"])
     assert root.find("cbc:CustomizationID", NS).text
     assert root.find("cbc:ProfileID", NS).text

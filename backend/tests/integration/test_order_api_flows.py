@@ -395,29 +395,13 @@ def test_list_orders_returns_paginated_results_for_authenticated_party(
     assert set(combined_ids) == set(created_order_ids)
 
 
-def test_registration_conflict_and_validation_authorization(
-    integration_client, tracked_supabase_records
-):
+def test_registration_conflict_returns_409(integration_client, tracked_supabase_records):
     tag = _tag()
     buyer = _register_party(
         integration_client,
         tracked_supabase_records,
         name_prefix="Validation Buyer",
         email_prefix="validation-buyer",
-        tag=tag,
-    )
-    seller = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="Validation Seller",
-        email_prefix="validation-seller",
-        tag=tag,
-    )
-    outsider = _register_party(
-        integration_client,
-        tracked_supabase_records,
-        name_prefix="Validation Outsider",
-        email_prefix="validation-outsider",
         tag=tag,
     )
 
@@ -429,32 +413,3 @@ def test_registration_conflict_and_validation_authorization(
         },
     )
     assert duplicate_registration.status_code == 409
-
-    payload = _order_payload(
-        buyer=buyer,
-        seller=seller,
-        tag=tag,
-        notes=f"Validation endpoint order {tag}",
-    )
-
-    buyer_validation = integration_client.post(
-        "/v1/orders/validate",
-        json=payload,
-        headers=_auth_headers(buyer["appKey"]),
-    )
-    assert buyer_validation.status_code == 200
-    assert buyer_validation.json()["valid"] is True
-
-    seller_validation = integration_client.post(
-        "/v1/orders/validate",
-        json=payload,
-        headers=_auth_headers(seller["appKey"]),
-    )
-    assert seller_validation.status_code == 200
-
-    outsider_validation = integration_client.post(
-        "/v1/orders/validate",
-        json=payload,
-        headers=_auth_headers(outsider["appKey"]),
-    )
-    assert outsider_validation.status_code == 403

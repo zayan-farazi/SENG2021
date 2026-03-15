@@ -107,7 +107,6 @@ def test_delete_order_record_removes_in_memory_order_when_no_db_order_id():
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": {"buyerName": "Buyer"},
         "ublXml": "<Order />",
-        "warnings": [],
     }
 
     deleted = order_store.delete_order_record("ord_local")
@@ -125,7 +124,6 @@ def test_delete_order_record_removes_db_rows_before_in_memory_order(monkeypatch)
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": {"buyerName": "Buyer"},
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "42",
     }
 
@@ -149,7 +147,6 @@ def test_delete_order_record_preserves_in_memory_order_when_db_delete_fails(monk
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": {"buyerName": "Buyer"},
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "99",
     }
 
@@ -178,7 +175,6 @@ def test_get_order_record_loads_and_caches_database_order(monkeypatch):
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": {"buyerEmail": "buyer@example.com", "sellerEmail": "seller@example.com"},
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "55",
     }
     monkeypatch.setattr(
@@ -202,7 +198,6 @@ def test_update_order_record_loads_database_order_when_cache_is_empty(monkeypatc
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": req.model_dump(mode="json"),
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "77",
     }
 
@@ -234,7 +229,6 @@ def test_delete_order_record_deletes_database_order_when_cache_is_empty(monkeypa
         "updatedAt": "2026-03-11T00:00:00Z",
         "payload": {"buyerEmail": "buyer@example.com", "sellerEmail": "seller@example.com"},
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "88",
     }
 
