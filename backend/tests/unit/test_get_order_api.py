@@ -20,6 +20,7 @@ NS = {
     "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
 }
 
+
 def build_payload() -> OrderRequest:
     return OrderRequest(
         buyerEmail="buyer@example.com",
@@ -152,6 +153,7 @@ def test_get_existing_order_returns_order(client, created_order):
     assert record["payload"]["sellerName"] == "Digital Book Supply"
     assert record["payload"]["currency"] == "AUD"
     assert record["payload"]["lines"][0]["unitPrice"] == ("12.50")
+
 
 def test_get_nonexistent_order_returns_404(client):
     response = client.get("/v1/order/nonexistent123", headers=auth_headers("buyer-key"))
