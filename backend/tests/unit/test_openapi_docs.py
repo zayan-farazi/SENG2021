@@ -17,6 +17,7 @@ def _openapi() -> dict:
 def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
 
+    assert "/" not in schema["paths"]
     assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
         "type": "http",
         "scheme": "bearer",
@@ -45,6 +46,7 @@ def test_protected_order_routes_declare_bearer_security():
 def test_http_endpoints_include_summaries_and_tags():
     schema = _openapi()
 
+    assert [tag["name"] for tag in schema["tags"]] == ["Parties", "Orders", "Health"]
     assert schema["paths"]["/v1/health"]["get"]["summary"] == "Health check"
     assert schema["paths"]["/v1/health"]["get"]["tags"] == ["Health"]
     assert schema["paths"]["/v1/parties/register"]["post"]["summary"] == (
@@ -207,16 +209,27 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
 
-def test_docs_route_uses_custom_swagger_wrapper_for_ubl_xml_example():
+def test_docs_routes_use_custom_swagger_wrapper_for_ubl_xml_example():
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/docs")
+        root_response = client.get("/")
+        docs_response = client.get("/docs")
 
-    assert response.status_code == 200
-    assert "/static/swagger-ui-5.32.0.css" in response.text
-    assert "/static/swagger-ui-bundle-5.32.0.js" in response.text
-    assert "/static/swagger-runtime-xml-plugin.js" in response.text
-    assert "window.RuntimeXmlExamplePlugin" in response.text
-    assert "MutationObserver" not in response.text
+    for response in (root_response, docs_response):
+        assert response.status_code == 200
+        assert "/static/swagger-ui-5.32.0.css" in response.text
+        assert "/static/swagger-ui-bundle-5.32.0.js" in response.text
+        assert "/static/swagger-runtime-xml-plugin.js" in response.text
+        assert "window.RuntimeXmlExamplePlugin" in response.text
+        assert "MutationObserver" not in response.text
+        assert "orderOperationsSorter" in response.text
+        assert '"post /v1/order/create": 0' in response.text
+        assert '"put /v1/order/{order_id}": 1' in response.text
+        assert '"get /v1/order/{order_id}": 2' in response.text
+        assert '"delete /v1/order/{order_id}": 3' in response.text
+        assert '"get /v1/orders": 4' in response.text
+        assert '"get /v1/order/{order_id}/ubl": 5' in response.text
+        assert '"post /v1/orders/validate": 6' in response.text
+        assert '"post /v1/orders/convert/transcript": 7' in response.text
 
 
 def test_custom_swagger_plugin_asset_is_served():

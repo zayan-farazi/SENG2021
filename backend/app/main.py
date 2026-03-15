@@ -94,10 +94,6 @@ app = FastAPI(
     lifespan=lifespan,
     openapi_tags=[
         {
-            "name": "Health",
-            "description": "Operational health and readiness endpoints.",
-        },
-        {
             "name": "Parties",
             "description": "Party registration and app-key onboarding for new integrators.",
         },
@@ -107,6 +103,10 @@ app = FastAPI(
                 "Order creation, retrieval, update, deletion, validation, and helper conversion "
                 "endpoints."
             ),
+        },
+        {
+            "name": "Health",
+            "description": "Operational health and readiness endpoints.",
         },
     ],
 )
@@ -208,6 +208,38 @@ def _render_swagger_html() -> str:
   <script src="{SWAGGER_UI_JS_URL}"></script>
   <script src="{SWAGGER_UI_PLUGIN_URL}"></script>
   <script>
+    const orderRouteRanks = {{
+      "post /v1/order/create": 0,
+      "put /v1/order/{{order_id}}": 1,
+      "get /v1/order/{{order_id}}": 2,
+      "delete /v1/order/{{order_id}}": 3,
+      "get /v1/orders": 4,
+      "get /v1/order/{{order_id}}/ubl": 5,
+      "post /v1/orders/validate": 6,
+      "post /v1/orders/convert/transcript": 7
+    }};
+
+    const getOperationKey = (operation) => {{
+      const method = String(operation.get("method") || "").toLowerCase();
+      const path = String(operation.get("path") || "");
+      return `${{method}} ${{path}}`;
+    }};
+
+    const orderOperationsSorter = (a, b) => {{
+      const leftRank = orderRouteRanks[getOperationKey(a)];
+      const rightRank = orderRouteRanks[getOperationKey(b)];
+      if (leftRank === undefined && rightRank === undefined) {{
+        return 0;
+      }}
+      if (leftRank === undefined) {{
+        return 1;
+      }}
+      if (rightRank === undefined) {{
+        return -1;
+      }}
+      return leftRank - rightRank;
+    }};
+
     window.ui = SwaggerUIBundle({{
       url: "{app.openapi_url}",
       dom_id: "#swagger-ui",
@@ -215,6 +247,7 @@ def _render_swagger_html() -> str:
       deepLinking: true,
       showExtensions: true,
       showCommonExtensions: true,
+      operationsSorter: orderOperationsSorter,
       presets: [
         SwaggerUIBundle.presets.apis,
         SwaggerUIBundle.SwaggerUIStandalonePreset
@@ -226,6 +259,11 @@ def _render_swagger_html() -> str:
   </script>
 </body>
 </html>"""
+
+
+@app.get("/", include_in_schema=False)
+def root_swagger_ui():
+    return HTMLResponse(_render_swagger_html())
 
 
 @app.get("/docs", include_in_schema=False)
