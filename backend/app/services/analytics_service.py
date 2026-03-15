@@ -3,6 +3,10 @@ from datetime import datetime
 from app.other import findOrderDetails, findOrders
 
 
+def _round_metric(value: float) -> float:
+    return round(value, 2)
+
+
 def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetime | None):
 
     if fromDate is None or toDate is None:
@@ -11,8 +15,8 @@ def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetim
     seller_orders = findOrders(selleremail=username, fromDate=fromDate, toDate=toDate)
     buyer_orders = findOrders(buyeremail=username, fromDate=fromDate, toDate=toDate)
 
-    seller_exists = seller_orders.count > 0
-    buyer_exists = buyer_orders.count > 0
+    seller_exists = len(seller_orders) > 0
+    buyer_exists = len(buyer_orders) > 0
 
     seller_data = None
     buyer_data = None
@@ -28,7 +32,7 @@ def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetim
             "role": "buyer_and_seller",
             "sellerAnalytics": seller_data,
             "buyerAnalytics": buyer_data,
-            "netProfit": seller_data["totalIncome"] - buyer_data["totalSpent"],
+            "netProfit": _round_metric(seller_data["totalIncome"] - buyer_data["totalSpent"]),
         }
 
     if seller_exists:
@@ -51,7 +55,7 @@ def calculate_seller_analytics(res, fromDate, toDate):
     productFreq = {}
     dateFreq = {}
 
-    for order in res.data:
+    for order in res:
         orderLines = findOrderDetails(order["id"])
         data = orderLines.data
 
@@ -98,14 +102,14 @@ def calculate_seller_analytics(res, fromDate, toDate):
         numDays = max((toDate - fromDate).days + 1, 1)
 
     return {
-        "totalOrders": res.count,
-        "totalIncome": totalIncome,
+        "totalOrders": len(res),
+        "totalIncome": _round_metric(totalIncome),
         "itemsSold": itemsSold,
-        "averageItemSoldPrice": totalIncome / itemsSold if itemsSold else 0,
-        "averageOrderAmount": totalIncome / res.count if itemsSold else 0,
-        "averageOrderItemNumber": itemsSold / res.count if itemsSold else 0,
-        "averageDailyIncome": totalIncome / numDays,
-        "averageDailyOrders": res.count / numDays,
+        "averageItemSoldPrice": _round_metric(totalIncome / itemsSold) if itemsSold else 0,
+        "averageOrderAmount": _round_metric(totalIncome / len(res)) if itemsSold else 0,
+        "averageOrderItemNumber": _round_metric(itemsSold / len(res)) if itemsSold else 0,
+        "averageDailyIncome": _round_metric(totalIncome / numDays),
+        "averageDailyOrders": _round_metric(len(res) / numDays),
         "ordersPending": ordersPending,
         "ordersCompleted": ordersComplete,
         "ordersCancelled": ordersCancelled,
@@ -122,7 +126,7 @@ def calculate_buyer_analytics(res, fromDate, toDate):
     totalSpent = 0
     itemsBought = 0
 
-    for order in res.data:
+    for order in res:
         orderLines = findOrderDetails(order["id"])
 
         for line in orderLines.data:
@@ -132,12 +136,12 @@ def calculate_buyer_analytics(res, fromDate, toDate):
     numDays = max((toDate - fromDate).days + 1, 1)
 
     return {
-        "totalOrders": res.count,
-        "totalSpent": totalSpent,
+        "totalOrders": len(res),
+        "totalSpent": _round_metric(totalSpent),
         "itemsBought": itemsBought,
-        "averageItemPrice": totalSpent / itemsBought if itemsBought else 0,
-        "averageOrderAmount": totalSpent / res.count if itemsBought else 0,
-        "averageItemsPerOrder": itemsBought / res.count if itemsBought else 0,
-        "averageDailySpend": totalSpent / numDays,
-        "averageDailyOrders": res.count / numDays,
+        "averageItemPrice": _round_metric(totalSpent / itemsBought) if itemsBought else 0,
+        "averageOrderAmount": _round_metric(totalSpent / len(res)) if itemsBought else 0,
+        "averageItemsPerOrder": _round_metric(itemsBought / len(res)) if itemsBought else 0,
+        "averageDailySpend": _round_metric(totalSpent / numDays),
+        "averageDailyOrders": _round_metric(len(res) / numDays),
     }

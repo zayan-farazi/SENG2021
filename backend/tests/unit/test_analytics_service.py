@@ -23,8 +23,8 @@ def test_seller_only_analytics(monkeypatch):
 
     def mock_findOrders(**kwargs):
         if kwargs.get("selleremail"):
-            return MockResponse(orders)
-        return MockResponse([])
+            return orders
+        return []
 
     def mock_findOrderDetails(order_id):
         return MockResponse(order_lines[order_id])
@@ -42,6 +42,8 @@ def test_seller_only_analytics(monkeypatch):
     assert result["analytics"]["totalOrders"] == 2
     assert result["analytics"]["itemsSold"] == 3
     assert result["analytics"]["totalIncome"] == 40
+    assert result["analytics"]["averageDailyOrders"] == 0.4
+    assert result["analytics"]["averageDailyIncome"] == 8.0
 
 
 def test_buyer_only_analytics(monkeypatch):
@@ -56,8 +58,8 @@ def test_buyer_only_analytics(monkeypatch):
 
     def mock_findOrders(**kwargs):
         if kwargs.get("buyeremail"):
-            return MockResponse(orders)
-        return MockResponse([])
+            return orders
+        return []
 
     def mock_findOrderDetails(order_id):
         return MockResponse(order_lines[order_id])
@@ -74,6 +76,8 @@ def test_buyer_only_analytics(monkeypatch):
     assert result["role"] == "buyer"
     assert result["analytics"]["totalSpent"] == 30
     assert result["analytics"]["itemsBought"] == 2
+    assert result["analytics"]["averageDailyOrders"] == 0.2
+    assert result["analytics"]["averageDailySpend"] == 6.0
 
 
 def test_buyer_and_seller(monkeypatch):
@@ -93,10 +97,10 @@ def test_buyer_and_seller(monkeypatch):
 
     def mock_findOrders(**kwargs):
         if kwargs.get("selleremail"):
-            return MockResponse(seller_orders)
+            return seller_orders
         if kwargs.get("buyeremail"):
-            return MockResponse(buyer_orders)
-        return MockResponse([])
+            return buyer_orders
+        return []
 
     def mock_findOrderDetails(order_id):
         return MockResponse(order_lines[order_id])
@@ -114,12 +118,14 @@ def test_buyer_and_seller(monkeypatch):
     assert result["sellerAnalytics"]["totalIncome"] == 20
     assert result["buyerAnalytics"]["totalSpent"] == 10
     assert result["netProfit"] == 10
+    assert result["sellerAnalytics"]["averageDailyOrders"] == 0.2
+    assert result["buyerAnalytics"]["averageDailyOrders"] == 0.2
 
 
 def test_no_orders(monkeypatch):
 
     def mock_findOrders(**kwargs):
-        return MockResponse([])
+        return []
 
     monkeypatch.setattr("app.services.analytics_service.findOrders", mock_findOrders)
 

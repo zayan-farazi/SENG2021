@@ -934,12 +934,19 @@ def get_order_analytics(
     if current_party_email is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    if fromDate is None or toDate is None:
+        raise HTTPException(status_code=400, detail="fromDate and toDate are required.")
+    if fromDate > toDate:
+        raise HTTPException(status_code=400, detail="fromDate must be on or before toDate.")
+
     try:
         analytics = get_user_analytics(
             username=current_party_email,
             fromDate=fromDate,
             toDate=toDate,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Analytics generation failed")
         raise HTTPException(status_code=500, detail="Unable to generate analytics.") from exc
