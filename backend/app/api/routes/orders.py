@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 
 import logging
 from typing import Any
@@ -52,7 +53,7 @@ from app.services.order_store import (
     OrderPersistenceError,
 )
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
-
+from app.services.analytics_service import get_user_analytics
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
 router = APIRouter(tags=["Orders"])
@@ -928,7 +929,7 @@ def get_order_analytics(fromDate: datetime | None = None, toDate: datetime | Non
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        analytics = get_user_analytics_seller(
+        analytics = get_user_analytics(
             username=current_party_email,
             fromDate=fromDate,
             toDate=toDate,
