@@ -23,6 +23,7 @@ from app.models.schemas import (
     ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE,
     ORDER_LIST_RESPONSE_EXAMPLE,
     ORDER_UPDATE_RESPONSE_EXAMPLE,
+    AnalyticsResponse,
     OrderConversionResponse,
     OrderCreateResponse,
     OrderFetchResponse,
@@ -758,7 +759,130 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
     return issues
 
 
-@router.get("/v1/analytics/orders", status_code=200)
+@router.get(
+    "/v1/analytics/orders",
+    response_model=AnalyticsResponse,
+    status_code=200,
+    summary="Get order analytics (Bearer app key required)",
+    description=(
+        "Return buyer, seller, or combined buyer-and-seller analytics for the authenticated "
+        "party across the requested date range."
+    ),
+    responses={
+        200: {
+            "description": "Analytics for the authenticated party over the requested date range.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "seller": {
+                            "summary": "Seller analytics",
+                            "value": {
+                                "role": "seller",
+                                "analytics": {
+                                    "totalOrders": 1,
+                                    "totalIncome": 12.75,
+                                    "itemsSold": 3,
+                                    "averageItemSoldPrice": 4.25,
+                                    "averageOrderAmount": 12.75,
+                                    "averageOrderItemNumber": 3.0,
+                                    "averageDailyIncome": 4.25,
+                                    "averageDailyOrders": 0.33,
+                                    "ordersPending": 0,
+                                    "ordersCompleted": 0,
+                                    "ordersCancelled": 0,
+                                    "mostSuccessfulDay": "2026-03-14",
+                                    "mostSalesMade": 1,
+                                    "mostPopularProductCode": "EA",
+                                    "mostPopularProductName": "Oranges",
+                                    "mostPopularProductSales": 3,
+                                },
+                            },
+                        },
+                        "buyer": {
+                            "summary": "Buyer analytics",
+                            "value": {
+                                "role": "buyer",
+                                "analytics": {
+                                    "totalOrders": 1,
+                                    "totalSpent": 15.0,
+                                    "itemsBought": 2,
+                                    "averageItemPrice": 7.5,
+                                    "averageOrderAmount": 15.0,
+                                    "averageItemsPerOrder": 2.0,
+                                    "averageDailySpend": 5.0,
+                                    "averageDailyOrders": 0.33,
+                                },
+                            },
+                        },
+                        "buyerAndSeller": {
+                            "summary": "Combined buyer and seller analytics",
+                            "value": {
+                                "role": "buyer_and_seller",
+                                "sellerAnalytics": {
+                                    "totalOrders": 1,
+                                    "totalIncome": 20.0,
+                                    "itemsSold": 4,
+                                    "averageItemSoldPrice": 5.0,
+                                    "averageOrderAmount": 20.0,
+                                    "averageOrderItemNumber": 4.0,
+                                    "averageDailyIncome": 6.67,
+                                    "averageDailyOrders": 0.33,
+                                    "ordersPending": 0,
+                                    "ordersCompleted": 0,
+                                    "ordersCancelled": 0,
+                                    "mostSuccessfulDay": "2026-03-14",
+                                    "mostSalesMade": 1,
+                                    "mostPopularProductCode": "EA",
+                                    "mostPopularProductName": "Oranges",
+                                    "mostPopularProductSales": 4,
+                                },
+                                "buyerAnalytics": {
+                                    "totalOrders": 1,
+                                    "totalSpent": 9.5,
+                                    "itemsBought": 1,
+                                    "averageItemPrice": 9.5,
+                                    "averageOrderAmount": 9.5,
+                                    "averageItemsPerOrder": 1.0,
+                                    "averageDailySpend": 3.17,
+                                    "averageDailyOrders": 0.33,
+                                },
+                                "netProfit": 10.5,
+                            },
+                        },
+                        "noOrders": {
+                            "summary": "No orders in date range",
+                            "value": {"message": "No orders found"},
+                        },
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "The analytics date range is missing or invalid.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "missingDates": {
+                            "value": {"detail": "fromDate and toDate are required."}
+                        },
+                        "invertedRange": {
+                            "value": {"detail": "fromDate must be on or before toDate."}
+                        },
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        500: {
+            "description": "Analytics generation failed.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Unable to generate analytics."}
+                }
+            },
+        },
+    },
+)
 def get_order_analytics(
     fromDate: datetime | None = None,
     toDate: datetime | None = None,

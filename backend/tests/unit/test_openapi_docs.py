@@ -17,6 +17,7 @@ def _openapi(base_url: str = "http://testserver") -> dict:
 def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
 
+    assert schema["info"]["title"] == "LockedOut"
     assert "/" not in schema["paths"]
     assert "## Authentication" in schema["info"]["description"]
     assert "## Successful Use Case" in schema["info"]["description"]
@@ -123,6 +124,10 @@ def test_key_schemas_include_examples():
         "Request validation failed."
     )
     assert schemas["OrderListResponse"]["examples"][0]["items"][0]["orderId"] == "ord_abc123def456"
+    assert schemas["SellerAnalytics"]["example"]["averageDailyOrders"] == 0.33
+    assert schemas["BuyerAnalytics"]["example"]["averageDailySpend"] == 5.0
+    assert schemas["BuyerAndSellerAnalyticsResponse"]["example"]["netProfit"] == 10.5
+    assert schemas["NoOrdersAnalyticsResponse"]["example"]["message"] == "No orders found"
     assert (
         schemas["RequestValidationErrorResponse"]["properties"]["errors"]["items"]["$ref"]
         == "#/components/schemas/ValidationFieldError"
@@ -238,6 +243,20 @@ def test_endpoint_responses_include_examples_for_common_flows():
         transcript_examples["incomplete"]["value"]["issues"][1]
         == "currency: currency is recommended before create or update."
     )
+    analytics_get = schema["paths"]["/v1/analytics/orders"]["get"]
+    assert analytics_get["summary"] == "Get order analytics (Bearer app key required)"
+    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
+        "value"
+    ]["analytics"]["averageDailyOrders"] == 0.33
+    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
+        "buyerAndSeller"
+    ]["value"]["sellerAnalytics"]["averageDailyIncome"] == 6.67
+    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
+        "noOrders"
+    ]["value"]["message"] == "No orders found"
+    assert analytics_get["responses"]["400"]["content"]["application/json"]["examples"][
+        "missingDates"
+    ]["value"]["detail"] == "fromDate and toDate are required."
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
 

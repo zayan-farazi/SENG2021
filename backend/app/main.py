@@ -80,7 +80,7 @@ def _normalize_validation_errors(exc: RequestValidationError) -> list[dict[str, 
 
 
 app = FastAPI(
-    title="DigitalBook Order Creation API",
+    title="LockedOut",
     version="0.1.0",
     docs_url=None,
     openapi_url=None,

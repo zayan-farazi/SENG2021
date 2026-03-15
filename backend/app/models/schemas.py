@@ -184,6 +184,79 @@ ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE = {
     },
 }
 
+SELLER_ANALYTICS_EXAMPLE = {
+    "role": "seller",
+    "analytics": {
+        "totalOrders": 1,
+        "totalIncome": 12.75,
+        "itemsSold": 3,
+        "averageItemSoldPrice": 4.25,
+        "averageOrderAmount": 12.75,
+        "averageOrderItemNumber": 3.0,
+        "averageDailyIncome": 4.25,
+        "averageDailyOrders": 0.33,
+        "ordersPending": 0,
+        "ordersCompleted": 0,
+        "ordersCancelled": 0,
+        "mostSuccessfulDay": "2026-03-14",
+        "mostSalesMade": 1,
+        "mostPopularProductCode": "EA",
+        "mostPopularProductName": "Oranges",
+        "mostPopularProductSales": 3,
+    },
+}
+
+BUYER_ANALYTICS_EXAMPLE = {
+    "role": "buyer",
+    "analytics": {
+        "totalOrders": 1,
+        "totalSpent": 15.0,
+        "itemsBought": 2,
+        "averageItemPrice": 7.5,
+        "averageOrderAmount": 15.0,
+        "averageItemsPerOrder": 2.0,
+        "averageDailySpend": 5.0,
+        "averageDailyOrders": 0.33,
+    },
+}
+
+BUYER_AND_SELLER_ANALYTICS_EXAMPLE = {
+    "role": "buyer_and_seller",
+    "sellerAnalytics": {
+        "totalOrders": 1,
+        "totalIncome": 20.0,
+        "itemsSold": 4,
+        "averageItemSoldPrice": 5.0,
+        "averageOrderAmount": 20.0,
+        "averageOrderItemNumber": 4.0,
+        "averageDailyIncome": 6.67,
+        "averageDailyOrders": 0.33,
+        "ordersPending": 0,
+        "ordersCompleted": 0,
+        "ordersCancelled": 0,
+        "mostSuccessfulDay": "2026-03-14",
+        "mostSalesMade": 1,
+        "mostPopularProductCode": "EA",
+        "mostPopularProductName": "Oranges",
+        "mostPopularProductSales": 4,
+    },
+    "buyerAnalytics": {
+        "totalOrders": 1,
+        "totalSpent": 9.5,
+        "itemsBought": 1,
+        "averageItemPrice": 9.5,
+        "averageOrderAmount": 9.5,
+        "averageItemsPerOrder": 1.0,
+        "averageDailySpend": 3.17,
+        "averageDailyOrders": 0.33,
+    },
+    "netProfit": 10.5,
+}
+
+NO_ORDERS_ANALYTICS_EXAMPLE = {
+    "message": "No orders found",
+}
+
 REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE = {
     "message": "Request validation failed.",
     "errors": [
@@ -993,6 +1066,101 @@ class OrderUpdateResponse(BaseModel):
     orderId: str
     status: str
     updatedAt: str
+
+
+class SellerAnalytics(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": SELLER_ANALYTICS_EXAMPLE["analytics"],
+        }
+    )
+
+    totalOrders: int
+    totalIncome: float
+    itemsSold: int
+    averageItemSoldPrice: float
+    averageOrderAmount: float
+    averageOrderItemNumber: float
+    averageDailyIncome: float
+    averageDailyOrders: float
+    ordersPending: int
+    ordersCompleted: int
+    ordersCancelled: int
+    mostSuccessfulDay: str | None
+    mostSalesMade: int
+    mostPopularProductCode: str | None
+    mostPopularProductName: str | None
+    mostPopularProductSales: int
+
+
+class BuyerAnalytics(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": BUYER_ANALYTICS_EXAMPLE["analytics"],
+        }
+    )
+
+    totalOrders: int
+    totalSpent: float
+    itemsBought: int
+    averageItemPrice: float
+    averageOrderAmount: float
+    averageItemsPerOrder: float
+    averageDailySpend: float
+    averageDailyOrders: float
+
+
+class SellerAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": SELLER_ANALYTICS_EXAMPLE,
+        }
+    )
+
+    role: Literal["seller"]
+    analytics: SellerAnalytics
+
+
+class BuyerAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": BUYER_ANALYTICS_EXAMPLE,
+        }
+    )
+
+    role: Literal["buyer"]
+    analytics: BuyerAnalytics
+
+
+class BuyerAndSellerAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": BUYER_AND_SELLER_ANALYTICS_EXAMPLE,
+        }
+    )
+
+    role: Literal["buyer_and_seller"]
+    sellerAnalytics: SellerAnalytics
+    buyerAnalytics: BuyerAnalytics
+    netProfit: float
+
+
+class NoOrdersAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": NO_ORDERS_ANALYTICS_EXAMPLE,
+        }
+    )
+
+    message: str
+
+
+AnalyticsResponse = (
+    SellerAnalyticsResponse
+    | BuyerAnalyticsResponse
+    | BuyerAndSellerAnalyticsResponse
+    | NoOrdersAnalyticsResponse
+)
 
 
 class ValidationFieldError(BaseModel):
