@@ -32,6 +32,7 @@ def build_request() -> OrderRequest:
         delivery=Delivery(
             street="123 Test St",
             city="Sydney",
+            state="NSW",
             postcode="2000",
             country="AU",
         ),
@@ -72,6 +73,7 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
         created_ids.append(db_order_id)
 
         persisted_orders = other.findOrders(orderId=db_order_id)
+        persisted_details = other.findOrderDetails(db_order_id).data
 
         assert persisted_orders
         assert persisted_orders[0]["buyeremail"] == req.buyerEmail
@@ -79,7 +81,7 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
         assert persisted_orders[0]["selleremail"] == req.sellerEmail
         assert persisted_orders[0]["sellername"] == req.sellerName
         assert persisted_orders[0]["currency"] == req.currency
-        assert len(persisted_orders[0]["details"]) == len(req.lines)
+        assert len(persisted_details) == len(req.lines)
     except OrderPersistenceError as exc:
         if exc.__cause__ is not None and "requesteddate" in str(exc.__cause__).lower():
             pytest.skip(
@@ -115,7 +117,7 @@ def test_delete_order_record_removes_in_memory_order_when_no_db_order_id():
     assert "ord_local" not in order_store.ORDERS
 
 
-def test_delete_order_record_removes_db_rows_before_in_memory_order(monkeypatch):
+def test_delete_order_record_deletes_order_row_before_in_memory_cleanup(monkeypatch):
     events: list[tuple[str, str]] = []
     order_store.ORDERS["ord_db"] = {
         "orderId": "ord_db",
@@ -127,15 +129,12 @@ def test_delete_order_record_removes_db_rows_before_in_memory_order(monkeypatch)
         "dbOrderId": "42",
     }
 
-    monkeypatch.setattr(
-        other, "deleteOrderDetails", lambda order_id: events.append(("details", order_id))
-    )
     monkeypatch.setattr(other, "deleteOrder", lambda order_id: events.append(("order", order_id)))
 
     deleted = order_store.delete_order_record("ord_db")
 
     assert deleted is True
-    assert events == [("details", "42"), ("order", "42")]
+    assert events == [("order", "42")]
     assert "ord_db" not in order_store.ORDERS
 
 
@@ -151,7 +150,7 @@ def test_delete_order_record_preserves_in_memory_order_when_db_delete_fails(monk
     }
 
     monkeypatch.setattr(
-        other, "deleteOrderDetails", lambda order_id: (_ for _ in ()).throw(RuntimeError(order_id))
+        other, "deleteOrder", lambda order_id: (_ for _ in ()).throw(RuntimeError(order_id))
     )
 
     with pytest.raises(OrderPersistenceError, match="Order could not be deleted from Supabase."):
@@ -187,6 +186,17 @@ def test_get_order_record_loads_and_caches_database_order(monkeypatch):
 
     assert loaded == record
     assert order_store.ORDERS["ord_db_lookup"] == record
+
+
+def test_cache_order_record_evicts_oldest_entry_when_limit_is_exceeded(monkeypatch):
+    monkeypatch.setattr(order_store, "ORDERS", {})
+    monkeypatch.setattr(order_store, "MAX_CACHED_ORDERS", 2)
+
+    order_store._cache_order_record("ord_first", {"orderId": "ord_first"})
+    order_store._cache_order_record("ord_second", {"orderId": "ord_second"})
+    order_store._cache_order_record("ord_third", {"orderId": "ord_third"})
+
+    assert list(order_store.ORDERS) == ["ord_second", "ord_third"]
 
 
 def test_update_order_record_loads_database_order_when_cache_is_empty(monkeypatch):
@@ -238,17 +248,57 @@ def test_delete_order_record_deletes_database_order_when_cache_is_empty(monkeypa
         lambda order_id: deepcopy(database_record) if order_id == "ord_db_delete" else None,
     )
     monkeypatch.setattr(
-        other, "deleteOrderDetails", lambda order_id: events.append(("details", str(order_id)))
-    )
-    monkeypatch.setattr(
         other, "deleteOrder", lambda order_id: events.append(("order", str(order_id)))
     )
 
     deleted = order_store.delete_order_record("ord_db_delete")
 
     assert deleted is True
-    assert events == [("details", "88"), ("order", "88")]
+    assert events == [("order", "88")]
     assert "ord_db_delete" not in order_store.ORDERS
+
+
+def test_create_order_record_rolls_back_database_order_when_metadata_persist_fails(monkeypatch):
+    req = build_request()
+    deleted_ids: list[int] = []
+
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda _req: 42)
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_runtime_metadata_to_database",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OrderPersistenceError("boom")),
+    )
+    monkeypatch.setattr(other, "deleteOrder", lambda order_id: deleted_ids.append(order_id))
+
+    with pytest.raises(OrderPersistenceError, match="boom"):
+        order_store.create_order_record(req)
+
+    assert deleted_ids == [42]
+
+
+def test_persist_order_update_to_database_passes_issue_date_and_delivery_state(monkeypatch):
+    req = build_request()
+    captured_order_kwargs: dict = {}
+    saved_detail_prices: list[Decimal | None] = []
+
+    monkeypatch.setattr(other, "deleteOrderDetails", lambda orderId: None)
+    monkeypatch.setattr(other, "findOrders", lambda **kwargs: [{"id": kwargs["orderId"]}])
+
+    def fake_save_order(**kwargs):
+        captured_order_kwargs.update(kwargs)
+        return kwargs.get("orderId", 1)
+
+    def fake_save_order_details(orderId, productName, unitCode, quantity, unitPrice):
+        saved_detail_prices.append(unitPrice)
+
+    monkeypatch.setattr(other, "saveOrder", fake_save_order)
+    monkeypatch.setattr(other, "saveOrderDetails", fake_save_order_details)
+
+    order_store.persist_order_update_to_database(7, req)
+
+    assert captured_order_kwargs["deliverystate"] == "NSW"
+    assert captured_order_kwargs["issueDate"] == req.issueDate
+    assert saved_detail_prices == [12.5, None]
 
 
 def test_list_orders_for_party_sorts_dedupes_and_paginates(monkeypatch):

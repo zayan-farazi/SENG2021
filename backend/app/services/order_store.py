@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
 
 from app.models.schemas import OrderRequest
 from app.services.ubl_order import generate_order_id, generate_ubl_order_xml
 
-ORDERS: dict[str, dict[str, Any]] = {}
+ORDERS: dict[str, dict[str, Any]] = OrderedDict()
 DEFAULT_ORDER_LIST_LIMIT = 20
 DEFAULT_ORDER_LIST_OFFSET = 0
 MAX_ORDER_LIST_LIMIT = 100
+MAX_CACHED_ORDERS = 256
 
 
 class OrderPersistenceError(RuntimeError):
@@ -43,14 +45,18 @@ def create_order_record(req: OrderRequest) -> dict[str, Any]:
     }
     db_order_id = persist_order_to_database(req)
     record["dbOrderId"] = str(db_order_id)
-    persist_order_runtime_metadata_to_database(
-        db_order_id,
-        external_order_id=order_id,
-        ubl_xml=ubl_xml,
-        created_at=created_at,
-        updated_at=created_at,
-    )
-    ORDERS[order_id] = record
+    try:
+        persist_order_runtime_metadata_to_database(
+            db_order_id,
+            external_order_id=order_id,
+            ubl_xml=ubl_xml,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    except Exception:
+        _rollback_created_order(db_order_id)
+        raise
+    _cache_order_record(order_id, record)
     return record
 
 
@@ -70,10 +76,9 @@ def delete_order_record(order_id: str) -> bool:
 
     db_order_id = record.get("dbOrderId")
     if db_order_id:
-        from app.other import deleteOrder, deleteOrderDetails
+        from app.other import deleteOrder
 
         try:
-            deleteOrderDetails(db_order_id)
             deleteOrder(db_order_id)
         except Exception as exc:  # noqa: BLE001
             raise OrderPersistenceError("Order could not be deleted from Supabase.") from exc
@@ -91,7 +96,7 @@ def get_order_record(order_id: str) -> dict[str, Any] | None:
     if record is None:
         return None
 
-    ORDERS[order_id] = record
+    _cache_order_record(order_id, record)
     return record
 
 
@@ -134,6 +139,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
             deliverycity=delivery.city if delivery else None,
+            deliverystate=delivery.state if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
             requesteddate=delivery.requestedDate.isoformat()
@@ -151,7 +157,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
                 line.productName,
                 line.unitCode or "EA",
                 line.quantity,
-                float(line.unitPrice) if line.unitPrice is not None else 0.0,
+                float(line.unitPrice) if line.unitPrice is not None else None,
             )
 
         orders = findOrders(orderId=db_order_id)
@@ -197,7 +203,7 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
     existing["payload"] = req.model_dump(mode="json")
     existing["ublXml"] = ubl_xml
 
-    ORDERS[order_id] = existing
+    _cache_order_record(order_id, existing)
     return existing
 
 
@@ -219,6 +225,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
             deliverycity=delivery.city if delivery else None,
+            deliverystate=delivery.state if delivery else None,
             deliverypostcode=delivery.postcode if delivery else None,
             deliverycountry=delivery.country if delivery else None,
             requesteddate=delivery.requestedDate.isoformat()
@@ -240,7 +247,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
                 line.productName,
                 line.unitCode or "EA",
                 line.quantity,
-                float(line.unitPrice) if line.unitPrice is not None else 0.0,
+                float(line.unitPrice) if line.unitPrice is not None else None,
             )
 
         orders = findOrders(orderId=db_order_id)
@@ -286,16 +293,39 @@ def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
 def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]]:
     from app.other import get_supabase_client
 
-    response = (
-        get_supabase_client()
-        .table("orders")
-        .select(
-            "id,order_id,status,createdat,updatedat,lastchanged,buyeremail,buyername,selleremail,sellername,issuedate"
-        )
-        .or_(f"buyeremail.eq.{current_party_email},selleremail.eq.{current_party_email}")
-        .execute()
+    fields = (
+        "id,order_id,status,createdat,updatedat,lastchanged,buyeremail,buyername,"
+        "selleremail,sellername,issuedate"
     )
-    return response.data or []
+    client = get_supabase_client()
+    buyer_rows = (
+        client.table("orders").select(fields).eq("buyeremail", current_party_email).execute()
+    )
+    seller_rows = (
+        client.table("orders").select(fields).eq("selleremail", current_party_email).execute()
+    )
+    return (buyer_rows.data or []) + (seller_rows.data or [])
+
+
+def _rollback_created_order(db_order_id: Any) -> None:
+    from app.other import deleteOrder
+
+    try:
+        deleteOrder(db_order_id)
+    except Exception:
+        # Preserve the original persistence failure; cleanup is best-effort.
+        pass
+
+
+def _cache_order_record(order_id: str, record: dict[str, Any]) -> None:
+    ORDERS.pop(order_id, None)
+    ORDERS[order_id] = record
+    while len(ORDERS) > MAX_CACHED_ORDERS:
+        if isinstance(ORDERS, OrderedDict):
+            ORDERS.popitem(last=False)
+            continue
+        oldest_order_id = next(iter(ORDERS))
+        ORDERS.pop(oldest_order_id, None)
 
 
 def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, Any]:

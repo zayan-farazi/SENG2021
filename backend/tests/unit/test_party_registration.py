@@ -115,3 +115,26 @@ def test_register_party_wraps_persistence_failures(monkeypatch):
 
     with pytest.raises(PartyRegistrationPersistenceError, match="Unable to register party."):
         party_registration.register_party(req)
+
+
+def test_register_party_rolls_back_party_when_app_key_persistence_fails(monkeypatch):
+    req = build_request()
+    deleted_party_ids: list[str] = []
+
+    monkeypatch.setattr(party_registration, "findPartyByContactEmail", lambda _email: None)
+    monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
+    monkeypatch.setattr(party_registration, "findAppKeyByHash", lambda _key_hash: None)
+    monkeypatch.setattr(party_registration, "saveParty", lambda *args: {"party_id": "acme-books"})
+    monkeypatch.setattr(
+        party_registration,
+        "saveAppKey",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        party_registration, "deleteParty", lambda party_id: deleted_party_ids.append(party_id)
+    )
+
+    with pytest.raises(PartyRegistrationPersistenceError, match="Unable to register party."):
+        party_registration.register_party(req)
+
+    assert deleted_party_ids == ["acme-books"]

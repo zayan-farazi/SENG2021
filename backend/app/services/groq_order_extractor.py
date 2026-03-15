@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 from typing import Any
 
 import httpx
 
+from app.env import load_local_env_files
 from app.models.schemas import OrderDraft
 from app.services.order_draft import HostedTranscriptInterpretation, HostedTranscriptPatch
 
@@ -21,7 +21,7 @@ async def extract_transcript_patch(
     transcript_log: list[dict[str, str]],
     transcript: str,
 ) -> HostedTranscriptInterpretation:
-    _load_local_env_files()
+    load_local_env_files()
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return HostedTranscriptInterpretation(
@@ -31,7 +31,7 @@ async def extract_transcript_patch(
 
     base_url = os.getenv("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL).rstrip("/")
     model = os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)
-    timeout_seconds = float(os.getenv("GROQ_TIMEOUT_SECONDS", DEFAULT_GROQ_TIMEOUT_SECONDS))
+    timeout_seconds = _parse_timeout_seconds(os.getenv("GROQ_TIMEOUT_SECONDS"))
     request_body = build_request_body(draft, transcript_log, transcript, model=model)
 
     try:
@@ -191,45 +191,11 @@ Rules:
 """.strip()
 
 
-def _load_local_env_files() -> None:
-    for env_file in _candidate_env_files():
-        if not env_file.is_file():
-            continue
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            key, value = _parse_env_line(line)
-            if key and value is not None:
-                os.environ.setdefault(key, value)
-
-
-def _candidate_env_files() -> list[Path]:
-    backend_dir = Path(__file__).resolve().parents[2]
-    repo_root = backend_dir.parent
-    return [
-        backend_dir / ".env",
-        backend_dir / ".env.local",
-        repo_root / ".env",
-        repo_root / ".env.local",
-    ]
-
-
-def _parse_env_line(line: str) -> tuple[str | None, str | None]:
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        return None, None
-
-    if stripped.startswith("export "):
-        stripped = stripped.removeprefix("export ").strip()
-
-    if "=" not in stripped:
-        return None, None
-
-    key, raw_value = stripped.split("=", 1)
-    key = key.strip()
-    value = raw_value.strip()
-    if not key:
-        return None, None
-
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        value = value[1:-1]
-
-    return key, value
+def _parse_timeout_seconds(value: str | None) -> float:
+    if value is None:
+        return DEFAULT_GROQ_TIMEOUT_SECONDS
+    try:
+        parsed = float(value)
+    except ValueError:
+        return DEFAULT_GROQ_TIMEOUT_SECONDS
+    return parsed if parsed > 0 else DEFAULT_GROQ_TIMEOUT_SECONDS

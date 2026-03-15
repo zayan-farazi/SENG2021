@@ -1077,7 +1077,7 @@ class SellerAnalytics(BaseModel):
 
     totalOrders: int
     totalIncome: float
-    itemsSold: int
+    itemsSold: float
     averageItemSoldPrice: float
     averageOrderAmount: float
     averageOrderItemNumber: float
@@ -1090,7 +1090,7 @@ class SellerAnalytics(BaseModel):
     mostSalesMade: int
     mostPopularProductCode: str | None
     mostPopularProductName: str | None
-    mostPopularProductSales: int
+    mostPopularProductSales: float
 
 
 class BuyerAnalytics(BaseModel):
@@ -1102,7 +1102,7 @@ class BuyerAnalytics(BaseModel):
 
     totalOrders: int
     totalSpent: float
-    itemsBought: int
+    itemsBought: float
     averageItemPrice: float
     averageOrderAmount: float
     averageItemsPerOrder: float

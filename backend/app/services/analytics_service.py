@@ -1,14 +1,22 @@
-from datetime import datetime
+from __future__ import annotations
 
-from app.other import findOrderDetails, findOrders
+from datetime import datetime
+from typing import Any
+
+from app.other import findOrderDetailsByOrderIds, findOrders
 
 
 def _round_metric(value: float) -> float:
     return round(value, 2)
 
 
-def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetime | None):
+def _normalize_quantity(value: Any) -> float:
+    if value is None:
+        return 0.0
+    return float(value)
 
+
+def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetime | None):
     if fromDate is None or toDate is None:
         raise ValueError("fromDate and toDate must be provided")
 
@@ -45,69 +53,62 @@ def get_user_analytics(username: str, fromDate: datetime | None, toDate: datetim
 
 
 def calculate_seller_analytics(res, fromDate, toDate):
-
-    totalIncome = 0
-    itemsSold = 0
+    totalIncome = 0.0
+    itemsSold = 0.0
     ordersPending = 0
     ordersComplete = 0
     ordersCancelled = 0
+    productFreq: dict[str, dict[str, float]] = {}
+    dateFreq: dict[str, int] = {}
+    numDays = max((toDate - fromDate).days + 1, 1)
 
-    productFreq = {}
-    dateFreq = {}
+    order_details = _details_by_order_id(res)
 
     for order in res:
-        orderLines = findOrderDetails(order["id"])
-        data = orderLines.data
+        data = order_details.get(order["id"], [])
 
         for line in data:
-            totalIncome += line["unitprice"] * line["quantity"]
-            itemsSold += line["quantity"]
+            quantity = _normalize_quantity(line.get("quantity"))
+            unit_price = float(line.get("unitprice") or 0.0)
+            totalIncome += unit_price * quantity
+            itemsSold += quantity
 
-            code = line["unitcode"]
-            name = line["productname"]
+            code = line.get("unitcode")
+            name = line.get("productname")
+            if code and name:
+                productFreq.setdefault(code, {})
+                productFreq[code][name] = productFreq[code].get(name, 0.0) + quantity
 
-            if code not in productFreq:
-                productFreq[code] = {}
-
-            if name not in productFreq[code]:
-                productFreq[code][name] = 0
-
-            productFreq[code][name] += line["quantity"]
-
-        if order["status"] == "Pending":
+        status = (order.get("status") or "").upper()
+        if status in {"PENDING", "DRAFT"}:
             ordersPending += 1
-        elif order["status"] == "Complete":
+        elif status in {"COMPLETE", "COMPLETED", "SUBMITTED"}:
             ordersComplete += 1
-        elif order["status"] == "Cancelled":
+        elif status == "CANCELLED":
             ordersCancelled += 1
 
-        date = order["issuedate"]
+        date = order.get("issuedate")
+        if isinstance(date, str) and date:
+            dateFreq[date] = dateFreq.get(date, 0) + 1
 
-        if date not in dateFreq:
-            dateFreq[date] = 0
+    highestCode = None
+    highestProd = None
+    highestDaySales = None
 
-        dateFreq[date] += 1
+    if productFreq:
+        highestCode = max(productFreq, key=lambda key: max(productFreq[key].values()))
+        highestProd = max(productFreq[highestCode], key=productFreq[highestCode].get)
 
-        highestCode = None
-        highestProd = None
-        highestDaySales = None
-
-        if productFreq:
-            highestCode = max(productFreq, key=lambda k: max(productFreq[k].values()))
-            highestProd = max(productFreq[highestCode], key=productFreq[highestCode].get)
-
-        if dateFreq:
-            highestDaySales = max(dateFreq, key=dateFreq.get)
-
-        numDays = max((toDate - fromDate).days + 1, 1)
+    if dateFreq:
+        highestDaySales = max(dateFreq, key=dateFreq.get)
 
     return {
         "totalOrders": len(res),
         "totalIncome": _round_metric(totalIncome),
-        "itemsSold": itemsSold,
+        "itemsSold": _round_metric(itemsSold),
         "averageItemSoldPrice": _round_metric(totalIncome / itemsSold) if itemsSold else 0,
-        "averageOrderAmount": _round_metric(totalIncome / len(res)) if itemsSold else 0,
-        "averageOrderItemNumber": _round_metric(itemsSold / len(res)) if itemsSold else 0,
+        "averageOrderAmount": _round_metric(totalIncome / len(res)) if res else 0,
+        "averageOrderItemNumber": _round_metric(itemsSold / len(res)) if res else 0,
         "averageDailyIncome": _round_metric(totalIncome / numDays),
         "averageDailyOrders": _round_metric(len(res) / numDays),
         "ordersPending": ordersPending,
@@ -117,31 +118,40 @@ def calculate_seller_analytics(res, fromDate, toDate):
         "mostSalesMade": dateFreq.get(highestDaySales, 0),
         "mostPopularProductCode": highestCode,
         "mostPopularProductName": highestProd,
-        "mostPopularProductSales": productFreq[highestCode][highestProd],
+        "mostPopularProductSales": (
+            _round_metric(productFreq[highestCode][highestProd])
+            if highestCode and highestProd
+            else 0
+        ),
     }
 
 
 def calculate_buyer_analytics(res, fromDate, toDate):
+    totalSpent = 0.0
+    itemsBought = 0.0
+    numDays = max((toDate - fromDate).days + 1, 1)
 
-    totalSpent = 0
-    itemsBought = 0
+    order_details = _details_by_order_id(res)
 
     for order in res:
-        orderLines = findOrderDetails(order["id"])
-
-        for line in orderLines.data:
-            totalSpent += line["unitprice"] * line["quantity"]
-            itemsBought += line["quantity"]
-
-    numDays = max((toDate - fromDate).days + 1, 1)
+        for line in order_details.get(order["id"], []):
+            quantity = _normalize_quantity(line.get("quantity"))
+            unit_price = float(line.get("unitprice") or 0.0)
+            totalSpent += unit_price * quantity
+            itemsBought += quantity
 
     return {
         "totalOrders": len(res),
         "totalSpent": _round_metric(totalSpent),
-        "itemsBought": itemsBought,
+        "itemsBought": _round_metric(itemsBought),
         "averageItemPrice": _round_metric(totalSpent / itemsBought) if itemsBought else 0,
-        "averageOrderAmount": _round_metric(totalSpent / len(res)) if itemsBought else 0,
-        "averageItemsPerOrder": _round_metric(itemsBought / len(res)) if itemsBought else 0,
+        "averageOrderAmount": _round_metric(totalSpent / len(res)) if res else 0,
+        "averageItemsPerOrder": _round_metric(itemsBought / len(res)) if res else 0,
         "averageDailySpend": _round_metric(totalSpent / numDays),
         "averageDailyOrders": _round_metric(len(res) / numDays),
     }
+
+
+def _details_by_order_id(orders: list[dict[str, Any]]) -> dict[int | str, list[dict]]:
+    order_ids = [order.get("id") for order in orders if order.get("id") is not None]
+    return findOrderDetailsByOrderIds(order_ids)

@@ -18,6 +18,7 @@ from app.models.schemas import (
     REQUEST_VALIDATION_ROUTE_DOCS,
     RequestValidationErrorResponse,
 )
+from app.other import close_supabase_client
 
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:3000",
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
     app.state.start_time = monotonic()
     app.state.request_count = 0
     yield
+    close_supabase_client()
 
 
 def _parse_allowed_origins(value: str | None) -> list[str]:

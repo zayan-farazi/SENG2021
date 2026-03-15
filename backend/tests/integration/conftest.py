@@ -8,13 +8,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.other as other
+from app.env import load_local_env_files
 from app.main import app
 from app.services import order_store
 
 
 def _ensure_supabase_env() -> None:
     if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")):
-        other._load_local_env_files()
+        load_local_env_files()
     if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")):
         pytest.skip("SUPABASE_URL and SUPABASE_KEY must be configured to run integration tests.")
 
@@ -22,7 +23,7 @@ def _ensure_supabase_env() -> None:
 @pytest.fixture
 def integration_client() -> Iterator[TestClient]:
     _ensure_supabase_env()
-    other._SUPABASE_CLIENT = None
+    other.close_supabase_client()
     order_store.ORDERS.clear()
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -30,7 +31,7 @@ def integration_client() -> Iterator[TestClient]:
 
     order_store.ORDERS.clear()
     app.dependency_overrides.clear()
-    other._SUPABASE_CLIENT = None
+    other.close_supabase_client()
 
 
 @pytest.fixture
@@ -50,4 +51,4 @@ def tracked_supabase_records() -> Iterator[dict[str, list[str]]]:
             client.table("parties").delete().eq("party_id", party_id).execute()
 
     order_store.ORDERS.clear()
-    other._SUPABASE_CLIENT = None
+    other.close_supabase_client()

@@ -3,12 +3,6 @@ from datetime import datetime
 from app.services.analytics_service import get_user_analytics
 
 
-class MockResponse:
-    def __init__(self, data):
-        self.data = data
-        self.count = len(data)
-
-
 def test_seller_only_analytics(monkeypatch):
 
     orders = [
@@ -26,11 +20,11 @@ def test_seller_only_analytics(monkeypatch):
             return orders
         return []
 
-    def mock_findOrderDetails(order_id):
-        return MockResponse(order_lines[order_id])
-
     monkeypatch.setattr("app.services.analytics_service.findOrders", mock_findOrders)
-    monkeypatch.setattr("app.services.analytics_service.findOrderDetails", mock_findOrderDetails)
+    monkeypatch.setattr(
+        "app.services.analytics_service.findOrderDetailsByOrderIds",
+        lambda order_ids: {order_id: order_lines[order_id] for order_id in order_ids},
+    )
 
     result = get_user_analytics(
         username="seller@test.com",
@@ -40,7 +34,7 @@ def test_seller_only_analytics(monkeypatch):
 
     assert result["role"] == "seller"
     assert result["analytics"]["totalOrders"] == 2
-    assert result["analytics"]["itemsSold"] == 3
+    assert result["analytics"]["itemsSold"] == 3.0
     assert result["analytics"]["totalIncome"] == 40
     assert result["analytics"]["averageDailyOrders"] == 0.4
     assert result["analytics"]["averageDailyIncome"] == 8.0
@@ -61,11 +55,11 @@ def test_buyer_only_analytics(monkeypatch):
             return orders
         return []
 
-    def mock_findOrderDetails(order_id):
-        return MockResponse(order_lines[order_id])
-
     monkeypatch.setattr("app.services.analytics_service.findOrders", mock_findOrders)
-    monkeypatch.setattr("app.services.analytics_service.findOrderDetails", mock_findOrderDetails)
+    monkeypatch.setattr(
+        "app.services.analytics_service.findOrderDetailsByOrderIds",
+        lambda order_ids: {order_id: order_lines[order_id] for order_id in order_ids},
+    )
 
     result = get_user_analytics(
         username="buyer@test.com",
@@ -75,7 +69,7 @@ def test_buyer_only_analytics(monkeypatch):
 
     assert result["role"] == "buyer"
     assert result["analytics"]["totalSpent"] == 30
-    assert result["analytics"]["itemsBought"] == 2
+    assert result["analytics"]["itemsBought"] == 2.0
     assert result["analytics"]["averageDailyOrders"] == 0.2
     assert result["analytics"]["averageDailySpend"] == 6.0
 
@@ -102,11 +96,11 @@ def test_buyer_and_seller(monkeypatch):
             return buyer_orders
         return []
 
-    def mock_findOrderDetails(order_id):
-        return MockResponse(order_lines[order_id])
-
     monkeypatch.setattr("app.services.analytics_service.findOrders", mock_findOrders)
-    monkeypatch.setattr("app.services.analytics_service.findOrderDetails", mock_findOrderDetails)
+    monkeypatch.setattr(
+        "app.services.analytics_service.findOrderDetailsByOrderIds",
+        lambda order_ids: {order_id: order_lines[order_id] for order_id in order_ids},
+    )
 
     result = get_user_analytics(
         username="user@test.com",
@@ -136,3 +130,28 @@ def test_no_orders(monkeypatch):
     )
 
     assert result["message"] == "No orders found"
+
+
+def test_seller_analytics_handles_orders_without_details(monkeypatch):
+    orders = [
+        {"id": 1, "status": "DRAFT", "issuedate": "2026-03-01"},
+    ]
+
+    monkeypatch.setattr(
+        "app.services.analytics_service.findOrders",
+        lambda **kwargs: orders if kwargs.get("selleremail") else [],
+    )
+    monkeypatch.setattr(
+        "app.services.analytics_service.findOrderDetailsByOrderIds",
+        lambda order_ids: {order_id: [] for order_id in order_ids},
+    )
+
+    result = get_user_analytics(
+        username="seller@test.com",
+        fromDate=datetime(2026, 3, 1),
+        toDate=datetime(2026, 3, 1),
+    )
+
+    assert result["analytics"]["ordersPending"] == 1
+    assert result["analytics"]["mostPopularProductSales"] == 0
+    assert result["analytics"]["averageDailyOrders"] == 1.0

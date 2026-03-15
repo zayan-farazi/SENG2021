@@ -34,7 +34,7 @@ from app.models.schemas import (
 )
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
-from app.services.app_key_auth import get_current_party_email
+from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -299,7 +299,7 @@ async def order_draft_session(websocket: WebSocket):
             elif event_type == "draft.patch":
                 await _handle_draft_patch(websocket, state, payload)
             elif event_type == "session.commit":
-                await _handle_commit(websocket, state)
+                await _handle_commit(websocket, state, payload)
             elif event_type == "session.reset":
                 reset_state(state)
                 await _send_draft_update(websocket, state, ["Draft reset."])
@@ -403,7 +403,11 @@ async def _handle_draft_patch(
     await _send_draft_update(websocket, state, applied_changes)
 
 
-async def _handle_commit(websocket: WebSocket, state: DraftSessionState):
+async def _handle_commit(
+    websocket: WebSocket,
+    state: DraftSessionState,
+    payload: dict[str, Any],
+):
     req, errors = validate_draft_for_commit(state.draft)
     if req is None:
         await websocket.send_json(
@@ -412,6 +416,22 @@ async def _handle_commit(websocket: WebSocket, state: DraftSessionState):
                 "payload": {"errors": errors, "state": serialize_state(state)},
             }
         )
+        return
+
+    raw_app_key = payload.get("appKey")
+    if not isinstance(raw_app_key, str) or not raw_app_key.strip():
+        await _send_error(
+            websocket,
+            "unauthorized",
+            "session.commit requires a valid appKey.",
+        )
+        return
+
+    try:
+        current_party_email = resolve_party_email_from_app_key(raw_app_key.strip())
+        _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
+    except HTTPException as exc:
+        await _send_error(websocket, "unauthorized", exc.detail)
         return
 
     try:

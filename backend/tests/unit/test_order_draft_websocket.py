@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.routes import orders
 from app.main import app
 from app.services import groq_order_extractor, order_store
 from app.services.order_draft import (
@@ -203,7 +204,41 @@ def test_commit_is_blocked_when_required_fields_are_missing():
     ]
 
 
-def test_commit_succeeds_when_draft_is_valid():
+def test_commit_succeeds_when_draft_is_valid(monkeypatch):
+    monkeypatch.setattr(
+        orders, "resolve_party_email_from_app_key", lambda _raw_app_key: "buyer@example.com"
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/order/draft/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "session.start",
+                    "payload": {
+                        "draft": {
+                            "buyerEmail": "buyer@example.com",
+                            "buyerName": "Acme Books",
+                            "sellerEmail": "seller@example.com",
+                            "sellerName": "Digital Book Supply",
+                            "lines": [{"productName": "oranges", "quantity": 4, "unitCode": "EA"}],
+                        }
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {"type": "session.commit", "payload": {"appKey": "appkey_test_value"}}
+            )
+
+            created = websocket.receive_json()
+
+    assert created["type"] == "order.created"
+    assert created["payload"]["order"]["status"] == "DRAFT"
+    assert created["payload"]["order"]["orderId"].startswith("ord_")
+
+
+def test_commit_requires_app_key_when_draft_is_valid():
     with TestClient(app) as client:
         with client.websocket_connect("/v1/order/draft/ws") as websocket:
             websocket.receive_json()
@@ -224,11 +259,15 @@ def test_commit_succeeds_when_draft_is_valid():
             websocket.receive_json()
             websocket.send_json({"type": "session.commit", "payload": {}})
 
-            created = websocket.receive_json()
+            error = websocket.receive_json()
 
-    assert created["type"] == "order.created"
-    assert created["payload"]["order"]["status"] == "DRAFT"
-    assert created["payload"]["order"]["orderId"].startswith("ord_")
+    assert error == {
+        "type": "error",
+        "payload": {
+            "code": "unauthorized",
+            "message": "session.commit requires a valid appKey.",
+        },
+    }
 
 
 def test_reset_clears_session_state():
