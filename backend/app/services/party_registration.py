@@ -6,6 +6,7 @@ import secrets
 
 from app.models.schemas import PartyRegistrationRequest, PartyRegistrationResponse
 from app.other import (
+    deleteParty,
     findAppKeyByHash,
     findPartyByContactEmail,
     findPartyByPartyId,
@@ -35,6 +36,10 @@ def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
         saveParty(party_id, req.partyName.strip(), normalized_email)
         saveAppKey(party_id, key_hash)
     except Exception as exc:  # noqa: BLE001
+        try:
+            deleteParty(party_id)
+        except Exception:  # noqa: BLE001
+            pass
         raise PartyRegistrationPersistenceError("Unable to register party.") from exc
 
     return PartyRegistrationResponse(

@@ -13,7 +13,7 @@ from app.services import groq_order_extractor
 
 def test_extract_transcript_patch_returns_warning_when_api_key_is_missing(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    monkeypatch.setattr(groq_order_extractor, "_candidate_env_files", lambda: [])
+    monkeypatch.setattr(groq_order_extractor, "load_local_env_files", lambda: None)
 
     result = asyncio.run(
         groq_order_extractor.extract_transcript_patch(OrderDraft(), [], "hello world")
@@ -198,7 +198,11 @@ def test_extract_transcript_patch_loads_api_key_from_env_file(monkeypatch, tmp_p
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text('GROQ_API_KEY="file-key"\n', encoding="utf-8")
-    monkeypatch.setattr(groq_order_extractor, "_candidate_env_files", lambda: [env_file])
+    monkeypatch.setattr(
+        groq_order_extractor,
+        "load_local_env_files",
+        lambda: monkeypatch.setenv("GROQ_API_KEY", env_file.read_text().split('"')[1]),
+    )
     seen_headers = {}
     json_module = json
 
@@ -280,3 +284,31 @@ def test_extract_transcript_patch_returns_warning_when_request_fails(monkeypatch
 
     assert result.patch is None
     assert result.warning_message == "Transcript could not be interpreted by the hosted parser."
+
+
+def test_extract_transcript_patch_falls_back_for_invalid_timeout_env(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("GROQ_TIMEOUT_SECONDS", "not-a-number")
+    seen_timeout = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            seen_timeout["value"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):  # noqa: ARG002
+            return httpx.Response(500)
+
+    monkeypatch.setattr(groq_order_extractor.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        groq_order_extractor.extract_transcript_patch(OrderDraft(), [], "hello world")
+    )
+
+    assert result.patch is None
+    assert seen_timeout["value"] == groq_order_extractor.DEFAULT_GROQ_TIMEOUT_SECONDS

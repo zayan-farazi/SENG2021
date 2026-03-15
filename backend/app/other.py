@@ -1,10 +1,11 @@
 import os
 from datetime import datetime
-from pathlib import Path
 
 import httpx
 from supabase import Client, create_client
 from supabase.lib.client_options import SyncClientOptions
+
+from app.env import load_local_env_files
 
 _SUPABASE_CLIENT: Client | None = None
 _SUPABASE_HTTPX_CLIENT: httpx.Client | None = None
@@ -14,7 +15,7 @@ def get_supabase_client() -> Client:
     global _SUPABASE_CLIENT, _SUPABASE_HTTPX_CLIENT
 
     if _SUPABASE_CLIENT is None:
-        _load_local_env_files()
+        load_local_env_files()
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         if not supabase_url:
@@ -26,6 +27,16 @@ def get_supabase_client() -> Client:
         _SUPABASE_CLIENT = create_client(supabase_url, supabase_key, options=options)
 
     return _SUPABASE_CLIENT
+
+
+def close_supabase_client() -> None:
+    global _SUPABASE_CLIENT, _SUPABASE_HTTPX_CLIENT
+
+    if _SUPABASE_HTTPX_CLIENT is not None:
+        _SUPABASE_HTTPX_CLIENT.close()
+
+    _SUPABASE_CLIENT = None
+    _SUPABASE_HTTPX_CLIENT = None
 
 
 # how to save order example
@@ -63,6 +74,7 @@ def saveOrder(
     sellername,
     deliverystreet,
     deliverycity,
+    deliverystate,
     deliverypostcode,
     deliverycountry,
     requesteddate,
@@ -83,6 +95,7 @@ def saveOrder(
         "sellername": sellername,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
+        "deliverystate": deliverystate,
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
         "requesteddate": requesteddate,
@@ -101,6 +114,8 @@ def saveOrder(
             currency = "AUD"
     else:
         query["id"] = orderId
+    if issueDate is not None:
+        query["issuedate"] = issueDate.isoformat()
     if status is not None:
         query["status"] = status
     if currency is not None:
@@ -139,8 +154,9 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
         "productname": productName,
         "unitcode": unitCode,
         "quantity": float(quantity),
-        "unitprice": float(unitPrice),
     }
+    if unitPrice is not None:
+        query["unitprice"] = float(unitPrice)
 
     try:
         get_supabase_client().table("orderdetails").upsert(query).execute()
@@ -207,27 +223,20 @@ def findOrders(
     if toDate:
         query = query.lte("issuedate", toDate.isoformat())
 
-    # Remove if conditions after everyone has fixed their functions so buyer and seller emails are mandatory
-
-    if buyeremail:
-        query = query.eq("buyeremail", buyeremail)
-    if selleremail:
-        query = query.eq("selleremail", selleremail)
-
     res = query.execute()
-    orders = res.data
-
-    if res.count == 1:
-        details = findOrderDetails(orders[0]["id"])
-        orders[0]["details"] = details.data
-        orders[0]["count"] = details.count
-
-    return orders
+    return res.data
 
 
 def findOrderByExternalId(externalOrderId):
     orders = findOrders(externalOrderId=externalOrderId)
-    return orders[0] if orders else None
+    if not orders:
+        return None
+
+    order = dict(orders[0])
+    details = findOrderDetails(order["id"])
+    order["details"] = details.data
+    order["count"] = details.count
+    return order
 
 
 # looks for order detail list through order id
@@ -239,6 +248,25 @@ def findOrderDetails(orderId):
         .eq("orderid", orderId)
         .execute()
     )
+
+
+def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, list[dict]]:
+    normalized_ids = [order_id for order_id in orderIds if order_id is not None]
+    if not normalized_ids:
+        return {}
+
+    response = (
+        get_supabase_client()
+        .table("orderdetails")
+        .select("orderid,productname,unitcode,quantity,unitprice")
+        .in_("orderid", normalized_ids)
+        .execute()
+    )
+
+    grouped: dict[int | str, list[dict]] = {order_id: [] for order_id in normalized_ids}
+    for row in response.data or []:
+        grouped.setdefault(row["orderid"], []).append(row)
+    return grouped
 
 
 def findPartyByContactEmail(contactEmail):
@@ -280,6 +308,10 @@ def saveAppKey(partyId, keyHash):
         .execute()
     )
     return response.data[0]
+
+
+def deleteParty(partyId):
+    get_supabase_client().table("parties").delete().eq("party_id", partyId).execute()
 
 
 def updateOrderRuntimeMetadata(
@@ -325,44 +357,4 @@ def DBInfo():
 
 
 def _load_local_env_files() -> None:
-    for env_file in _candidate_env_files():
-        if not env_file.is_file():
-            continue
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            key, value = _parse_env_line(line)
-            if key and value is not None:
-                os.environ.setdefault(key, value)
-
-
-def _candidate_env_files() -> list[Path]:
-    backend_dir = Path(__file__).resolve().parents[1]
-    repo_root = backend_dir.parent
-    return [
-        backend_dir / ".env",
-        backend_dir / ".env.local",
-        repo_root / ".env",
-        repo_root / ".env.local",
-    ]
-
-
-def _parse_env_line(line: str) -> tuple[str | None, str | None]:
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        return None, None
-
-    if stripped.startswith("export "):
-        stripped = stripped.removeprefix("export ").strip()
-
-    if "=" not in stripped:
-        return None, None
-
-    key, raw_value = stripped.split("=", 1)
-    key = key.strip()
-    value = raw_value.strip()
-    if not key:
-        return None, None
-
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        value = value[1:-1]
-
-    return key, value
+    load_local_env_files()

@@ -18,6 +18,10 @@ def get_current_party_email(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
 ) -> str:
     raw_app_key = extract_bearer_token(credentials)
+    return resolve_party_email_from_app_key(raw_app_key)
+
+
+def resolve_party_email_from_app_key(raw_app_key: str) -> str:
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:

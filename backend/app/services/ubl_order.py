@@ -3,9 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
-from xml.dom import minidom
-from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
-from xml.parsers.expat import ExpatError
+from xml.etree.ElementTree import Element, SubElement, indent, register_namespace, tostring
 
 from app.models.schemas import ORDER_REQUEST_EXAMPLE, Delivery, LineItem, OrderRequest
 
@@ -195,10 +193,17 @@ def generate_ubl_order_xml(
         _add_monetary_total(order, req.lines, currency)
         _add_order_lines(order, req.lines, currency)
 
+        indent(order, space="  ")
         xml_bytes = tostring(order, encoding="utf-8", xml_declaration=True)
-        pretty = minidom.parseString(xml_bytes).toprettyxml(indent="  ", encoding="utf-8")
-        return pretty.decode("utf-8")
-    except (ExpatError, TypeError, ValueError) as exc:
+        xml_text = xml_bytes.decode("utf-8")
+        if xml_text.startswith("<?xml version='1.0' encoding='utf-8'?>"):
+            xml_text = xml_text.replace(
+                "<?xml version='1.0' encoding='utf-8'?>",
+                '<?xml version="1.0" encoding="utf-8"?>',
+                1,
+            )
+        return xml_text
+    except (TypeError, ValueError) as exc:
         raise OrderGenerationError("Unable to generate UBL order XML.") from exc
 
 

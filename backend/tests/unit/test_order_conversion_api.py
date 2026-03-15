@@ -83,6 +83,8 @@ def test_transcript_conversion_returns_payload_for_authorized_buyer(client, monk
     body = response.json()
     assert body["valid"] is True
     assert body["source"] == "transcript"
+    assert body["issues"] == []
+    assert "warnings" not in body
     assert body["payload"]["buyerEmail"] == "buyer@example.com"
 
 

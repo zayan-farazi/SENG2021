@@ -27,7 +27,6 @@ def build_record(order_id: str = "ord_delete_me") -> dict:
             "lines": [{"productName": "Book", "quantity": 1, "unitCode": "EA"}],
         },
         "ublXml": "<Order />",
-        "warnings": [],
         "dbOrderId": "42",
     }
 

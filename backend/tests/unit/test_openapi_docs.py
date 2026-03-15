@@ -6,8 +6,8 @@ from app.main import app
 from app.services.ubl_order import generate_docs_example_ubl_order_xml
 
 
-def _openapi() -> dict:
-    with TestClient(app, raise_server_exceptions=False) as client:
+def _openapi(base_url: str = "http://testserver") -> dict:
+    with TestClient(app, base_url=base_url, raise_server_exceptions=False) as client:
         response = client.get("/openapi.json")
 
     assert response.status_code == 200
@@ -17,11 +17,44 @@ def _openapi() -> dict:
 def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
 
+    assert schema["info"]["title"] == "LockedOut"
+    assert "/" not in schema["paths"]
+    assert "## Authentication" in schema["info"]["description"]
+    assert "## Successful Use Case" in schema["info"]["description"]
+    assert "POST /v1/parties/register" in schema["info"]["description"]
+    assert "POST /v1/order/create" in schema["info"]["description"]
+    assert "<baseUrl>" not in schema["info"]["description"]
+    assert "http://testserver/v1/parties/register" in schema["info"]["description"]
+    assert "http://testserver/v1/order/create" in schema["info"]["description"]
+    assert "http://testserver/v1/orders?limit=20&offset=0" in schema["info"]["description"]
+    assert "http://testserver/v1/order/<orderId>" in schema["info"]["description"]
+    assert "http://testserver/v1/order/<orderId>/ubl" in schema["info"]["description"]
+    assert "Authorization: Bearer <appKey>" in schema["info"]["description"]
+    assert "app key must belong to either the buyer or the seller" in schema["info"]["description"]
+    assert '"buyerEmail": "orders@buyerco.example"' in schema["info"]["description"]
+    assert "`GET /v1/order/{order_id}/ubl` returns XML, not JSON." in schema["info"]["description"]
+    assert "POST /v1/orders/convert/transcript" in schema["info"]["description"]
+    assert schema["servers"] == [{"url": "http://testserver"}]
     assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
         "type": "http",
         "scheme": "bearer",
         "description": "Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
     }
+
+
+def test_openapi_description_uses_request_host_without_cross_request_leakage():
+    render_schema = _openapi("https://seng2021.onrender.com")
+    railway_schema = _openapi("https://lockedout.up.railway.app")
+
+    render_description = render_schema["info"]["description"]
+    railway_description = railway_schema["info"]["description"]
+
+    assert "https://seng2021.onrender.com/v1/parties/register" in render_description
+    assert render_schema["servers"] == [{"url": "https://seng2021.onrender.com"}]
+    assert "https://lockedout.up.railway.app/v1/parties/register" in railway_description
+    assert railway_schema["servers"] == [{"url": "https://lockedout.up.railway.app"}]
+    assert "https://lockedout.up.railway.app" not in render_description
+    assert "https://seng2021.onrender.com" not in railway_description
 
 
 def test_protected_order_routes_declare_bearer_security():
@@ -33,7 +66,6 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/order/{order_id}/ubl", "get"),
         ("/v1/order/{order_id}", "put"),
         ("/v1/order/{order_id}", "delete"),
-        ("/v1/orders/validate", "post"),
         ("/v1/orders/convert/transcript", "post"),
     ]
 
@@ -45,6 +77,7 @@ def test_protected_order_routes_declare_bearer_security():
 def test_http_endpoints_include_summaries_and_tags():
     schema = _openapi()
 
+    assert [tag["name"] for tag in schema["tags"]] == ["Parties", "Orders", "Health"]
     assert schema["paths"]["/v1/health"]["get"]["summary"] == "Health check"
     assert schema["paths"]["/v1/health"]["get"]["tags"] == ["Health"]
     assert schema["paths"]["/v1/parties/register"]["post"]["summary"] == (
@@ -64,9 +97,7 @@ def test_http_endpoints_include_summaries_and_tags():
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
         "Get order UBL XML (Bearer app key required)"
     )
-    assert schema["paths"]["/v1/orders/validate"]["post"]["summary"] == (
-        "Validate an order payload (Bearer app key required)"
-    )
+    assert "/v1/orders/validate" not in schema["paths"]
 
 
 def test_key_schemas_include_examples():
@@ -80,13 +111,23 @@ def test_key_schemas_include_examples():
     assert "LineItem-Output" not in schemas
     assert "HTTPValidationError" not in schemas
     assert "ValidationError" not in schemas
+    assert "Severity" not in schemas
+    assert "Issue" not in schemas
+    assert "ValidationResponse" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
-    assert schemas["ValidationResponse"]["examples"][1]["valid"] is False
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
+    assert (
+        schemas["OrderConversionResponse"]["examples"][1]["issues"][0]
+        == "buyerName: Field required"
+    )
     assert schemas["RequestValidationErrorResponse"]["examples"][0]["message"] == (
         "Request validation failed."
     )
     assert schemas["OrderListResponse"]["examples"][0]["items"][0]["orderId"] == "ord_abc123def456"
+    assert schemas["SellerAnalytics"]["example"]["averageDailyOrders"] == 0.33
+    assert schemas["BuyerAnalytics"]["example"]["averageDailySpend"] == 5.0
+    assert schemas["BuyerAndSellerAnalyticsResponse"]["example"]["netProfit"] == 10.5
+    assert schemas["NoOrdersAnalyticsResponse"]["example"]["message"] == "No orders found"
     assert (
         schemas["RequestValidationErrorResponse"]["properties"]["errors"]["items"]["$ref"]
         == "#/components/schemas/ValidationFieldError"
@@ -143,6 +184,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
 
     get_order = schema["paths"]["/v1/order/{order_id}"]["get"]
     assert "ublXml" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
+    assert "warnings" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
     assert "500" not in get_order["responses"]
     assert "422" not in get_order["responses"]
 
@@ -184,18 +226,6 @@ def test_endpoint_responses_include_examples_for_common_flows():
         "contactEmail"
     )
 
-    validate_post = schema["paths"]["/v1/orders/validate"]["post"]
-    examples = validate_post["responses"]["200"]["content"]["application/json"]["examples"]
-    assert examples["valid"]["value"]["valid"] is True
-    assert examples["invalid"]["value"]["valid"] is False
-    validate_422 = validate_post["responses"]["422"]["content"]["application/json"]
-    assert validate_post["responses"]["422"]["description"] == (
-        "The order payload submitted for validation is malformed."
-    )
-    assert validate_422["examples"]["missingBuyerName"]["value"]["errors"][0]["path"] == (
-        "buyerName"
-    )
-
     transcript_post = schema["paths"]["/v1/orders/convert/transcript"]["post"]
     transcript_422 = transcript_post["responses"]["422"]["content"]["application/json"]
     assert transcript_post["responses"]["422"]["description"] == (
@@ -204,19 +234,64 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert transcript_422["examples"]["missingTranscript"]["value"]["errors"][0]["path"] == (
         "transcript"
     )
+    transcript_examples = transcript_post["responses"]["200"]["content"]["application/json"][
+        "examples"
+    ]
+    assert transcript_examples["success"]["value"]["issues"] == []
+    assert "warnings" not in transcript_examples["success"]["value"]
+    assert (
+        transcript_examples["incomplete"]["value"]["issues"][1]
+        == "currency: currency is recommended before create or update."
+    )
+    analytics_get = schema["paths"]["/v1/analytics/orders"]["get"]
+    assert analytics_get["summary"] == "Get order analytics (Bearer app key required)"
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
+            "value"
+        ]["analytics"]["averageDailyOrders"]
+        == 0.33
+    )
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
+            "buyerAndSeller"
+        ]["value"]["sellerAnalytics"]["averageDailyIncome"]
+        == 6.67
+    )
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["noOrders"][
+            "value"
+        ]["message"]
+        == "No orders found"
+    )
+    assert (
+        analytics_get["responses"]["400"]["content"]["application/json"]["examples"][
+            "missingDates"
+        ]["value"]["detail"]
+        == "fromDate and toDate are required."
+    )
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
 
-def test_docs_route_uses_custom_swagger_wrapper_for_ubl_xml_example():
+def test_docs_routes_use_custom_swagger_wrapper_for_ubl_xml_example():
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/docs")
+        root_response = client.get("/")
+        docs_response = client.get("/docs")
 
-    assert response.status_code == 200
-    assert "/static/swagger-ui-5.32.0.css" in response.text
-    assert "/static/swagger-ui-bundle-5.32.0.js" in response.text
-    assert "/static/swagger-runtime-xml-plugin.js" in response.text
-    assert "window.RuntimeXmlExamplePlugin" in response.text
-    assert "MutationObserver" not in response.text
+    for response in (root_response, docs_response):
+        assert response.status_code == 200
+        assert "/static/swagger-ui-5.32.0.css" in response.text
+        assert "/static/swagger-ui-bundle-5.32.0.js" in response.text
+        assert "/static/swagger-runtime-xml-plugin.js" in response.text
+        assert "window.RuntimeXmlExamplePlugin" in response.text
+        assert "MutationObserver" not in response.text
+        assert "orderOperationsSorter" in response.text
+        assert '"post /v1/order/create": 0' in response.text
+        assert '"put /v1/order/{order_id}": 1' in response.text
+        assert '"get /v1/order/{order_id}": 2' in response.text
+        assert '"delete /v1/order/{order_id}": 3' in response.text
+        assert '"get /v1/orders": 4' in response.text
+        assert '"get /v1/order/{order_id}/ubl": 5' in response.text
+        assert '"post /v1/orders/convert/transcript": 6' in response.text
 
 
 def test_custom_swagger_plugin_asset_is_served():
