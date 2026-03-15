@@ -629,9 +629,7 @@ def _build_conversion_response(
     current_party_email: str,
 ) -> OrderConversionResponse:
     issues = [_format_conversion_issue(issue.path, issue.issue) for issue in conversion_issues]
-    issues.extend(
-        f"conversion: {message}" for message in conversion_warnings if message.strip()
-    )
+    issues.extend(f"conversion: {message}" for message in conversion_warnings if message.strip())
 
     payload, draft_errors = order_conversion.finalize_payload(draft)
     if payload is not None:
@@ -651,6 +649,14 @@ def _build_conversion_response(
         issues=issues,
         source=source,
     )
+
+
+def _format_conversion_issue(path: str, message: str) -> str:
+    normalized_path = path.strip()
+    normalized_message = message.strip()
+    if not normalized_path:
+        return normalized_message
+    return f"{normalized_path}: {normalized_message}"
 
 
 def _assert_order_access(current_party_email: str, payload: dict[str, Any]) -> None:
@@ -750,213 +756,6 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
             )
         )
     return issues
-
-
-def _validate_buyer_seller(order: OrderRequest, issues: list[Issue]) -> None:
-    if not order.buyerEmail:
-        issues.append(
-            Issue(
-                path="buyerEmail",
-                issue="buyerEmail is required",
-                severity=Severity.error,
-                hint="Provide a valid buyer email address.",
-            )
-        )
-    if not order.buyerName:
-        issues.append(
-            Issue(
-                path="buyerName",
-                issue="buyerName is required",
-                severity=Severity.error,
-                hint="Provide the full name or company name of the buyer.",
-            )
-        )
-    if not order.sellerEmail:
-        issues.append(
-            Issue(
-                path="sellerEmail",
-                issue="sellerEmail is required",
-                severity=Severity.error,
-                hint="Provide a valid seller email address.",
-            )
-        )
-    if not order.sellerName:
-        issues.append(
-            Issue(
-                path="sellerName",
-                issue="sellerName is required",
-                severity=Severity.error,
-                hint="Provide the full name or company name of the seller.",
-            )
-        )
-
-
-def _validate_lines(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
-    for i, line in enumerate(order.lines):
-        if not line.productName:
-            issues.append(
-                Issue(
-                    path=f"lines[{i}].productName",
-                    issue="productName is required",
-                    severity=Severity.error,
-                    hint="Provide a product or service name for this line.",
-                )
-            )
-        if line.unitPrice is None:
-            warnings.append(
-                Issue(
-                    path=f"lines[{i}].unitPrice",
-                    issue="unitPrice is missing",
-                    severity=Severity.warning,
-                    hint="Provide a unit price so the order total can be calculated.",
-                )
-            )
-        if line.unitCode is None:
-            warnings.append(
-                Issue(
-                    path=f"lines[{i}].unitCode",
-                    issue="unitCode is missing",
-                    severity=Severity.warning,
-                    hint="unitCode defaults to 'EA' (each) if not provided.",
-                )
-            )
-
-
-def _validate_delivery(order: OrderRequest, issues: list[Issue], warnings: list[Issue]) -> None:
-    if order.delivery is None:
-        warnings.append(
-            Issue(
-                path="delivery",
-                issue="delivery is missing",
-                severity=Severity.warning,
-                hint="Provide a delivery object if physical shipment is required.",
-            )
-        )
-        return
-
-    for field in ("street", "city", "country"):
-        if not getattr(order.delivery, field):
-            warnings.append(
-                Issue(
-                    path=f"delivery.{field}",
-                    issue=f"delivery.{field} is required",
-                    severity=Severity.warning,
-                    hint=f"Provide a value for delivery.{field}.",
-                )
-            )
-
-    if not order.delivery.postcode:
-        warnings.append(
-            Issue(
-                path="delivery.postcode",
-                issue="delivery.postcode is missing",
-                severity=Severity.warning,
-                hint="Postcode improves delivery accuracy and may be required by some carriers.",
-            )
-        )
-    if not order.delivery.state:
-        warnings.append(
-            Issue(
-                path="delivery.state",
-                issue="delivery.state is missing",
-                severity=Severity.warning,
-                hint="State/province may be required for certain countries.",
-            )
-        )
-
-
-def _validate_currency(order: OrderRequest, warnings: list[Issue]) -> None:
-    if order.currency is None:
-        warnings.append(
-            Issue(
-                path="currency",
-                issue="currency is required",
-                severity=Severity.warning,
-                hint="Use an ISO 4217 currency code, e.g. 'AUD'.",
-            )
-        )
-
-
-def _validate_dates(order: OrderRequest, warnings: list[Issue]) -> None:
-    if order.issueDate is None:
-        warnings.append(
-            Issue(
-                path="issueDate",
-                issue="issueDate is missing",
-                severity=Severity.warning,
-                hint="Provide an issue date for the order.",
-            )
-        )
-    if order.delivery and order.delivery.requestedDate is None:
-        warnings.append(
-            Issue(
-                path="delivery.requestedDate",
-                issue="delivery.requestedDate is missing",
-                severity=Severity.warning,
-                hint="Provide a requested delivery date.",
-            )
-        )
-
-
-def _validate_order(order: OrderRequest) -> ValidationResponse:
-    issues: list[Issue] = []
-    warnings: list[Issue] = []
-
-    _validate_buyer_seller(order, issues)
-    _validate_lines(order, issues, warnings)
-    _validate_delivery(order, issues, warnings)
-    _validate_currency(order, warnings)
-    _validate_dates(order, warnings)
-
-    fields = [
-        order.buyerEmail,
-        order.buyerName,
-        order.sellerEmail,
-        order.sellerName,
-        order.currency,
-        order.issueDate,
-        order.delivery,
-        order.lines,
-    ]
-    score = round(sum(bool(f) for f in fields) / len(fields), 2)
-
-    return ValidationResponse(
-        valid=len(issues) == 0,
-        issues=issues,
-        warnings=warnings,
-        score=score,
-    )
-
-
-@router.post(
-    "/v1/orders/validate",
-    response_model=ValidationResponse,
-    summary="Validate an order payload (Bearer app key required)",
-    description=(
-        "Run the same validation rules used by create and update without mutating any order state. "
-        "The authenticated caller must still be the buyer or seller in the provided payload."
-    ),
-    responses={
-        200: {
-            "description": "Validation result for the supplied payload.",
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "valid": {"value": VALIDATION_RESPONSE_VALID_EXAMPLE},
-                        "invalid": {"value": VALIDATION_RESPONSE_INVALID_EXAMPLE},
-                    }
-                }
-            },
-        },
-        401: UNAUTHORIZED_RESPONSE,
-        403: FORBIDDEN_RESPONSE,
-    },
-)
-async def validate_order(
-    order: OrderRequest, current_party_email: str = Depends(get_current_party_email)
-) -> ValidationResponse:
-    _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
-    return _validate_order(order)
 
 
 @router.get("/v1/analytics/orders", status_code=200)

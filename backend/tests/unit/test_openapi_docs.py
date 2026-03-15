@@ -115,7 +115,10 @@ def test_key_schemas_include_examples():
     assert "ValidationResponse" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
-    assert schemas["OrderConversionResponse"]["examples"][1]["issues"][0] == "buyerName: Field required"
+    assert (
+        schemas["OrderConversionResponse"]["examples"][1]["issues"][0]
+        == "buyerName: Field required"
+    )
     assert schemas["RequestValidationErrorResponse"]["examples"][0]["message"] == (
         "Request validation failed."
     )
