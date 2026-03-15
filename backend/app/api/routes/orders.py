@@ -862,9 +862,7 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
             "content": {
                 "application/json": {
                     "examples": {
-                        "missingDates": {
-                            "value": {"detail": "fromDate and toDate are required."}
-                        },
+                        "missingDates": {"value": {"detail": "fromDate and toDate are required."}},
                         "invertedRange": {
                             "value": {"detail": "fromDate must be on or before toDate."}
                         },
@@ -876,9 +874,7 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
         500: {
             "description": "Analytics generation failed.",
             "content": {
-                "application/json": {
-                    "example": {"detail": "Unable to generate analytics."}
-                }
+                "application/json": {"example": {"detail": "Unable to generate analytics."}}
             },
         },
     },

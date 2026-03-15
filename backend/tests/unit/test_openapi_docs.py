@@ -245,18 +245,30 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
     analytics_get = schema["paths"]["/v1/analytics/orders"]["get"]
     assert analytics_get["summary"] == "Get order analytics (Bearer app key required)"
-    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
-        "value"
-    ]["analytics"]["averageDailyOrders"] == 0.33
-    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
-        "buyerAndSeller"
-    ]["value"]["sellerAnalytics"]["averageDailyIncome"] == 6.67
-    assert analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
-        "noOrders"
-    ]["value"]["message"] == "No orders found"
-    assert analytics_get["responses"]["400"]["content"]["application/json"]["examples"][
-        "missingDates"
-    ]["value"]["detail"] == "fromDate and toDate are required."
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
+            "value"
+        ]["analytics"]["averageDailyOrders"]
+        == 0.33
+    )
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"][
+            "buyerAndSeller"
+        ]["value"]["sellerAnalytics"]["averageDailyIncome"]
+        == 6.67
+    )
+    assert (
+        analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["noOrders"][
+            "value"
+        ]["message"]
+        == "No orders found"
+    )
+    assert (
+        analytics_get["responses"]["400"]["content"]["application/json"]["examples"][
+            "missingDates"
+        ]["value"]["detail"]
+        == "fromDate and toDate are required."
+    )
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
 
