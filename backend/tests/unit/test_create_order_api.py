@@ -236,7 +236,15 @@ def test_create_order_rejects_invalid_payloads(client, mutator, expected_loc):
     response = client.post("/v1/order/create", json=payload, headers=auth_headers("buyer-key"))
 
     assert response.status_code == 422
-    assert expected_loc in [error["loc"] for error in response.json()["detail"]]
+    body = response.json()
+    assert body["message"] == "Request validation failed."
+    source, *path_segments = expected_loc
+    expected_path = path_segments[0]
+    for segment in path_segments[1:]:
+        expected_path = (
+            f"{expected_path}[{segment}]" if isinstance(segment, int) else f"{expected_path}.{segment}"
+        )
+    assert any(error["source"] == source and error["path"] == expected_path for error in body["errors"])
     assert orders.ORDERS == {}
 
 

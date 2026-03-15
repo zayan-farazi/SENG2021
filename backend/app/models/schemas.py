@@ -146,6 +146,189 @@ ORDER_UPDATE_RESPONSE_EXAMPLE = {
     "updatedAt": "2026-03-14T11:00:00Z",
 }
 
+REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE = {
+    "message": "Request validation failed.",
+    "errors": [
+        {
+            "source": "body",
+            "path": "lines[0].quantity",
+            "message": "Input should be greater than 0",
+            "code": "greater_than",
+        }
+    ],
+}
+
+REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLES = {
+    "bodyField": {
+        "summary": "Invalid request body field",
+        "value": REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE,
+    },
+    "pathParam": {
+        "summary": "Invalid path parameter",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "path",
+                    "path": "order_id",
+                    "message": "Input should be a valid string",
+                    "code": "string_type",
+                }
+            ],
+        },
+    },
+    "missingField": {
+        "summary": "Missing required field",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "buyerName",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+}
+
+PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES = {
+    "missingPartyName": {
+        "summary": "Missing party name",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "partyName",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "invalidContactEmail": {
+        "summary": "Invalid contact email",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "contactEmail",
+                    "message": (
+                        "value is not a valid email address: The part after the @-sign "
+                        "is not valid. It should have a period."
+                    ),
+                    "code": "value_error",
+                }
+            ],
+        },
+    },
+}
+
+ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES = {
+    "missingBuyerName": {
+        "summary": "Missing buyer name",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "buyerName",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "invalidLineQuantity": {
+        "summary": "Invalid line quantity",
+        "value": REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE,
+    },
+    "invalidCurrency": {
+        "summary": "Invalid currency code",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "currency",
+                    "message": "String should have at least 3 characters",
+                    "code": "string_too_short",
+                }
+            ],
+        },
+    },
+}
+
+TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES = {
+    "missingTranscript": {
+        "summary": "Missing transcript",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "transcript",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    }
+}
+
+CSV_CONVERSION_VALIDATION_ERROR_EXAMPLES = {
+    "missingFile": {
+        "summary": "Missing CSV upload",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "file",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    }
+}
+
+REQUEST_VALIDATION_ROUTE_DOCS = {
+    ("/v1/parties/register", "post"): {
+        "description": "The registration payload is missing required party details or uses an invalid contact email.",
+        "examples": PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/order/create", "post"): {
+        "description": "The order create payload is missing required fields or contains invalid order values.",
+        "examples": ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/order/{order_id}", "put"): {
+        "description": "The order update payload is missing required fields or contains invalid order values.",
+        "examples": ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/orders/validate", "post"): {
+        "description": "The order payload submitted for validation is malformed.",
+        "examples": ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/orders/convert/transcript", "post"): {
+        "description": "The transcript conversion request is missing the required transcript body.",
+        "examples": TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/orders/convert/csv", "post"): {
+        "description": "The CSV conversion request is missing the uploaded file.",
+        "examples": CSV_CONVERSION_VALIDATION_ERROR_EXAMPLES,
+    },
+}
+
+REQUEST_VALIDATION_DISABLED_ROUTES = {
+    ("/v1/order/{order_id}", "get"),
+    ("/v1/order/{order_id}", "delete"),
+    ("/v1/order/{order_id}/ubl", "get"),
+}
+
 UBL_FETCH_XML_OPENAPI_SCHEMA = {
     "type": "object",
     "xml": {
@@ -832,3 +1015,29 @@ class OrderUpdateResponse(BaseModel):
     orderId: str
     status: str
     updatedAt: str
+
+
+class ValidationFieldError(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE["errors"][0],
+        }
+    )
+
+    source: Literal["body", "path", "query", "header", "cookie"]
+    path: str
+    message: str
+    code: str
+
+
+class RequestValidationErrorResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": list(
+                example["value"] for example in REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLES.values()
+            )
+        }
+    )
+
+    message: str
+    errors: list[ValidationFieldError]

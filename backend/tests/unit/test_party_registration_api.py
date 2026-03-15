@@ -73,3 +73,6 @@ def test_register_party_rejects_invalid_payloads(client, payload):
     response = client.post("/v1/parties/register", json=payload)
 
     assert response.status_code == 422
+    body = response.json()
+    assert body["message"] == "Request validation failed."
+    assert body["errors"]

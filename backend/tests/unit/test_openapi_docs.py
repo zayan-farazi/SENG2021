@@ -75,9 +75,20 @@ def test_key_schemas_include_examples():
     assert "OrderRequest-Output" not in schemas
     assert "LineItem-Input" not in schemas
     assert "LineItem-Output" not in schemas
+    assert "HTTPValidationError" not in schemas
+    assert "ValidationError" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
     assert schemas["ValidationResponse"]["examples"][1]["valid"] is False
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
+    assert schemas["RequestValidationErrorResponse"]["examples"][0]["message"] == (
+        "Request validation failed."
+    )
+    assert (
+        schemas["RequestValidationErrorResponse"]["properties"]["errors"]["items"]["$ref"]
+        == "#/components/schemas/ValidationFieldError"
+    )
+    assert schemas["ValidationFieldError"]["example"]["path"] == "lines[0].quantity"
+    assert '"#/$defs/ValidationFieldError"' not in str(schema)
 
 
 def test_endpoint_responses_include_examples_for_common_flows():
@@ -104,6 +115,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
     get_order = schema["paths"]["/v1/order/{order_id}"]["get"]
     assert "ublXml" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
     assert "500" not in get_order["responses"]
+    assert "422" not in get_order["responses"]
 
     get_ubl = schema["paths"]["/v1/order/{order_id}/ubl"]["get"]
     xml_example = get_ubl["responses"]["200"]["content"]["application/xml"]["example"]
@@ -116,11 +128,53 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
     assert 'currencyID="AUD"' in xml_example
     assert "application/json" not in get_ubl["responses"]["200"]["content"]
+    assert "422" not in get_ubl["responses"]
+
+    delete_order = schema["paths"]["/v1/order/{order_id}"]["delete"]
+    assert "422" not in delete_order["responses"]
+
+    validation_422 = create_post["responses"]["422"]["content"]["application/json"]
+    assert validation_422["schema"]["$ref"] == "#/components/schemas/RequestValidationErrorResponse"
+    assert create_post["responses"]["422"]["description"] == (
+        "The order create payload is missing required fields or contains invalid order values."
+    )
+    assert validation_422["examples"]["invalidLineQuantity"]["value"]["errors"][0]["path"] == (
+        "lines[0].quantity"
+    )
+    assert validation_422["examples"]["invalidCurrency"]["value"]["errors"][0]["path"] == "currency"
+
+    register_post = schema["paths"]["/v1/parties/register"]["post"]
+    register_422 = register_post["responses"]["422"]["content"]["application/json"]
+    assert register_post["responses"]["422"]["description"] == (
+        "The registration payload is missing required party details or uses an invalid contact email."
+    )
+    assert register_422["examples"]["missingPartyName"]["value"]["errors"][0]["path"] == (
+        "partyName"
+    )
+    assert register_422["examples"]["invalidContactEmail"]["value"]["errors"][0]["path"] == (
+        "contactEmail"
+    )
 
     validate_post = schema["paths"]["/v1/orders/validate"]["post"]
     examples = validate_post["responses"]["200"]["content"]["application/json"]["examples"]
     assert examples["valid"]["value"]["valid"] is True
     assert examples["invalid"]["value"]["valid"] is False
+    validate_422 = validate_post["responses"]["422"]["content"]["application/json"]
+    assert validate_post["responses"]["422"]["description"] == (
+        "The order payload submitted for validation is malformed."
+    )
+    assert validate_422["examples"]["missingBuyerName"]["value"]["errors"][0]["path"] == (
+        "buyerName"
+    )
+
+    transcript_post = schema["paths"]["/v1/orders/convert/transcript"]["post"]
+    transcript_422 = transcript_post["responses"]["422"]["content"]["application/json"]
+    assert transcript_post["responses"]["422"]["description"] == (
+        "The transcript conversion request is missing the required transcript body."
+    )
+    assert transcript_422["examples"]["missingTranscript"]["value"]["errors"][0]["path"] == (
+        "transcript"
+    )
 
     csv_post = schema["paths"]["/v1/orders/convert/csv"]["post"]
     assert "buyerEmail,buyerName,sellerEmail" in csv_post["description"]
@@ -130,6 +184,11 @@ def test_endpoint_responses_include_examples_for_common_flows():
         ]["detail"]
         == "CSV upload must use a .csv file."
     )
+    csv_422 = csv_post["responses"]["422"]["content"]["application/json"]
+    assert csv_post["responses"]["422"]["description"] == (
+        "The CSV conversion request is missing the uploaded file."
+    )
+    assert csv_422["examples"]["missingFile"]["value"]["errors"][0]["path"] == "file"
 
 
 def test_docs_route_uses_custom_swagger_wrapper_for_ubl_xml_example():
