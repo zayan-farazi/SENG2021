@@ -67,8 +67,6 @@ def saveOrder(
     deliverycountry,
     requesteddate,
     notes,
-    buyeremail=None,
-    selleremail=None,
     issueDate=None,
     status=None,
     currency=None,
@@ -161,7 +159,6 @@ def findOrders(
     buyername=None,
     selleremail=None,
     sellername=None,
-    selleremail=None,  # TODO remove this too
     deliverystreet=None,
     deliverycity=None,
     deliverypostcode=None,
