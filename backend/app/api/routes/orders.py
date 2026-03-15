@@ -525,10 +525,6 @@ async def _send_error(
         401: UNAUTHORIZED_RESPONSE,
         403: FORBIDDEN_RESPONSE,
         404: NOT_FOUND_RESPONSE,
-        500: {
-            "description": "The stored order XML is missing.",
-            "content": {"application/json": {"example": {"detail": "Order XML missing."}}},
-        },
     },
 )
 def get_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
@@ -540,15 +536,11 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
     payload = order.get("payload", {})
     _assert_order_access(current_party_email, payload)
 
-    if not order.get("ublXml"):
-        raise HTTPException(status_code=500, detail="Order XML missing.")
-
     return {
         "orderId": order["orderId"],
         "status": order["status"],
         "createdAt": order["createdAt"],
         "updatedAt": order["updatedAt"],
-        "ublXml": order["ublXml"],
         "warnings": order["warnings"],
     }
 

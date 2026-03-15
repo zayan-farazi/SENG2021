@@ -138,7 +138,7 @@ def test_full_order_lifecycle_survives_cache_reset(integration_client, tracked_s
         headers=_auth_headers(seller["appKey"]),
     )
     assert get_after_update_reset.status_code == 200
-    assert "Lifecycle test order updated" in get_after_update_reset.json()["ublXml"]
+    assert "ublXml" not in get_after_update_reset.json()
 
     get_ubl_after_update = integration_client.get(
         f"/v1/order/{order_id}/ubl",

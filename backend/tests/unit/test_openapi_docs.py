@@ -97,6 +97,10 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
     assert "ublXml" not in update_put["responses"]["200"]["content"]["application/json"]["example"]
 
+    get_order = schema["paths"]["/v1/order/{order_id}"]["get"]
+    assert "ublXml" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
+    assert "500" not in get_order["responses"]
+
     get_ubl = schema["paths"]["/v1/order/{order_id}/ubl"]["get"]
     xml_example = get_ubl["responses"]["200"]["content"]["application/xml"]["example"]
     assert get_ubl["operationId"] == "get_order_ubl_xml"

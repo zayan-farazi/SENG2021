@@ -137,7 +137,6 @@ ORDER_FETCH_RESPONSE_EXAMPLE = {
     "status": "DRAFT",
     "createdAt": "2026-03-14T10:30:00Z",
     "updatedAt": "2026-03-14T11:00:00Z",
-    "ublXml": ORDER_FETCH_XML_EXAMPLE,
     "warnings": [],
 }
 
@@ -820,7 +819,6 @@ class OrderFetchResponse(BaseModel):
     status: str
     createdAt: str
     updatedAt: str
-    ublXml: str
     warnings: list[Issue]
 
 

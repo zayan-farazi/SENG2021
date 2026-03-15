@@ -20,7 +20,6 @@ NS = {
     "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
 }
 
-
 def build_payload() -> OrderRequest:
     return OrderRequest(
         buyerEmail="buyer@example.com",
@@ -144,8 +143,8 @@ def test_get_existing_order_returns_order(client, created_order):
     assert body["status"] == record["status"]
     assert body["createdAt"] == record["createdAt"]
     assert body["updatedAt"] == record["updatedAt"]
-    assert body["ublXml"] == record["ublXml"]
     assert body["warnings"] == record["warnings"]
+    assert "ublXml" not in body
     assert orders.ORDERS[order_id]["dbOrderId"] == "123"
 
     # Check internal payload separately
@@ -153,32 +152,6 @@ def test_get_existing_order_returns_order(client, created_order):
     assert record["payload"]["sellerName"] == "Digital Book Supply"
     assert record["payload"]["currency"] == "AUD"
     assert record["payload"]["lines"][0]["unitPrice"] == ("12.50")
-
-    # parse XML and check key values
-    root = ET.fromstring(body["ublXml"])
-    assert root.find("cbc:ID", NS).text == order_id
-    assert root.find("cbc:CustomizationID", NS).text
-    assert root.find("cbc:ProfileID", NS).text
-    assert root.find("cbc:UUID", NS).text
-    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
-    assert (
-        root.find("cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name", NS).text
-        == record["payload"]["buyerName"]
-    )
-    assert (
-        root.find("cac:BuyerCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail", NS).text
-        == record["payload"]["buyerEmail"]
-    )
-    assert (
-        root.find("cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name", NS).text
-        == record["payload"]["sellerName"]
-    )
-    assert (
-        root.find("cac:SellerSupplierParty/cac:Party/cac:Contact/cbc:ElectronicMail", NS).text
-        == record["payload"]["sellerEmail"]
-    )
-    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "25.00"
-
 
 def test_get_nonexistent_order_returns_404(client):
     response = client.get("/v1/order/nonexistent123", headers=auth_headers("buyer-key"))
@@ -194,15 +167,14 @@ def test_get_order_with_invalid_id_format_returns_404(client):
         assert response.json() == {"detail": "Not Found"}
 
 
-def test_get_order_with_missing_ubl_xml_returns_error(client, created_order):
+def test_get_order_with_missing_ubl_xml_still_returns_json_order(client, created_order):
     order_id, record = created_order
-    # Remove the UBL XML to simulate a failed generation
     record["ublXml"] = None
 
     response = client.get(f"/v1/order/{order_id}", headers=auth_headers("buyer-key"))
-    # Return 500 (internal error)
-    assert response.status_code == 500
-    assert response.json() == {"detail": "Order XML missing."}
+    assert response.status_code == 200
+    assert response.json()["orderId"] == order_id
+    assert "ublXml" not in response.json()
 
 
 def test_get_order_returns_401_when_auth_header_is_missing(client, created_order):
