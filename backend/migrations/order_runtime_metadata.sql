@@ -1,0 +1,12 @@
+ALTER TABLE public.orders
+  ADD COLUMN IF NOT EXISTS order_id TEXT,
+  ADD COLUMN IF NOT EXISTS buyeremail TEXT,
+  ADD COLUMN IF NOT EXISTS selleremail TEXT,
+  ADD COLUMN IF NOT EXISTS deliverystate TEXT,
+  ADD COLUMN IF NOT EXISTS requesteddate TEXT,
+  ADD COLUMN IF NOT EXISTS createdat TEXT,
+  ADD COLUMN IF NOT EXISTS updatedat TEXT,
+  ADD COLUMN IF NOT EXISTS ublxml TEXT,
+  ADD COLUMN IF NOT EXISTS currency TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON public.orders (order_id);

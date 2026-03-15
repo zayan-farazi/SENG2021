@@ -19,7 +19,9 @@ from app.services.order_draft import (
 
 def build_patch(
     *,
+    buyer_email: str | None = None,
     buyer_name: str | None = None,
+    seller_email: str | None = None,
     seller_name: str | None = None,
     currency: str | None = None,
     issue_date: str | None = None,
@@ -32,7 +34,9 @@ def build_patch(
 ) -> HostedTranscriptPatch:
     return HostedTranscriptPatch(
         fieldUpdates=HostedFieldUpdates(
+            buyerEmail=buyer_email,
             buyerName=buyer_name,
+            sellerEmail=seller_email,
             sellerName=seller_name,
             currency=currency,
             issueDate=issue_date,
@@ -57,7 +61,9 @@ def test_apply_transcript_interpretation_updates_full_order_fields():
     interpretation = HostedTranscriptInterpretation(
         patch=build_patch(
             buyer_name="James",
+            buyer_email="buyer@example.com",
             seller_name="Grocery Store",
+            seller_email="seller@example.com",
             currency="AUD",
             issue_date="2026-03-08",
             notes="Deliver to the front counter",
@@ -82,7 +88,9 @@ def test_apply_transcript_interpretation_updates_full_order_fields():
     )
 
     assert result.applied_changes == [
+        "Updated buyer email.",
         "Updated buyer name.",
+        "Updated seller email.",
         "Updated seller name.",
         "Set currency to AUD.",
         "Set issue date to 2026-03-08.",
@@ -91,7 +99,9 @@ def test_apply_transcript_interpretation_updates_full_order_fields():
         "Updated requested delivery date to 2026-04-04.",
         "Added oranges with quantity 4.",
     ]
+    assert state.draft.buyerEmail == "buyer@example.com"
     assert state.draft.buyerName == "James"
+    assert state.draft.sellerEmail == "seller@example.com"
     assert state.draft.sellerName == "Grocery Store"
     assert state.draft.currency == "AUD"
     assert state.draft.issueDate == date(2026, 3, 8)
@@ -248,7 +258,9 @@ def test_validate_draft_for_commit_reports_missing_required_fields():
 
     assert req is None
     assert [error["loc"] for error in errors] == [
+        ("buyerEmail",),
         ("buyerName",),
+        ("sellerEmail",),
         ("sellerName",),
         ("lines", 0, "quantity"),
     ]

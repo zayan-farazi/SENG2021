@@ -1,4 +1,4 @@
-.PHONY: all ci check lint format fix test coverage dev
+.PHONY: all ci check lint format fix test test-unit test-integration coverage dev
 
 PYTHON := ./.venv/bin/python
 RUFF := $(PYTHON) -m ruff
@@ -27,6 +27,12 @@ fix: $(PYTHON)
 
 test: $(PYTHON)
 	$(PYTEST) -q
+
+test-unit: $(PYTHON)
+	$(PYTEST) -q tests/unit
+
+test-integration: $(PYTHON)
+	$(PYTEST) -q tests/integration
 
 coverage: $(PYTHON)
 	$(PYTEST) --cov=app --cov-report=term-missing

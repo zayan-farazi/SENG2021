@@ -22,15 +22,22 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "integration: exercises the real app and Supabase-backed flows",
+  "unit: fast isolated tests with mocked dependencies",
+]
 
 [dependency-groups]
 dev = [
+    "email-validator>=2.3.0",
     "fastapi>=0.135.1",
     "httpx>=0.28.1",
+    "python-multipart>=0.0.20",
     "pydantic>=2.12.5",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
     "pyright>=1.1.408",
     "ruff>=0.14.0",
+    "supabase>=2.18.1",
     "uvicorn[standard]>=0.41.0",
 ]

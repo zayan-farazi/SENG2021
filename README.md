@@ -49,3 +49,55 @@ If you want to override it explicitly:
 ```bash
 BUN_PUBLIC_BACKEND_URL=http://localhost:8000 bun dev
 ```
+
+## Deployment
+
+### Backend on Render
+
+Deploy the `backend` directory as a Render Web Service.
+
+- App root: `backend`
+- Instance type: `Free`
+- Health check path: `/v1/health`
+- Build command: `pip install -r requirements.txt`
+- Start command: `PYTHONPATH=. uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+Backend runtime file:
+
+- `backend/requirements.txt`
+
+Required Render backend environment variables:
+
+```bash
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
+GROQ_API_KEY=your_groq_api_key
+ALLOWED_ORIGINS=https://your-render-frontend.onrender.com
+```
+
+Optional backend parser settings:
+
+```bash
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_TIMEOUT_SECONDS=20
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+```
+
+`ALLOWED_ORIGINS` is a comma-separated allowlist for exact origins. If it is unset, the backend only keeps localhost dev origins enabled, so set it to your Render static site origin before going live.
+
+Render free web services spin down after 15 minutes of inactivity. Expect the first HTTP request or websocket reconnect after the service goes idle to take longer while the backend wakes up.
+
+### Frontend on Render Static Site
+
+Deploy the repo root as a Render Static Site.
+
+- Build command: `bun install --frozen-lockfile && bun run build`
+- Publish directory: `dist`
+
+Set this Render frontend environment variable:
+
+```bash
+BUN_PUBLIC_BACKEND_URL=https://your-render-backend.onrender.com
+```
+
+`BUN_PUBLIC_BACKEND_URL` is the deployed backend origin. The frontend will derive the websocket endpoint from it automatically, so `https://...` becomes `wss://.../v1/order/draft/ws`.

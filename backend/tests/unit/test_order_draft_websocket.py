@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import groq_order_extractor
+from app.services import groq_order_extractor, order_store
 from app.services.order_draft import (
     HostedDeliveryFieldUpdates,
     HostedFieldUpdates,
@@ -15,7 +16,9 @@ from app.services.order_draft import (
 
 def build_patch(
     *,
+    buyer_email: str | None = None,
     buyer_name: str | None = None,
+    seller_email: str | None = None,
     seller_name: str | None = None,
     currency: str | None = None,
     issue_date: str | None = None,
@@ -24,7 +27,9 @@ def build_patch(
 ) -> HostedTranscriptPatch:
     return HostedTranscriptPatch(
         fieldUpdates=HostedFieldUpdates(
+            buyerEmail=buyer_email,
             buyerName=buyer_name,
+            sellerEmail=seller_email,
             sellerName=seller_name,
             currency=currency,
             issueDate=issue_date,
@@ -41,6 +46,16 @@ def build_patch(
         lineActions=line_actions or [],
         warnings=[],
         unresolvedReason=unresolved_reason,
+    )
+
+
+@pytest.fixture(autouse=True)
+def stub_order_persistence(monkeypatch):
+    monkeypatch.setattr(order_store, "persist_order_to_database", lambda req: 123)
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_runtime_metadata_to_database",
+        lambda *args, **kwargs: None,
     )
 
 
@@ -180,7 +195,9 @@ def test_commit_is_blocked_when_required_fields_are_missing():
 
     assert blocked["type"] == "commit.blocked"
     assert [error["loc"] for error in blocked["payload"]["errors"]] == [
+        ["buyerEmail"],
         ["buyerName"],
+        ["sellerEmail"],
         ["sellerName"],
         ["lines"],
     ]
@@ -195,7 +212,9 @@ def test_commit_succeeds_when_draft_is_valid():
                     "type": "session.start",
                     "payload": {
                         "draft": {
+                            "buyerEmail": "buyer@example.com",
                             "buyerName": "Acme Books",
+                            "sellerEmail": "seller@example.com",
                             "sellerName": "Digital Book Supply",
                             "lines": [{"productName": "oranges", "quantity": 4, "unitCode": "EA"}],
                         }

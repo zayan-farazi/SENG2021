@@ -1,8 +1,8 @@
-CREATE TABLE orderDetails (
-  orderId INT,
-  productName TEXT NOT NULL,
-  unitCode TEXT,
+CREATE TABLE IF NOT EXISTS orderdetails (
+  orderid INTEGER NOT NULL,
+  productname TEXT NOT NULL,
+  unitcode TEXT,
   quantity FLOAT NOT NULL,
-  unitPrice FLOAT NOT NULL,
-  FOREIGN KEY (orderId) REFERENCES orders(id)
+  unitprice FLOAT NOT NULL,
+  FOREIGN KEY (orderid) REFERENCES orders(id) ON DELETE CASCADE
 );

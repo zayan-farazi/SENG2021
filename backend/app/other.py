@@ -2,13 +2,16 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from supabase import Client, create_client
+from supabase.lib.client_options import SyncClientOptions
 
 _SUPABASE_CLIENT: Client | None = None
+_SUPABASE_HTTPX_CLIENT: httpx.Client | None = None
 
 
 def get_supabase_client() -> Client:
-    global _SUPABASE_CLIENT
+    global _SUPABASE_CLIENT, _SUPABASE_HTTPX_CLIENT
 
     if _SUPABASE_CLIENT is None:
         _load_local_env_files()
@@ -18,7 +21,9 @@ def get_supabase_client() -> Client:
             raise RuntimeError("SUPABASE_URL is not configured.")
         if not supabase_key:
             raise RuntimeError("SUPABASE_KEY is not configured.")
-        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
+        _SUPABASE_HTTPX_CLIENT = httpx.Client(timeout=120.0)
+        options = SyncClientOptions(httpx_client=_SUPABASE_HTTPX_CLIENT)
+        _SUPABASE_CLIENT = create_client(supabase_url, supabase_key, options=options)
 
     return _SUPABASE_CLIENT
 
@@ -52,29 +57,39 @@ def get_supabase_client() -> Client:
 # saves or updates order information and returns order Id
 # creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
+    buyeremail,
     buyername,
+    selleremail,
     sellername,
     deliverystreet,
     deliverycity,
     deliverypostcode,
     deliverycountry,
+    requesteddate,
     notes,
     buyeremail=None,
     selleremail=None,
     issueDate=None,
     status=None,
     currency=None,
+    externalOrderId=None,
+    ublXml=None,
+    createdAt=None,
+    updatedAt=None,
     orderId=None,
 ):
     query = {
+        "buyeremail": buyeremail,
         "buyername": buyername,
+        "selleremail": selleremail,
         "sellername": sellername,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
         "deliverypostcode": deliverypostcode,
         "deliverycountry": deliverycountry,
+        "requesteddate": requesteddate,
         "notes": notes,
-        "lastchanged": datetime.now().isoformat(),
+        "lastchanged": updatedAt or datetime.now().isoformat(),
     }
 
     if orderId is None:
@@ -92,6 +107,14 @@ def saveOrder(
         query["status"] = status
     if currency is not None:
         query["currency"] = currency
+    if externalOrderId is not None:
+        query["order_id"] = externalOrderId
+    if ublXml is not None:
+        query["ublxml"] = ublXml
+    if createdAt is not None:
+        query["createdat"] = createdAt
+    if updatedAt is not None:
+        query["updatedat"] = updatedAt
 
     # TODO remove if conditions when people have changeed their functions
 
@@ -133,8 +156,10 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
 # res.count gives you the total number of tuples, even if >1000
 def findOrders(
     orderId=None,
+    externalOrderId=None,
+    buyeremail=None,
     buyername=None,
-    buyeremail=None,  # TODO remove this after everyone updates their functions
+    selleremail=None,
     sellername=None,
     selleremail=None,  # TODO remove this too
     deliverystreet=None,
@@ -152,8 +177,14 @@ def findOrders(
 
     if orderId:
         query = query.eq("id", orderId)
+    if externalOrderId:
+        query = query.eq("order_id", externalOrderId)
+    if buyeremail:
+        query = query.eq("buyeremail", buyeremail)
     if buyername:
         query = query.eq("buyername", buyername)
+    if selleremail:
+        query = query.eq("selleremail", selleremail)
     if sellername:
         query = query.eq("sellername", sellername)
     if deliverystreet:
@@ -197,6 +228,11 @@ def findOrders(
     return orders
 
 
+def findOrderByExternalId(externalOrderId):
+    orders = findOrders(externalOrderId=externalOrderId)
+    return orders[0] if orders else None
+
+
 # looks for order detail list through order id
 def findOrderDetails(orderId):
     return (
@@ -206,6 +242,71 @@ def findOrderDetails(orderId):
         .eq("orderid", orderId)
         .execute()
     )
+
+
+def findPartyByContactEmail(contactEmail):
+    response = (
+        get_supabase_client()
+        .table("parties")
+        .select("*")
+        .eq("contact_email", contactEmail)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+def findPartyByPartyId(partyId):
+    response = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
+    return response.data[0] if response.data else None
+
+
+def findAppKeyByHash(keyHash):
+    response = get_supabase_client().table("app_keys").select("*").eq("key_hash", keyHash).execute()
+    return response.data[0] if response.data else None
+
+
+def saveParty(partyId, partyName, contactEmail):
+    response = (
+        get_supabase_client()
+        .table("parties")
+        .insert({"party_id": partyId, "party_name": partyName, "contact_email": contactEmail})
+        .execute()
+    )
+    return response.data[0]
+
+
+def saveAppKey(partyId, keyHash):
+    response = (
+        get_supabase_client()
+        .table("app_keys")
+        .insert({"party_id": partyId, "key_hash": keyHash})
+        .execute()
+    )
+    return response.data[0]
+
+
+def updateOrderRuntimeMetadata(
+    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None
+):
+    query = {}
+    if externalOrderId is not None:
+        query["order_id"] = externalOrderId
+    if ublXml is not None:
+        query["ublxml"] = ublXml
+    if createdAt is not None:
+        query["createdat"] = createdAt
+    if updatedAt is not None:
+        query["updatedat"] = updatedAt
+        query["lastchanged"] = updatedAt
+
+    if not query:
+        return None
+
+    try:
+        response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
 # deletes all order lines related to a query
