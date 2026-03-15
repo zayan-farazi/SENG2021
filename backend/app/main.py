@@ -42,6 +42,7 @@ app = FastAPI(
     title="DigitalBook Order Creation API",
     version="0.1.0",
     docs_url=None,
+    separate_input_output_schemas=False,
     description=(
         "A buyer/seller order API for B2B integrations.\n\n"
         "## Authentication\n"

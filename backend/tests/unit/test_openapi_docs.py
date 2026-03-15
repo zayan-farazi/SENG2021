@@ -70,7 +70,11 @@ def test_key_schemas_include_examples():
     schema = _openapi()
     schemas = schema["components"]["schemas"]
 
-    assert schemas["OrderRequest-Input"]["example"]["buyerEmail"] == "orders@buyerco.example"
+    assert schemas["OrderRequest"]["example"]["buyerEmail"] == "orders@buyerco.example"
+    assert "OrderRequest-Input" not in schemas
+    assert "OrderRequest-Output" not in schemas
+    assert "LineItem-Input" not in schemas
+    assert "LineItem-Output" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
     assert schemas["ValidationResponse"]["examples"][1]["valid"] is False
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
