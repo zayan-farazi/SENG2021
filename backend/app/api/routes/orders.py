@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastapi import (
@@ -36,6 +37,7 @@ from app.models.schemas import (
     ValidationResponse,
 )
 from app.services import groq_order_extractor, order_conversion, order_store
+from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email
 from app.services.order_draft import (
     DraftSessionState,
@@ -921,3 +923,32 @@ async def validate_order(
 ) -> ValidationResponse:
     _assert_email_access(current_party_email, order.buyerEmail, order.sellerEmail)
     return _validate_order(order)
+
+
+@router.get("/v1/analytics/orders", status_code=200)
+def get_order_analytics(
+    fromDate: datetime | None = None,
+    toDate: datetime | None = None,
+    current_party_email: str = Depends(get_current_party_email),
+):
+    if current_party_email is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if fromDate is None or toDate is None:
+        raise HTTPException(status_code=400, detail="fromDate and toDate are required.")
+    if fromDate > toDate:
+        raise HTTPException(status_code=400, detail="fromDate must be on or before toDate.")
+
+    try:
+        analytics = get_user_analytics(
+            username=current_party_email,
+            fromDate=fromDate,
+            toDate=toDate,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Analytics generation failed")
+        raise HTTPException(status_code=500, detail="Unable to generate analytics.") from exc
+
+    return analytics
