@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from app.models.schemas import Delivery, LineItem, OrderRequest
+from app.models.schemas import ORDER_REQUEST_EXAMPLE, Delivery, LineItem, OrderRequest
 from app.services import ubl_order
 from app.services.ubl_order import OrderGenerationError
 
@@ -64,9 +64,22 @@ def test_generate_ubl_order_xml_includes_full_structure():
     root = ET.fromstring(xml_text)
     assert root.tag == f"{{{NS['order']}}}Order"
     assert root.find("cbc:UBLVersionID", NS).text == "2.1"
+    assert (
+        root.find("cbc:CustomizationID", NS).text
+        == "urn:oasis:names:specification:ubl:xpath:Order-2.1:sbs-1.0"
+    )
+    assert (
+        root.find("cbc:ProfileID", NS).text
+        == "bpid:urn:oasis:names:bpss:ubl-2-sbs-order-with-simple-response"
+    )
     assert root.find("cbc:ID", NS).text == "ord_1234567890abcdef"
+    assert root.find("cbc:CopyIndicator", NS).text == "false"
+    assert root.find("cbc:UUID", NS).text
     assert root.find("cbc:IssueDate", NS).text == "2026-03-07"
-    assert root.find("cbc:Note", NS).text == "Leave at loading dock"
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
+    assert (
+        root.find("cac:TransactionConditions/cbc:Description", NS).text == "Leave at loading dock"
+    )
     assert (
         root.find(
             "cac:BuyerCustomerParty/cac:Party/cac:PartyName/cbc:Name",
@@ -76,11 +89,33 @@ def test_generate_ubl_order_xml_includes_full_structure():
     )
     assert (
         root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == "buyer@example.com"
+    )
+    assert (
+        root.find(
             "cac:SellerSupplierParty/cac:Party/cac:PartyName/cbc:Name",
             NS,
         ).text
         == "Digital Book Supply"
     )
+    assert (
+        root.find(
+            "cac:SellerSupplierParty/cac:Party/cac:Contact/cbc:ElectronicMail",
+            NS,
+        ).text
+        == "seller@example.com"
+    )
+    assert (
+        root.find(
+            "cac:BuyerCustomerParty/cac:Party/cac:PostalAddress/cbc:StreetName",
+            NS,
+        ).text
+        == "123 Test St"
+    )
+    assert root.find("cac:SellerSupplierParty/cac:Party/cac:PostalAddress", NS) is None
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "123 Test St"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:CityName", NS).text == "Sydney"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:PostalZone", NS).text == "2000"
@@ -103,12 +138,19 @@ def test_generate_ubl_order_xml_includes_full_structure():
     order_lines = root.findall("cac:OrderLine", NS)
     assert len(order_lines) == 2
     assert order_lines[0].find("cac:LineItem/cbc:ID", NS).text == "1"
+    assert order_lines[0].find("cac:LineItem/cbc:LineStatusCode", NS).text == "NoStatus"
     assert order_lines[0].find("cac:LineItem/cbc:Quantity", NS).attrib["unitCode"] == "EA"
+    assert order_lines[0].find("cac:LineItem/cbc:LineExtensionAmount", NS).text == "25.00"
     assert (
         order_lines[0].find("cac:LineItem/cac:Price/cbc:PriceAmount", NS).attrib["currencyID"]
         == "AUD"
     )
+    assert order_lines[0].find("cac:LineItem/cac:Price/cbc:BaseQuantity", NS).text == "2"
     assert order_lines[1].find("cac:LineItem/cbc:Quantity", NS).attrib["unitCode"] == "EA"
+    assert order_lines[1].find("cac:LineItem/cbc:LineExtensionAmount", NS).text == "5.00"
+    assert order_lines[1].find("cac:LineItem/cac:Price/cbc:PriceAmount", NS).text == "5.00"
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:LineExtensionAmount", NS).text == "30.00"
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "30.00"
 
 
 def test_generate_ubl_order_xml_uses_today_and_omits_absent_optional_elements(monkeypatch):
@@ -133,10 +175,30 @@ def test_generate_ubl_order_xml_uses_today_and_omits_absent_optional_elements(mo
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
 
     assert root.find("cbc:IssueDate", NS).text == "2026-04-01"
-    assert root.find("cbc:Note", NS) is None
+    assert root.find("cac:TransactionConditions", NS) is None
     assert root.find("cac:Delivery", NS) is None
     assert price_amount.text == "7.25"
-    assert "currencyID" not in price_amount.attrib
+    assert price_amount.attrib["currencyID"] == "AUD"
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == "AUD"
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "21.75"
+
+
+def test_generate_ubl_order_xml_omits_totals_when_no_line_has_price():
+    req = OrderRequest(
+        buyerEmail="buyer@example.com",
+        buyerName="Acme Books",
+        sellerEmail="seller@example.com",
+        sellerName="Digital Book Supply",
+        lines=[LineItem(productName="Refactoring", quantity=3, unitPrice=None)],
+    )
+
+    xml_text = ubl_order.generate_ubl_order_xml("ord_1234567890abcdef", req)
+
+    root = ET.fromstring(xml_text)
+
+    assert root.find("cac:AnticipatedMonetaryTotal", NS) is None
+    assert root.find(".//cac:Price", NS) is None
+    assert root.find(".//cbc:LineExtensionAmount", NS) is None
 
 
 def test_generate_ubl_order_xml_wraps_serialization_failures(monkeypatch):
@@ -155,3 +217,27 @@ def test_generate_ubl_order_xml_wraps_serialization_failures(monkeypatch):
 
     with pytest.raises(OrderGenerationError, match="Unable to generate UBL order XML."):
         ubl_order.generate_ubl_order_xml("ord_1234567890abcdef", req)
+
+
+def test_generate_docs_example_ubl_order_xml_is_deterministic():
+    req = OrderRequest.model_validate(ORDER_REQUEST_EXAMPLE)
+
+    generated = ubl_order.generate_docs_example_ubl_order_xml()
+    expected = ubl_order.generate_ubl_order_xml(
+        ubl_order.DOCS_EXAMPLE_ORDER_ID,
+        req,
+        document_uuid=ubl_order.DOCS_EXAMPLE_UUID,
+    )
+
+    assert generated == expected
+    assert generated == ubl_order.generate_docs_example_ubl_order_xml()
+    assert generated.startswith('<?xml version="1.0" encoding="utf-8"?>')
+    assert (
+        generated.splitlines()[1]
+        == '<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2" '
+        'xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" '
+        'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
+    )
+    assert '  <cbc:LineExtensionAmount currencyID="AUD">14.00</cbc:LineExtensionAmount>' in (
+        generated
+    )

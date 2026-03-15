@@ -46,7 +46,7 @@ def build_payload() -> dict:
             {
                 "productName": "Clean Architecture",
                 "quantity": 1,
-                "unitCode": "BX",
+                "unitCode": "EA",
                 "unitPrice": "19.99",
             },
         ],
@@ -162,7 +162,11 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     assert body["status"] == "DRAFT"
     assert body["updatedAt"].endswith("Z")
     assert body["updatedAt"] != before_updated_at
-    assert body["warnings"] == []
+    assert body == {
+        "orderId": order_id,
+        "status": "DRAFT",
+        "updatedAt": body["updatedAt"],
+    }
 
     # Check order details have been updated from a cache miss
     record = orders.ORDERS[order_id]
@@ -172,15 +176,20 @@ def test_update_order_returns_200_and_updates_order_fields_and_xml(client, monke
     assert record["payload"]["lines"][0]["unitPrice"] == "99.99"
 
     # UBL XML has been updated
-    root = ET.fromstring(body["ublXml"])
+    root = ET.fromstring(record["ublXml"])
     assert root.find("cbc:ID", NS).text == order_id
-    assert root.find("cbc:Note", NS).text == "Deliver to reception"
+    assert root.find("cbc:UUID", NS).text
+    assert root.find("cbc:DocumentCurrencyCode", NS).text == update_payload["currency"]
+    assert root.find("cac:TransactionConditions/cbc:Description", NS).text == "Deliver to reception"
     assert root.find("cac:Delivery/cac:DeliveryAddress/cbc:StreetName", NS).text == "999 Updated St"
     qty = root.find(".//cbc:Quantity", NS)
     assert qty.text == "5"
+    assert root.find("cac:AnticipatedMonetaryTotal/cbc:PayableAmount", NS).text == "519.94"
+    assert root.find("cac:OrderLine/cac:LineItem/cbc:LineExtensionAmount", NS).text == "499.95"
     price_amount = root.find(".//cac:Price/cbc:PriceAmount", NS)
     assert price_amount.text == "99.99"
     assert price_amount.attrib["currencyID"] == update_payload["currency"]
+    assert root.find(".//cac:Price/cbc:BaseQuantity", NS).text == "5"
 
 
 def test_update_order_returns_404_when_order_not_found(client):
@@ -249,7 +258,19 @@ def test_update_order_returns_422_for_invalid_payload(client, monkeypatch, mutat
     # Call update
     resp = client.put(f"/v1/order/{order_id}", json=payload, headers=auth_headers("buyer-key"))
     assert resp.status_code == 422
-    assert expected_loc in [error["loc"] for error in resp.json()["detail"]]
+    body = resp.json()
+    assert body["message"] == "Request validation failed."
+    source, *path_segments = expected_loc
+    expected_path = path_segments[0]
+    for segment in path_segments[1:]:
+        expected_path = (
+            f"{expected_path}[{segment}]"
+            if isinstance(segment, int)
+            else f"{expected_path}.{segment}"
+        )
+    assert any(
+        error["source"] == source and error["path"] == expected_path for error in body["errors"]
+    )
 
 
 def test_update_order_returns_500_when_xml_generation_fails(client, monkeypatch):

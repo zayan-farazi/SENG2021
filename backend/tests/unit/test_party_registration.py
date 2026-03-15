@@ -16,6 +16,12 @@ def build_request() -> PartyRegistrationRequest:
     )
 
 
+def test_party_registration_request_normalizes_contact_email():
+    req = build_request()
+
+    assert req.contactEmail == "team@acmebooks.com"
+
+
 def test_generate_party_id_slugifies_party_name(monkeypatch):
     monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
 

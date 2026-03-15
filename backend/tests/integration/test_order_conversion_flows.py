@@ -160,7 +160,14 @@ def test_transcript_conversion_payload_can_drive_create_and_update(
         headers=_auth_headers(seller["appKey"]),
     )
     assert update_response.status_code == 200
-    assert "updated" in update_response.json()["ublXml"]
+    assert sorted(update_response.json()) == ["orderId", "status", "updatedAt"]
+
+    get_ubl_response = integration_client.get(
+        f"/v1/order/{order_id}/ubl",
+        headers=_auth_headers(seller["appKey"]),
+    )
+    assert get_ubl_response.status_code == 200
+    assert "updated" in get_ubl_response.text
 
 
 def test_csv_conversion_payload_can_drive_create(integration_client, tracked_supabase_records):
