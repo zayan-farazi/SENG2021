@@ -27,6 +27,7 @@ def test_openapi_exposes_bearer_auth_security_scheme():
 def test_protected_order_routes_declare_bearer_security():
     schema = _openapi()
     protected_paths = [
+        ("/v1/orders", "get"),
         ("/v1/order/create", "post"),
         ("/v1/order/{order_id}", "get"),
         ("/v1/order/{order_id}/ubl", "get"),
@@ -54,6 +55,9 @@ def test_http_endpoints_include_summaries_and_tags():
         "Create an order (Bearer app key required)"
     )
     assert schema["paths"]["/v1/order/create"]["post"]["tags"] == ["Orders"]
+    assert (
+        schema["paths"]["/v1/orders"]["get"]["summary"] == "List orders (Bearer app key required)"
+    )
     assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == (
         "Get an order (Bearer app key required)"
     )
@@ -82,6 +86,7 @@ def test_key_schemas_include_examples():
     assert schemas["RequestValidationErrorResponse"]["examples"][0]["message"] == (
         "Request validation failed."
     )
+    assert schemas["OrderListResponse"]["examples"][0]["items"][0]["orderId"] == "ord_abc123def456"
     assert (
         schemas["RequestValidationErrorResponse"]["properties"]["errors"]["items"]["$ref"]
         == "#/components/schemas/ValidationFieldError"
@@ -93,6 +98,31 @@ def test_key_schemas_include_examples():
 def test_endpoint_responses_include_examples_for_common_flows():
     schema = _openapi()
     expected_xml_example = generate_docs_example_ubl_order_xml()
+
+    list_orders = schema["paths"]["/v1/orders"]["get"]
+    assert (
+        list_orders["responses"]["200"]["content"]["application/json"]["examples"]["firstPage"][
+            "value"
+        ]["page"]["hasMore"]
+        is True
+    )
+    assert (
+        list_orders["responses"]["200"]["content"]["application/json"]["examples"]["finalPage"][
+            "value"
+        ]["page"]["offset"]
+        == 20
+    )
+    assert (
+        list_orders["responses"]["200"]["content"]["application/json"]["examples"]["firstPage"][
+            "value"
+        ]["page"]["total"]
+        == 57
+    )
+    assert [param["name"] for param in list_orders["parameters"]] == ["limit", "offset"]
+    assert "400" not in list_orders["responses"]
+    assert list_orders["responses"]["422"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/RequestValidationErrorResponse"
+    )
 
     create_post = schema["paths"]["/v1/order/create"]["post"]
     assert create_post["responses"]["201"]["content"]["application/json"]["example"]["orderId"] == (

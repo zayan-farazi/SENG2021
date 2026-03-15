@@ -255,3 +255,136 @@ def test_delete_order_record_deletes_database_order_when_cache_is_empty(monkeypa
     assert deleted is True
     assert events == [("details", "88"), ("order", "88")]
     assert "ord_db_delete" not in order_store.ORDERS
+
+
+def test_list_orders_for_party_sorts_dedupes_and_paginates(monkeypatch):
+    monkeypatch.setattr(
+        order_store,
+        "_fetch_order_rows_for_party",
+        lambda email: [
+            {
+                "order_id": "ord_2",
+                "status": "DRAFT",
+                "createdat": "2026-03-13T10:00:00Z",
+                "updatedat": "2026-03-14T09:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-13",
+            },
+            {
+                "order_id": "ord_1",
+                "status": "DRAFT",
+                "createdat": "2026-03-12T10:00:00Z",
+                "updatedat": "2026-03-14T10:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-12",
+            },
+            {
+                "order_id": "ord_1",
+                "status": "DRAFT",
+                "createdat": "2026-03-12T10:00:00Z",
+                "updatedat": "2026-03-14T08:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-12",
+            },
+            {
+                "order_id": "ord_0",
+                "status": "DRAFT",
+                "createdat": "2026-03-11T10:00:00Z",
+                "updatedat": "2026-03-14T09:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-11",
+            },
+        ],
+    )
+
+    first_page = order_store.list_orders_for_party("buyer@example.com", limit=2, offset=0)
+
+    assert [item["orderId"] for item in first_page["items"]] == ["ord_1", "ord_2"]
+    assert first_page["page"]["hasMore"] is True
+    assert first_page["page"]["total"] == 3
+    assert first_page["page"]["offset"] == 0
+
+    second_page = order_store.list_orders_for_party(
+        "buyer@example.com",
+        limit=2,
+        offset=2,
+    )
+
+    assert [item["orderId"] for item in second_page["items"]] == ["ord_0"]
+    assert second_page["page"] == {"limit": 2, "offset": 2, "hasMore": False, "total": 3}
+
+
+def test_list_orders_for_party_uses_order_id_as_tie_breaker(monkeypatch):
+    monkeypatch.setattr(
+        order_store,
+        "_fetch_order_rows_for_party",
+        lambda email: [
+            {
+                "order_id": "ord_a",
+                "status": "DRAFT",
+                "createdat": "2026-03-12T10:00:00Z",
+                "updatedat": "2026-03-14T10:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-12",
+            },
+            {
+                "order_id": "ord_b",
+                "status": "DRAFT",
+                "createdat": "2026-03-12T11:00:00Z",
+                "updatedat": "2026-03-14T10:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-12",
+            },
+        ],
+    )
+
+    page = order_store.list_orders_for_party("buyer@example.com", limit=10, offset=0)
+
+    assert [item["orderId"] for item in page["items"]] == ["ord_b", "ord_a"]
+
+
+def test_list_orders_for_party_applies_offset_after_sorting(monkeypatch):
+    monkeypatch.setattr(
+        order_store,
+        "_fetch_order_rows_for_party",
+        lambda email: [
+            {
+                "order_id": "ord_3",
+                "status": "DRAFT",
+                "createdat": "2026-03-14T10:00:00Z",
+                "updatedat": "2026-03-14T12:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-14",
+            },
+            {
+                "order_id": "ord_2",
+                "status": "DRAFT",
+                "createdat": "2026-03-14T09:00:00Z",
+                "updatedat": "2026-03-14T11:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-14",
+            },
+            {
+                "order_id": "ord_1",
+                "status": "DRAFT",
+                "createdat": "2026-03-14T08:00:00Z",
+                "updatedat": "2026-03-14T10:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-14",
+            },
+        ],
+    )
+
+    page = order_store.list_orders_for_party("buyer@example.com", limit=2, offset=1)
+
+    assert [item["orderId"] for item in page["items"]] == ["ord_2", "ord_1"]
+    assert page["page"] == {"limit": 2, "offset": 1, "hasMore": False, "total": 3}

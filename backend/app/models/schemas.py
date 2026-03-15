@@ -146,6 +146,46 @@ ORDER_UPDATE_RESPONSE_EXAMPLE = {
     "updatedAt": "2026-03-14T11:00:00Z",
 }
 
+ORDER_LIST_RESPONSE_EXAMPLE = {
+    "items": [
+        {
+            "orderId": "ord_abc123def456",
+            "status": "DRAFT",
+            "createdAt": "2026-03-14T10:30:00Z",
+            "updatedAt": "2026-03-14T11:00:00Z",
+            "buyerName": "Buyer Co",
+            "sellerName": "Supplier Pty Ltd",
+            "issueDate": "2026-03-14",
+        }
+    ],
+    "page": {
+        "limit": 20,
+        "offset": 0,
+        "hasMore": True,
+        "total": 57,
+    },
+}
+
+ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE = {
+    "items": [
+        {
+            "orderId": "ord_xyz789ghi012",
+            "status": "DRAFT",
+            "createdAt": "2026-03-13T09:15:00Z",
+            "updatedAt": "2026-03-13T09:15:00Z",
+            "buyerName": "Buyer Co",
+            "sellerName": "Supplier Pty Ltd",
+            "issueDate": "2026-03-13",
+        }
+    ],
+    "page": {
+        "limit": 20,
+        "offset": 20,
+        "hasMore": False,
+        "total": 21,
+    },
+}
+
 REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLE = {
     "message": "Request validation failed.",
     "errors": [
@@ -982,6 +1022,49 @@ class OrderFetchResponse(BaseModel):
     createdAt: str
     updatedAt: str
     warnings: list[Issue]
+
+
+class OrderListItem(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": ORDER_LIST_RESPONSE_EXAMPLE["items"][0],
+        }
+    )
+
+    orderId: str
+    status: str
+    createdAt: str
+    updatedAt: str
+    buyerName: str | None = None
+    sellerName: str | None = None
+    issueDate: str | None = None
+
+
+class OrderListPage(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": ORDER_LIST_RESPONSE_EXAMPLE["page"],
+        }
+    )
+
+    limit: int
+    offset: int
+    hasMore: bool
+    total: int
+
+
+class OrderListResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                ORDER_LIST_RESPONSE_EXAMPLE,
+                ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE,
+            ]
+        }
+    )
+
+    items: list[OrderListItem]
+    page: OrderListPage
 
 
 class OrderUpdateResponse(BaseModel):
