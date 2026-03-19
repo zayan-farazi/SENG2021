@@ -77,9 +77,7 @@ def test_openapi_prefers_forwarded_proto_and_host_for_proxy_deployments():
     )
 
     assert schema["servers"] == [{"url": "https://lockedout.up.railway.app"}]
-    assert "https://lockedout.up.railway.app/v1/parties/register" in schema["info"][
-        "description"
-    ]
+    assert "https://lockedout.up.railway.app/v1/parties/register" in schema["info"]["description"]
     assert "http://testserver/v1/parties/register" not in schema["info"]["description"]
 
 
