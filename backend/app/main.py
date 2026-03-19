@@ -51,6 +51,14 @@ def _parse_allowed_origins(value: str | None) -> list[str]:
     return [origin for origin in parsed if origin]
 
 
+def _first_forwarded_value(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    first = value.split(",", 1)[0].strip()
+    return first or None
+
+
 def _format_validation_path(segments: list[str | int]) -> str:
     path = ""
     for segment in segments:
@@ -313,6 +321,12 @@ app.openapi = _custom_openapi
 
 
 def _normalized_request_origin(request: Request) -> str:
+    forwarded_proto = _first_forwarded_value(request.headers.get("x-forwarded-proto"))
+    forwarded_host = _first_forwarded_value(request.headers.get("x-forwarded-host"))
+
+    if forwarded_proto and forwarded_host:
+        return f"{forwarded_proto}://{forwarded_host}"
+
     return str(request.base_url).rstrip("/")
 
 

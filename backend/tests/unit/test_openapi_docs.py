@@ -14,6 +14,16 @@ def _openapi(base_url: str = "http://testserver") -> dict:
     return response.json()
 
 
+def _openapi_with_headers(
+    *, base_url: str = "http://testserver", headers: dict[str, str] | None = None
+) -> dict:
+    with TestClient(app, base_url=base_url, raise_server_exceptions=False) as client:
+        response = client.get("/openapi.json", headers=headers or {})
+
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
 
@@ -55,6 +65,22 @@ def test_openapi_description_uses_request_host_without_cross_request_leakage():
     assert railway_schema["servers"] == [{"url": "https://lockedout.up.railway.app"}]
     assert "https://lockedout.up.railway.app" not in render_description
     assert "https://seng2021.onrender.com" not in railway_description
+
+
+def test_openapi_prefers_forwarded_proto_and_host_for_proxy_deployments():
+    schema = _openapi_with_headers(
+        base_url="http://testserver",
+        headers={
+            "x-forwarded-proto": "https",
+            "x-forwarded-host": "lockedout.up.railway.app",
+        },
+    )
+
+    assert schema["servers"] == [{"url": "https://lockedout.up.railway.app"}]
+    assert "https://lockedout.up.railway.app/v1/parties/register" in schema["info"][
+        "description"
+    ]
+    assert "http://testserver/v1/parties/register" not in schema["info"]["description"]
 
 
 def test_protected_order_routes_declare_bearer_security():
