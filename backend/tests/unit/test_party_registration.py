@@ -72,7 +72,6 @@ def test_register_party_persists_hashed_key_and_returns_raw_key(monkeypatch):
     saved_app_key = {}
 
     monkeypatch.setattr(party_registration, "findPartyByContactEmail", lambda _email: None)
-    monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
     monkeypatch.setattr(party_registration, "findAppKeyByHash", lambda _key_hash: None)
     monkeypatch.setattr(party_registration, "generate_app_key", lambda: "appkey_test_value")
 
@@ -91,15 +90,15 @@ def test_register_party_persists_hashed_key_and_returns_raw_key(monkeypatch):
 
     result = party_registration.register_party(req)
 
-    assert result.partyId == "acme-books"
+    assert result.partyId == "team@acmebooks.com"
     assert result.partyName == "Acme Books"
     assert result.appKey == "appkey_test_value"
     assert saved_party == {
-        "party_id": "acme-books",
+        "party_id": "team@acmebooks.com",
         "party_name": "Acme Books",
         "contact_email": "team@acmebooks.com",
     }
-    assert saved_app_key["party_id"] == "acme-books"
+    assert saved_app_key["party_id"] == "team@acmebooks.com"
     assert saved_app_key["key_hash"] == party_registration.hash_app_key("appkey_test_value")
 
 
@@ -107,7 +106,6 @@ def test_register_party_wraps_persistence_failures(monkeypatch):
     req = build_request()
 
     monkeypatch.setattr(party_registration, "findPartyByContactEmail", lambda _email: None)
-    monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
     monkeypatch.setattr(party_registration, "findAppKeyByHash", lambda _key_hash: None)
     monkeypatch.setattr(
         party_registration, "saveParty", lambda *_args: (_ for _ in ()).throw(RuntimeError("boom"))
@@ -122,9 +120,12 @@ def test_register_party_rolls_back_party_when_app_key_persistence_fails(monkeypa
     deleted_party_ids: list[str] = []
 
     monkeypatch.setattr(party_registration, "findPartyByContactEmail", lambda _email: None)
-    monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
     monkeypatch.setattr(party_registration, "findAppKeyByHash", lambda _key_hash: None)
-    monkeypatch.setattr(party_registration, "saveParty", lambda *args: {"party_id": "acme-books"})
+    monkeypatch.setattr(
+        party_registration,
+        "saveParty",
+        lambda *args: {"party_id": "team@acmebooks.com"},
+    )
     monkeypatch.setattr(
         party_registration,
         "saveAppKey",
@@ -137,4 +138,4 @@ def test_register_party_rolls_back_party_when_app_key_persistence_fails(monkeypa
     with pytest.raises(PartyRegistrationPersistenceError, match="Unable to register party."):
         party_registration.register_party(req)
 
-    assert deleted_party_ids == ["acme-books"]
+    assert deleted_party_ids == ["team@acmebooks.com"]

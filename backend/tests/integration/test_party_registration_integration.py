@@ -22,8 +22,8 @@ def build_payload() -> dict:
 def test_register_party_persists_party_and_hashed_app_key_in_supabase():
     # To run this test, set SUPABASE_URL and SUPABASE_KEY in backend/.env or your shell,
     # then run `cd backend && ./.venv/bin/python -m pytest tests/test_party_registration_integration.py -q`.
-    # This test verifies that party registration creates a parties row plus an app_keys row,
-    # and that the raw returned appKey is not stored directly in Supabase.
+    # This test verifies that party registration stores the hashed app key on the
+    # parties row, and that the raw returned appKey is not stored directly in Supabase.
     if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")):
         other._load_local_env_files()
     if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")):
@@ -47,7 +47,7 @@ def test_register_party_persists_party_and_hashed_app_key_in_supabase():
         assert party_row["party_name"] == payload["partyName"]
         assert party_row["contact_email"] == payload["contactEmail"]
         assert app_key_row is not None
-        assert app_key_row["party_id"] == party_id
+        assert app_key_row["contact_email"] == party_id
         assert app_key_row["key_hash"] != app_key
     finally:
         client = None
@@ -56,6 +56,5 @@ def test_register_party_persists_party_and_hashed_app_key_in_supabase():
         except RuntimeError:
             client = None
         if client:
-            client.table("app_keys").delete().eq("party_id", party_id).execute()
-            client.table("parties").delete().eq("party_id", party_id).execute()
+            client.table("parties").delete().eq("contact_email", party_id).execute()
         other._SUPABASE_CLIENT = None

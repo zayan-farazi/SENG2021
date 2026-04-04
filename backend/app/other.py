@@ -277,41 +277,45 @@ def findPartyByContactEmail(contactEmail):
         .eq("contact_email", contactEmail)
         .execute()
     )
-    return response.data[0] if response.data else None
+    row = response.data[0] if response.data else None
+    return _with_party_identity_alias(row)
 
 
 def findPartyByPartyId(partyId):
-    response = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
-    return response.data[0] if response.data else None
+    # `partyId` is kept as a public API compatibility field, but the persisted
+    # identity is now the normalized contact email.
+    return findPartyByContactEmail(partyId)
 
 
 def findAppKeyByHash(keyHash):
-    response = get_supabase_client().table("app_keys").select("*").eq("key_hash", keyHash).execute()
-    return response.data[0] if response.data else None
+    response = get_supabase_client().table("parties").select("*").eq("key_hash", keyHash).execute()
+    row = response.data[0] if response.data else None
+    return _with_party_identity_alias(row)
 
 
 def saveParty(partyId, partyName, contactEmail):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert({"party_id": partyId, "party_name": partyName, "contact_email": contactEmail})
+        .insert({"party_name": partyName, "contact_email": contactEmail})
         .execute()
     )
-    return response.data[0]
+    return _with_party_identity_alias(response.data[0] if response.data else None)
 
 
 def saveAppKey(partyId, keyHash):
     response = (
         get_supabase_client()
-        .table("app_keys")
-        .insert({"party_id": partyId, "key_hash": keyHash})
+        .table("parties")
+        .update({"key_hash": keyHash})
+        .eq("contact_email", partyId)
         .execute()
     )
-    return response.data[0]
+    return _with_party_identity_alias(response.data[0] if response.data else None)
 
 
 def deleteParty(partyId):
-    get_supabase_client().table("parties").delete().eq("party_id", partyId).execute()
+    get_supabase_client().table("parties").delete().eq("contact_email", partyId).execute()
 
 
 def updateOrderRuntimeMetadata(
@@ -358,3 +362,15 @@ def DBInfo():
 
 def _load_local_env_files() -> None:
     load_local_env_files()
+
+
+def _with_party_identity_alias(row):
+    if not row:
+        return None
+
+    normalized = dict(row)
+    contact_email = normalized.get("contact_email")
+    if isinstance(contact_email, str) and contact_email.strip():
+        normalized["contact_email"] = contact_email.strip().lower()
+        normalized.setdefault("party_id", normalized["contact_email"])
+    return normalized

@@ -27,6 +27,10 @@ def resolve_party_email_from_app_key(raw_app_key: str) -> str:
     if not key_record:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    contact_email = key_record.get("contact_email")
+    if isinstance(contact_email, str) and contact_email.strip():
+        return contact_email.strip().lower()
+
     party_id = key_record.get("party_id")
     if not isinstance(party_id, str) or not party_id.strip():
         raise HTTPException(status_code=401, detail="Unauthorized")

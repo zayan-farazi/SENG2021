@@ -28,7 +28,7 @@ def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
     if findPartyByContactEmail(normalized_email):
         raise DuplicatePartyError("A party with this contact email already exists.")
 
-    party_id = generate_party_id(req.partyName)
+    party_id = normalized_email
     raw_app_key = generate_app_key()
     key_hash = hash_app_key(raw_app_key)
 

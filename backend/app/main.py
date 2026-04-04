@@ -119,7 +119,7 @@ app = FastAPI(
         "Look for:\n\n"
         "```json\n"
         "{\n"
-        '  "partyId": "buyer-co",\n'
+        '  "partyId": "orders@buyerco.example",\n'
         '  "partyName": "Buyer Co",\n'
         '  "appKey": "appKey",\n'
         '  "message": "Store this key securely. It will not be shown again."\n'
