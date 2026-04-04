@@ -16,6 +16,7 @@ import {
 } from "./voiceOrder";
 import { AppLink } from "./components/AppLink";
 import "./create-order.css";
+import { getStoredSession } from "./session";
 
 type ServerEnvelope = {
   type: string;
@@ -46,6 +47,7 @@ export function VoiceOrderDemo() {
   const socketSequenceRef = useRef(0);
   const websocketUrl = getBackendWebSocketUrl();
   const backendHttpUrl = getBackendHttpUrl();
+  const storedSession = getStoredSession();
 
   const pushDiagnostic = (level: DiagnosticLevel, text: string) => {
     setDiagnostics(current => [...current.slice(-7), { level, text }]);
@@ -240,6 +242,28 @@ export function VoiceOrderDemo() {
     };
   }, []);
 
+  useEffect(() => {
+    if (
+      connectionStatus !== "connected" ||
+      !storedSession?.contactEmail ||
+      draftState.draft.buyerEmail ||
+      draftState.draft.sellerEmail
+    ) {
+      return;
+    }
+
+    patchDraft({
+      ...draftState.draft,
+      buyerEmail: storedSession.contactEmail,
+    });
+  }, [
+    connectionStatus,
+    draftState.draft,
+    draftState.draft.buyerEmail,
+    draftState.draft.sellerEmail,
+    storedSession?.contactEmail,
+  ]);
+
   const patchDraft = (nextDraft: OrderDraft) => {
     setDraftState(current => ({ ...current, draft: nextDraft }));
     sendSocketEvent("draft.patch", { draft: nextDraft });
@@ -291,7 +315,14 @@ export function VoiceOrderDemo() {
   };
 
   const commitDraft = () => {
-    sendSocketEvent("session.commit");
+    if (!storedSession?.appKey) {
+      const message = "Register a party before confirming an order.";
+      setErrorMessage(message);
+      pushDiagnostic("warning", "Commit blocked until an app key is stored locally.");
+      return;
+    }
+
+    sendSocketEvent("session.commit", { appKey: storedSession.appKey });
   };
 
   const resetDraft = () => {
@@ -317,6 +348,9 @@ export function VoiceOrderDemo() {
               </AppLink>
 
               <div className="landing-toolbar">
+                <AppLink href="/register" className="landing-button landing-button-secondary">
+                  Register
+                </AppLink>
                 <AppLink href="/orders" className="landing-button landing-button-secondary">
                   Orders
                 </AppLink>
@@ -340,6 +374,13 @@ export function VoiceOrderDemo() {
               <div className="landing-mobile-nav-wrap">
                 <nav className="landing-mobile-nav" aria-label="Mobile">
                   <div className="landing-mobile-actions">
+                    <AppLink
+                      href="/register"
+                      className="landing-button landing-button-secondary"
+                      onClick={closeMenu}
+                    >
+                      Register
+                    </AppLink>
                     <AppLink
                       href="/orders"
                       className="landing-button landing-button-secondary"
@@ -377,6 +418,11 @@ export function VoiceOrderDemo() {
                 </div>
                 <p>{connectionMessage}</p>
                 <p className="create-page-backend">Backend: {backendHttpUrl}</p>
+                {storedSession ? (
+                  <p className="create-page-session-note">
+                    Registered as {storedSession.partyName} ({storedSession.contactEmail})
+                  </p>
+                ) : null}
               </div>
             </section>
 
@@ -418,6 +464,13 @@ export function VoiceOrderDemo() {
               <section className="create-page-banner create-page-banner-warning" role="status">
                 This browser does not expose the Web Speech API. You can still edit the draft
                 manually, but microphone controls are disabled.
+              </section>
+            ) : null}
+
+            {!storedSession ? (
+              <section className="create-page-banner create-page-banner-warning" role="status">
+                Register a party first so the frontend can use the saved app key and contact email
+                for protected order creation.
               </section>
             ) : null}
 

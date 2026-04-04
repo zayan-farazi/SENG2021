@@ -84,6 +84,7 @@ class MockResizeObserver {
 describe("App routing", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    window.localStorage.clear();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
@@ -131,6 +132,18 @@ describe("App routing", () => {
     expect(
       screen.getByRole("heading", {
         name: /the order area is still being built/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the registration page for /register", () => {
+    window.history.replaceState({}, "", "/register");
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: /register a party and store the app key once/i,
       }),
     ).toBeInTheDocument();
   });

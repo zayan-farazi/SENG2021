@@ -25,7 +25,9 @@ export type DraftDelivery = {
 };
 
 export type OrderDraft = {
+  buyerEmail: string | null;
   buyerName: string | null;
+  sellerEmail: string | null;
   sellerName: string | null;
   currency: string | null;
   issueDate: string | null;
@@ -51,6 +53,26 @@ export type OrderResponse = {
   warnings: string[];
 };
 
+type EnvImportMeta = ImportMeta & {
+  env?: Record<string, string | undefined>;
+};
+
+function getConfiguredBackendUrl(): string | undefined {
+  const importMetaEnv = (import.meta as EnvImportMeta).env;
+  const fromImportMeta = importMetaEnv?.BUN_PUBLIC_BACKEND_URL;
+  if (typeof fromImportMeta === "string" && fromImportMeta.trim()) {
+    return fromImportMeta;
+  }
+
+  if (typeof process !== "undefined" && typeof process.env?.BUN_PUBLIC_BACKEND_URL === "string") {
+    return process.env.BUN_PUBLIC_BACKEND_URL;
+  }
+
+  return undefined;
+}
+
+const CONFIGURED_BACKEND_URL = getConfiguredBackendUrl();
+
 export const emptyLineItem = (): DraftLineItem => ({
   productName: null,
   quantity: null,
@@ -59,7 +81,9 @@ export const emptyLineItem = (): DraftLineItem => ({
 });
 
 export const emptyDraft = (): OrderDraft => ({
+  buyerEmail: null,
   buyerName: null,
+  sellerEmail: null,
   sellerName: null,
   currency: null,
   issueDate: null,
@@ -85,15 +109,9 @@ export function isDraftReadyForCommit(draft: OrderDraft): boolean {
   return draft.lines.every(line => Boolean(line.productName?.trim()) && (line.quantity ?? 0) > 0);
 }
 
-function getConfiguredBackendUrl(): string | undefined {
-  const processEnv = typeof process !== "undefined" ? process.env : undefined;
-  return processEnv?.BUN_PUBLIC_BACKEND_URL;
-}
-
 export function getBackendHttpUrl(): string {
-  const configured = getConfiguredBackendUrl();
-  if (configured) {
-    return configured.replace(/\/$/, "");
+  if (CONFIGURED_BACKEND_URL) {
+    return CONFIGURED_BACKEND_URL.replace(/\/$/, "");
   }
 
   const protocol = window.location.protocol === "https:" ? "https:" : "http:";
