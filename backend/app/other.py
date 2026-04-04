@@ -89,10 +89,8 @@ def saveOrder(
     orderId=None,
 ):
     query = {
-        "buyeremail": buyeremail,
-        "buyername": buyername,
-        "selleremail": selleremail,
-        "sellername": sellername,
+        "buyer_id": buyeremail,
+        "seller_id": selleremail,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
         "deliverystate": deliverystate,
@@ -132,9 +130,9 @@ def saveOrder(
     # TODO remove if conditions when people have changeed their functions
 
     if buyeremail:
-        query["buyeremail"] = buyeremail
+        query["buyer_id"] = buyeremail
     if selleremail:
-        query["selleremail"] = selleremail
+        query["seller_id"] = selleremail
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -193,13 +191,9 @@ def findOrders(
     if externalOrderId:
         query = query.eq("order_id", externalOrderId)
     if buyeremail:
-        query = query.eq("buyeremail", buyeremail)
-    if buyername:
-        query = query.eq("buyername", buyername)
+        query = query.eq("buyer_id", buyeremail)
     if selleremail:
-        query = query.eq("selleremail", selleremail)
-    if sellername:
-        query = query.eq("sellername", sellername)
+        query = query.eq("seller_id", selleremail)
     if deliverystreet:
         query = query.eq("deliverystreet", deliverystreet)
     if deliverycity:

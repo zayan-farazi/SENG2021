@@ -76,10 +76,8 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
         persisted_details = other.findOrderDetails(db_order_id).data
 
         assert persisted_orders
-        assert persisted_orders[0]["buyeremail"] == req.buyerEmail
-        assert persisted_orders[0]["buyername"] == req.buyerName
-        assert persisted_orders[0]["selleremail"] == req.sellerEmail
-        assert persisted_orders[0]["sellername"] == req.sellerName
+        assert persisted_orders[0]["buyer_id"] == req.buyerEmail
+        assert persisted_orders[0]["seller_id"] == req.sellerEmail
         assert persisted_orders[0]["currency"] == req.currency
         assert len(persisted_details) == len(req.lines)
     except OrderPersistenceError as exc:
