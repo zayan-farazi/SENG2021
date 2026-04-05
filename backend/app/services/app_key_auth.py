@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.other import findAppKeyByHash
+from app.other import findAppKeyByHash, findOrderByPartyId, findPartyByEmail  # noqa: F401
 from app.services.party_registration import hash_app_key
 
 http_bearer = HTTPBearer(
