@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import bcrypt
-
 from fastapi import HTTPException
 
 from app.models.schemas import (
@@ -84,4 +83,3 @@ def authenticate_party_v2(contact_email: str, password: str) -> PartyAuthV2Respo
         partyName=party_name.strip(),
         contactEmail=normalized_email,
     )
-

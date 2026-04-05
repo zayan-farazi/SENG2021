@@ -6,9 +6,13 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import parties
 from app.main import app
-from app.models.schemas import PartyAuthV2Response, PartyRegistrationResponse, PartyUserFetchResponse
-from app.services.party_registration import DuplicatePartyError
+from app.models.schemas import (
+    PartyAuthV2Response,
+    PartyRegistrationResponse,
+    PartyUserFetchResponse,
+)
 from app.services.party_password_auth import DuplicatePartyV2Error
+from app.services.party_registration import DuplicatePartyError
 
 
 @pytest.fixture
@@ -90,11 +94,14 @@ def test_user_fetch_returns_current_party_for_valid_app_key(client, monkeypatch)
     response = client.get("/v1/parties/userFetch", headers={"Authorization": "Bearer appkey_test"})
 
     assert response.status_code == 200
-    assert response.json() == PartyUserFetchResponse(
-        partyId="orders@acmebooks.example",
-        partyName="Acme Books",
-        contactEmail="orders@acmebooks.example",
-    ).model_dump()
+    assert (
+        response.json()
+        == PartyUserFetchResponse(
+            partyId="orders@acmebooks.example",
+            partyName="Acme Books",
+            contactEmail="orders@acmebooks.example",
+        ).model_dump()
+    )
 
 
 def test_user_fetch_returns_401_when_party_lookup_fails(client, monkeypatch):

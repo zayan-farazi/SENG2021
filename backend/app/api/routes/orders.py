@@ -35,7 +35,6 @@ from app.models.schemas import (
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
-from app.services.party_password_auth import authenticate_party_v2
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -50,6 +49,7 @@ from app.services.order_store import (
     OrderNotFoundError,
     OrderPersistenceError,
 )
+from app.services.party_password_auth import authenticate_party_v2
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
