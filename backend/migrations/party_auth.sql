@@ -1,5 +1,4 @@
 create table if not exists public.parties (
-  party_id text not null,
   party_name text not null,
   contact_email text not null,
   created_at timestamptz not null default now(),
