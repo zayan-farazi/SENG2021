@@ -51,7 +51,6 @@ from app.services.order_store import (
 )
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
 
-
 router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS

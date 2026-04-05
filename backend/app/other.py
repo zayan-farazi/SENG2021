@@ -266,10 +266,7 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
 
 def findPartyByEmail(email):
     response = (
-        get_supabase_client()
-        .table("parties").select("*")
-        .eq("contact_email", email)
-        .execute()
+        get_supabase_client().table("parties").select("*").eq("contact_email", email).execute()
     )
     return response.data[0] if response.data else None
 
