@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { navigate } from "../components/AppLink";
 import { getBackendHttpUrl } from "../voiceOrder";
@@ -28,9 +28,16 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loginResult, setLoginResult] = useState<StoredSession | null>(null);
+  const submitErrorRef = useRef<HTMLParagraphElement | null>(null);
   const backendUrl = useMemo(() => getBackendHttpUrl(), []);
   const session = useStoredSession();
   const nextPath = useMemo(() => getNextPath(), []);
+
+  useEffect(() => {
+    if (submitError) {
+      submitErrorRef.current?.focus();
+    }
+  }, [submitError]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -64,12 +71,17 @@ export function LoginPage() {
       }
 
       if (response.status === 401) {
-        setSubmitError("That email and password combination was not recognized.");
+        setSubmitError("Please enter valid details.");
+        return;
+      }
+
+      if (response.status === 422) {
+        setSubmitError("Please enter valid details.");
         return;
       }
 
       const body = (await response.json().catch(() => ({ detail: null }))) as { detail?: string };
-      setSubmitError(body.detail ?? "Unable to log in with these credentials.");
+      setSubmitError(body.detail ?? "Please enter valid details.");
     } catch {
       setSubmitError("Unable to reach the backend login endpoint.");
     } finally {
@@ -150,6 +162,8 @@ export function LoginPage() {
                       value={contactEmail}
                       onChange={event => setContactEmail(event.target.value)}
                       autoComplete="email"
+                      aria-invalid={submitError ? "true" : "false"}
+                      aria-describedby={submitError ? "login-submit-error" : undefined}
                     />
                   </div>
                   <div className="register-page-field-group">
@@ -161,10 +175,24 @@ export function LoginPage() {
                       value={password}
                       onChange={event => setPassword(event.target.value)}
                       autoComplete="current-password"
+                      aria-invalid={submitError ? "true" : "false"}
+                      aria-describedby={submitError ? "login-submit-error" : undefined}
                     />
                   </div>
 
-                  {submitError ? <p className="register-page-submit-error">{submitError}</p> : null}
+                  {submitError ? (
+                    <p
+                      id="login-submit-error"
+                      ref={submitErrorRef}
+                      className="register-page-submit-error"
+                      role="alert"
+                      aria-live="assertive"
+                      aria-atomic="true"
+                      tabIndex={-1}
+                    >
+                      {submitError}
+                    </p>
+                  ) : null}
 
                   <div className="register-page-actions">
                     <button

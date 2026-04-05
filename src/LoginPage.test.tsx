@@ -105,7 +105,36 @@ describe("LoginPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^log in$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/not recognized/i)).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Please enter valid details.");
+    });
+    expect(screen.getByLabelText(/contact email/i)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute("aria-invalid", "true");
+    expect(window.localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("shows the same validation message for backend 422 responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 422,
+        json: async () => ({
+          message: "Request validation failed.",
+        }),
+      }),
+    );
+
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText(/contact email/i), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/^password$/i), {
+      target: { value: "wrong-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^log in$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Please enter valid details.");
     });
     expect(window.localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
   });

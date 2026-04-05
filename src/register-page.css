@@ -82,6 +82,13 @@
   color: #f0b1bc;
 }
 
+.register-page-submit-error {
+  border: 1px solid rgba(190, 99, 122, 0.32);
+  border-radius: 12px;
+  background: rgba(88, 31, 45, 0.24);
+  padding: 12px 14px;
+}
+
 .register-page-actions {
   display: flex;
   flex-wrap: wrap;
