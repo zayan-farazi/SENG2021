@@ -18,7 +18,6 @@ def get_supabase_client() -> Client:
         load_local_env_files()
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
-        print(supabase_key)
         if not supabase_url:
             raise RuntimeError("SUPABASE_URL is not configured.")
         if not supabase_key:
@@ -267,7 +266,10 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
 
 def findPartyByEmail(email):
     response = (
-        get_supabase_client().table("parties").select("*").eq("contact_email", email).execute()
+        get_supabase_client()
+        .table("parties").select("*")
+        .eq("contact_email", email)
+        .execute()
     )
     return response.data[0] if response.data else None
 
@@ -292,17 +294,6 @@ def saveParty(partyid, partyName, contactEmail, keyHash):
         .execute()
     )
     return response.data[0]
-
-
-#
-# def saveAppKey(partyId, keyHash):
-#    response = (
-#        get_supabase_client()
-#        .table("app_keys")
-#        .insert({"party_id": partyId, "key_hash": keyHash})
-#        .execute()
-#    )
-#    return response.data[0]
 
 
 def deleteParty(email):

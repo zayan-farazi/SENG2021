@@ -333,7 +333,6 @@ def _cache_order_record(order_id: str, record: dict[str, Any]) -> None:
 
 
 def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, Any]:
-    print("row", row)
     payload = {
         "buyerEmail": _normalize_email(row.get("buyeremail")),
         "buyerName": row.get("buyername"),
