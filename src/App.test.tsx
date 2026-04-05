@@ -1,6 +1,7 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setStoredSession } from "./session";
 
 vi.mock("cobe", () => ({
   default: () => ({
@@ -121,19 +122,21 @@ describe("App routing", () => {
         name: /create and manage ubl 2\.1 orders in one place/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /create order/i })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /register/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /create order/i })).not.toBeInTheDocument();
   });
 
-  it("renders the orders placeholder page for /orders", () => {
+  it("redirects /orders to login when no session exists", async () => {
     window.history.replaceState({}, "", "/orders");
 
     render(<App />);
 
-    expect(
-      screen.getByRole("heading", {
-        name: /the order area is still being built/i,
-      }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders");
+    expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
   });
 
   it("renders the registration page for /register", () => {
@@ -143,13 +146,31 @@ describe("App routing", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /register a party and store the app key once/i,
+        name: /register a party with an email and password/i,
       }),
     ).toBeInTheDocument();
   });
 
-  it("navigates to the create route from the landing page CTA", async () => {
+  it("renders the login page for /login", () => {
+    window.history.replaceState({}, "", "/login");
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: /log back in with your email and password/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("navigates to the create route from the landing page CTA when a session exists", async () => {
     const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
 
     render(<App />);
 
@@ -178,6 +199,41 @@ describe("App routing", () => {
 
     expect(screen.getByRole("button", { name: /close menu/i })).toBeInTheDocument();
     const mobileNav = screen.getByRole("navigation", { name: /mobile/i });
-    expect(within(mobileNav).getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
+    expect(within(mobileNav).getByRole("link", { name: /^register$/i })).toBeInTheDocument();
+    expect(within(mobileNav).getByRole("link", { name: /^log in$/i })).toBeInTheDocument();
+    expect(within(mobileNav).queryByRole("link", { name: /^orders$/i })).not.toBeInTheDocument();
+  });
+
+  it("hides register and log in when a session already exists and allows logout", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    render(<App />);
+
+    expect(screen.queryByRole("link", { name: /^register$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^log in$/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /^orders$/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /^create order$/i }).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: /log out/i }));
+
+    expect(window.localStorage.getItem("lockedout.session")).toBeNull();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("redirects /orders/create to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/orders/create");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders%2Fcreate");
+    expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
   });
 });
