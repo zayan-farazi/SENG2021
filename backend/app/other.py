@@ -89,6 +89,9 @@ def saveOrder(
     orderId=None,
 ):
     query = {
+        "buyeremail": buyeremail,
+        "selleremail": selleremail,
+        "sellername": sellername,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
         "deliverystate": deliverystate,
@@ -165,7 +168,9 @@ def findOrders(
     orderId=None,
     externalOrderId=None,
     buyeremail=None,
+    buyername=None,
     selleremail=None,
+    sellername=None,
     deliverystreet=None,
     deliverycity=None,
     deliverypostcode=None,
@@ -185,8 +190,12 @@ def findOrders(
         query = query.eq("order_id", externalOrderId)
     if buyeremail:
         query = query.eq("buyeremail", buyeremail)
+    if buyername:
+        query = query.eq("buyername", buyername)
     if selleremail:
         query = query.eq("selleremail", selleremail)
+    if sellername:
+        query = query.eq("sellername", sellername)
     if deliverystreet:
         query = query.eq("deliverystreet", deliverystreet)
     if deliverycity:

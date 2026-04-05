@@ -603,12 +603,10 @@ def update_order(
     order_id: str, req: OrderRequest, current_party_email: str = Depends(get_current_party_email)
 ):
     existing = order_store.get_order_record(order_id)
-    print("existing", existing)
     if existing is None:
         raise HTTPException(status_code=404, detail="Not Found")
 
     payload = existing.get("payload", {})
-    print("payload: ", payload)
     _assert_order_access(current_party_email, payload)
     if req.buyerEmail != payload.get("buyerEmail") or req.sellerEmail != payload.get("sellerEmail"):
         raise HTTPException(status_code=409, detail="Order participant emails cannot be changed.")
@@ -683,7 +681,6 @@ def _format_conversion_issue(path: str, message: str) -> str:
 
 
 def _assert_order_access(current_party_email: str, payload: dict[str, Any]) -> None:
-    print(payload)
     buyer_email = payload.get("buyerEmail")
     seller_email = payload.get("sellerEmail")
     if not isinstance(buyer_email, str) or not isinstance(seller_email, str):
