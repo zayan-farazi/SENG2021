@@ -18,18 +18,23 @@ def test_extract_bearer_token_rejects_missing_or_malformed_headers(authorization
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Unauthorized"
 
+
 def test_get_current_party_email_resolves_email_from_valid_app_key(monkeypatch):
     # Mock findAppKeyByHash to return a record with party_id
     monkeypatch.setattr(
         app_key_auth,
         "findAppKeyByHash",
-        lambda key_hash: {
-            "party_id": "buyer-party",
-            "contact_email": "buyer@example.com",
-            "party_name": "Buyer Company"
-        } if key_hash else None,
+        lambda key_hash: (
+            {
+                "party_id": "buyer-party",
+                "contact_email": "buyer@example.com",
+                "party_name": "Buyer Company",
+            }
+            if key_hash
+            else None
+        ),
     )
-    
+
     contact_email = app_key_auth.get_current_party_email("Bearer appkey_secret")
     assert contact_email == "buyer@example.com"
 

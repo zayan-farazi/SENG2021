@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.services import groq_order_extractor, order_store
-from app.services import app_key_auth          
 from app.services.order_draft import (
     HostedDeliveryFieldUpdates,
     HostedFieldUpdates,
@@ -205,20 +204,19 @@ def test_commit_is_blocked_when_required_fields_are_missing():
     ]
 
 
-from app.api.routes import orders
-from app.services import app_key_auth
-
 def test_commit_succeeds_when_draft_is_valid(monkeypatch):
     print("HELLOO")
-    
+
     def mock_get_email(raw_key):
         print(f"Mock get_current_party_email called with: {raw_key}")
         return "buyer@example.com"
-    
+
     monkeypatch.setattr(orders, "get_current_party_email", mock_get_email)
-    
-    monkeypatch.setattr(orders, "resolve_party_from_app_key", lambda raw_key: ["buyer@example.com", "Buyer Company"])
-    
+
+    monkeypatch.setattr(
+        orders, "resolve_party_from_app_key", lambda raw_key: ["buyer@example.com", "Buyer Company"]
+    )
+
     with TestClient(app) as client:
         with client.websocket_connect("/v1/order/draft/ws") as websocket:
             websocket.receive_json()  # session.ready
@@ -241,7 +239,7 @@ def test_commit_succeeds_when_draft_is_valid(monkeypatch):
                 {"type": "session.commit", "payload": {"appKey": "appkey_test_value"}}
             )
             created = websocket.receive_json()
-    
+
     assert created["type"] == "order.created"
     assert created["payload"]["order"]["status"] == "DRAFT"
     assert created["payload"]["order"]["orderId"].startswith("ord_")

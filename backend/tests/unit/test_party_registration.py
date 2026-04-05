@@ -76,12 +76,14 @@ def test_register_party_persists_hashed_key_and_returns_raw_key(monkeypatch):
     monkeypatch.setattr(party_registration, "generate_app_key", lambda: "appkey_test_value")
 
     def fake_save_party(party_id, party_name, contact_email, key_hash):
-        saved_party.update({
-            "party_id": party_id, 
-            "party_name": party_name, 
-            "contact_email": contact_email,
-            "key_hash": key_hash
-        })
+        saved_party.update(
+            {
+                "party_id": party_id,
+                "party_name": party_name,
+                "contact_email": contact_email,
+                "key_hash": key_hash,
+            }
+        )
         return saved_party
 
     monkeypatch.setattr(party_registration, "saveParty", fake_save_party)
@@ -97,6 +99,7 @@ def test_register_party_persists_hashed_key_and_returns_raw_key(monkeypatch):
         "contact_email": "team@acmebooks.com",
         "key_hash": party_registration.hash_app_key("appkey_test_value"),
     }
+
 
 def test_register_party_wraps_persistence_failures(monkeypatch):
     req = build_request()
@@ -118,10 +121,10 @@ def test_register_party_rolls_back_when_persistence_fails(monkeypatch):
     monkeypatch.setattr(party_registration, "findPartyByEmail", lambda _email: None)
     monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
     monkeypatch.setattr(party_registration, "findAppKeyByHash", lambda _key_hash: None)
-    
+
     def fake_save_party_fail(*args, **kwargs):
         raise RuntimeError("boom")
-    
+
     monkeypatch.setattr(party_registration, "saveParty", fake_save_party_fail)
     monkeypatch.setattr(
         party_registration, "deleteParty", lambda email: deleted_emails.append(email)
