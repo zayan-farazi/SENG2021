@@ -16,12 +16,16 @@ def get_supabase_client() -> Client:
 
     if _SUPABASE_CLIENT is None:
         load_local_env_files()
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
-        if not supabase_url:
-            raise RuntimeError("SUPABASE_URL is not configured.")
-        if not supabase_key:
-            raise RuntimeError("SUPABASE_KEY is not configured.")
+        #supabase_url = os.getenv("SUPABASE_URL")
+        #supabase_key = os.getenv("SUPABASE_KEY")
+
+        supabase_url = 'https://zfkanfxuznozqpqfxbly.supabase.co'
+        supabase_key = 'sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ'#
+#
+        #if not supabase_url:#
+        #    raise RuntimeError("SUPABASE_URL is not configured.")#
+        #if not supabase_key:
+        #    raise RuntimeError("SUPABASE_KEY is not configured.")
         _SUPABASE_HTTPX_CLIENT = httpx.Client(timeout=120.0)
         options = SyncClientOptions(httpx_client=_SUPABASE_HTTPX_CLIENT)
         _SUPABASE_CLIENT = create_client(supabase_url, supabase_key, options=options)

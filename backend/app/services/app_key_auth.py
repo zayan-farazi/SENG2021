@@ -46,7 +46,6 @@ def resolve_party_from_app_key(raw_app_key: str) -> list:
 
     return contact_email.strip().lower(), party_name.strip().lower()
 
-
 def extract_bearer_token(credentials: HTTPAuthorizationCredentials | str | None) -> str:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")

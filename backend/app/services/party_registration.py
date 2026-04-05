@@ -9,6 +9,7 @@ from app.other import (
     deleteParty,
     findAppKeyByHash,
     findPartyByEmail,
+    findPartyByPartyId,
     saveParty,
 )
 
@@ -55,7 +56,7 @@ def generate_party_id(party_name: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", party_name.strip().lower()).strip("-") or "party"
     candidate = base
     suffix = 1
-    while findPartyByEmail(candidate):
+    while findPartyByPartyId(candidate):
         candidate = f"{base}-{suffix}"
         suffix += 1
     return candidate

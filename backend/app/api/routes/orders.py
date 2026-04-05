@@ -35,6 +35,7 @@ from app.models.schemas import (
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, get_current_party_info
+from app.services.app_key_auth import resolve_party_from_app_key            # noqa F401
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
