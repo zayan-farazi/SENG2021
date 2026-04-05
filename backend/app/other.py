@@ -322,8 +322,8 @@ def updateOrderRuntimeMetadata(
 
 
 def findPartyByPartyId(partyId):
-    return get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
-
+    res = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
+    return res.data[0] if res.data else None
 
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
