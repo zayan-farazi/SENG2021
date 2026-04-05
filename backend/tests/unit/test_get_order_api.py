@@ -88,7 +88,7 @@ def stub_app_key_lookup(monkeypatch):
     }
     monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda key_hash: key_map.get(key_hash))
     monkeypatch.setattr(
-        app_key_auth, "findPartyByPartyId", lambda party_id: party_map.get(party_id)
+        app_key_auth, "findPartyByEmail", lambda contact_email: party_map.get(contact_email)
     )
     yield
     app.dependency_overrides.clear()

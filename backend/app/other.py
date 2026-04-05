@@ -321,6 +321,10 @@ def updateOrderRuntimeMetadata(
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
+def findPartyByPartyId(partyId):
+    return get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
+
+
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
     get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
