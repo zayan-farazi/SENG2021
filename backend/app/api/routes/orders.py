@@ -35,6 +35,7 @@ from app.models.schemas import (
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
+from app.services.party_password_auth import authenticate_party_v2
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -419,16 +420,33 @@ async def _handle_commit(
         return
 
     raw_app_key = payload.get("appKey")
-    if not isinstance(raw_app_key, str) or not raw_app_key.strip():
+    credential = payload.get("credential")
+    contact_email = payload.get("contactEmail")
+
+    if not (
+        (isinstance(raw_app_key, str) and raw_app_key.strip())
+        or (
+            isinstance(credential, str)
+            and credential.strip()
+            and isinstance(contact_email, str)
+            and contact_email.strip()
+        )
+    ):
         await _send_error(
             websocket,
             "unauthorized",
-            "session.commit requires a valid appKey.",
+            "session.commit requires valid credentials.",
         )
         return
 
     try:
-        current_party_email = resolve_party_email_from_app_key(raw_app_key.strip())
+        if isinstance(raw_app_key, str) and raw_app_key.strip():
+            current_party_email = resolve_party_email_from_app_key(raw_app_key.strip())
+        else:
+            current_party_email = authenticate_party_v2(
+                contact_email.strip(),
+                credential.strip(),
+            ).contactEmail
         _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
     except HTTPException as exc:
         await _send_error(websocket, "unauthorized", exc.detail)

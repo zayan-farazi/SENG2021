@@ -32,9 +32,12 @@ def test_openapi_exposes_bearer_auth_security_scheme():
     assert "## Authentication" in schema["info"]["description"]
     assert "## Successful Use Case" in schema["info"]["description"]
     assert "POST /v1/parties/register" in schema["info"]["description"]
+    assert "POST /v2/parties/register" in schema["info"]["description"]
+    assert "POST /v2/parties/login" in schema["info"]["description"]
     assert "POST /v1/order/create" in schema["info"]["description"]
     assert "<baseUrl>" not in schema["info"]["description"]
     assert "http://testserver/v1/parties/register" in schema["info"]["description"]
+    assert "password authentication is also available" in schema["info"]["description"]
     assert "http://testserver/v1/order/create" in schema["info"]["description"]
     assert "http://testserver/v1/orders?limit=20&offset=0" in schema["info"]["description"]
     assert "http://testserver/v1/order/<orderId>" in schema["info"]["description"]
@@ -108,6 +111,12 @@ def test_http_endpoints_include_summaries_and_tags():
         "Register a party and issue an app key"
     )
     assert schema["paths"]["/v1/parties/register"]["post"]["tags"] == ["Parties"]
+    assert schema["paths"]["/v2/parties/register"]["post"]["summary"] == (
+        "Register a party with email and password"
+    )
+    assert schema["paths"]["/v2/parties/login"]["post"]["summary"] == (
+        "Log in with contact email and password"
+    )
     assert schema["paths"]["/v1/order/create"]["post"]["summary"] == (
         "Create an order (Bearer app key required)"
     )
@@ -139,6 +148,8 @@ def test_key_schemas_include_examples():
     assert "Issue" not in schemas
     assert "ValidationResponse" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
+    assert schemas["PartyRegistrationV2Request"]["example"]["password"] == "super-secure-password"
+    assert schemas["PartyLoginV2Request"]["example"]["contactEmail"] == "orders@acmebooks.example"
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
     assert (
         schemas["OrderConversionResponse"]["examples"][1]["issues"][0]
