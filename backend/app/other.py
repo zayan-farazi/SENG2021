@@ -325,6 +325,7 @@ def findPartyByPartyId(partyId):
     res = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
     return res.data[0] if res.data else None
 
+
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
     get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
