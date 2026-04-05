@@ -16,8 +16,8 @@ def get_supabase_client() -> Client:
 
     if _SUPABASE_CLIENT is None:
         load_local_env_files()
-        supabase_url = 'https://zfkanfxuznozqpqfxbly.supabase.co'
-        supabase_key = 'sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ'
+        supabase_url = "https://zfkanfxuznozqpqfxbly.supabase.co"
+        supabase_key = "sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ"
         print(supabase_key)
         if not supabase_url:
             raise RuntimeError("SUPABASE_URL is not configured.")
@@ -87,7 +87,7 @@ def saveOrder(
     createdAt=None,
     updatedAt=None,
     orderId=None,
-): 
+):
     query = {
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
@@ -177,10 +177,7 @@ def findOrders(
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
-    query = (
-        get_supabase_client()
-        .table("orders_with_buyer")
-        .select("*", count="exact") )
+    query = get_supabase_client().table("orders_with_buyer").select("*", count="exact")
 
     if orderId:
         query = query.eq("id", orderId)
@@ -258,13 +255,10 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
         grouped.setdefault(row["orderid"], []).append(row)
     return grouped
 
+
 def findPartyByEmail(email):
     response = (
-        get_supabase_client()
-        .table("parties")
-        .select("*")
-        .eq("contact_email", email)
-        .execute()
+        get_supabase_client().table("parties").select("*").eq("contact_email", email).execute()
     )
     return response.data[0] if response.data else None
 
@@ -278,13 +272,21 @@ def saveParty(partyid, partyName, contactEmail, keyHash):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert({"party_id": partyid, "party_name": partyName, "contact_email": contactEmail, "key_hash": keyHash})
+        .insert(
+            {
+                "party_id": partyid,
+                "party_name": partyName,
+                "contact_email": contactEmail,
+                "key_hash": keyHash,
+            }
+        )
         .execute()
     )
     return response.data[0]
 
+
 #
-#def saveAppKey(partyId, keyHash):
+# def saveAppKey(partyId, keyHash):
 #    response = (
 #        get_supabase_client()
 #        .table("app_keys")

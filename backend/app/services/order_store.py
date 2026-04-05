@@ -297,10 +297,16 @@ def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]
     )
     client = get_supabase_client()
     buyer_rows = (
-        client.table("orders_with_buyer").select(fields).eq("buyeremail", current_party_email).execute()
+        client.table("orders_with_buyer")
+        .select(fields)
+        .eq("buyeremail", current_party_email)
+        .execute()
     )
     seller_rows = (
-        client.table("orders_with_buyer").select(fields).eq("selleremail", current_party_email).execute()
+        client.table("orders_with_buyer")
+        .select(fields)
+        .eq("selleremail", current_party_email)
+        .execute()
     )
     return (buyer_rows.data or []) + (seller_rows.data or [])
 

@@ -13,11 +13,13 @@ http_bearer = HTTPBearer(
     description="Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
 )
 
+
 def get_current_party_email(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
 ) -> str:
     raw_app_key = extract_bearer_token(credentials)
     return resolve_party_from_app_key(raw_app_key)[0]
+
 
 def get_current_party_info(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
@@ -25,16 +27,17 @@ def get_current_party_info(
     raw_app_key = extract_bearer_token(credentials)
     return resolve_party_from_app_key(raw_app_key)
 
+
 def resolve_party_from_app_key(raw_app_key: str) -> list:
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:
         raise HTTPException(status_code=401, detail="Unauthorized")
-                             
-    contact_email = key_record.get("contact_email")                           
+
+    contact_email = key_record.get("contact_email")
     if not contact_email or not contact_email.strip():
         raise HTTPException(status_code=401, detail="Unauthorized")
-    
+
     party_name = key_record.get("party_name")
     if not party_name or not party_name.strip():
         raise HTTPException(status_code=401, detail="Unauthorized")
