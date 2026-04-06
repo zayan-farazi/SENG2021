@@ -225,6 +225,45 @@ def test_get_order_allows_seller_party(client, created_order):
     assert response.status_code == 200
 
 
+def test_get_order_payload_returns_editable_payload(client, created_order):
+    order_id, record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/payload", headers=auth_headers("buyer-key"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["orderId"] == order_id
+    assert body["status"] == "DRAFT"
+    assert body["payload"]["buyerEmail"] == record["payload"]["buyerEmail"]
+    assert body["payload"]["sellerEmail"] == record["payload"]["sellerEmail"]
+    assert body["payload"]["lines"][0]["productName"] == record["payload"]["lines"][0]["productName"]
+
+
+def test_get_order_payload_returns_404_when_order_not_found(client):
+    response = client.get("/v1/order/nonexistent123/payload", headers=auth_headers("buyer-key"))
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_get_order_payload_returns_401_when_auth_header_is_missing(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/payload")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_get_order_payload_returns_403_for_non_party_caller(client, created_order):
+    order_id, _record = created_order
+
+    response = client.get(f"/v1/order/{order_id}/payload", headers=auth_headers("other-key"))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+
+
 def test_get_order_ubl_returns_raw_xml_for_buyer(client, created_order):
     order_id, record = created_order
 
