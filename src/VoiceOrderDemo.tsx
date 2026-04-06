@@ -299,7 +299,7 @@ export function VoiceOrderDemo() {
     <main className="voice-app">
       <section className="hero">
         <div>
-          <p className="eyebrow">DigitalBook voice order draft</p>
+          <p className="eyebrow">LockedOut voice order draft</p>
           <h1>Speak the order. Watch the draft settle in real time.</h1>
           <p className="lede">
             Browser transcription streams finalized phrases to the backend websocket, which keeps the

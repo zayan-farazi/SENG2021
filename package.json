@@ -10,6 +10,9 @@
     "test:frontend": "vitest run"
   },
   "dependencies": {
+    "cobe": "^0.6.5",
+    "lucide-react": "^1.7.0",
+    "motion": "^12.38.0",
     "react": "^19",
     "react-dom": "^19"
   },
