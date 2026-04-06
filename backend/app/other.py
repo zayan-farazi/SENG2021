@@ -275,6 +275,10 @@ def findPartyByContactEmail(contactEmail):
     return _with_party_identity_alias(row)
 
 
+def findPartyByEmail(email):
+    return findPartyByContactEmail(email)
+
+
 def findPartyByPartyId(partyId):
     # `partyId` is kept as a public API compatibility field, but the persisted
     # identity is now the normalized contact email.
@@ -287,11 +291,11 @@ def findAppKeyByHash(keyHash):
     return _with_party_identity_alias(row)
 
 
-def saveParty(partyId, partyName, contactEmail):
+def saveParty(partyId, partyName, contactEmail, keyHash):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert({"party_name": partyName, "contact_email": contactEmail})
+        .insert({"party_name": partyName, "contact_email": contactEmail, "key_hash": keyHash})
         .execute()
     )
     return _with_party_identity_alias(response.data[0] if response.data else None)
