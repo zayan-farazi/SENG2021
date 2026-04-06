@@ -362,10 +362,11 @@ def _render_swagger_html() -> str:
       "post /v1/order/create": 0,
       "put /v1/order/{{order_id}}": 1,
       "get /v1/order/{{order_id}}": 2,
-      "delete /v1/order/{{order_id}}": 3,
-      "get /v1/orders": 4,
-      "get /v1/order/{{order_id}}/ubl": 5,
-      "post /v1/orders/convert/transcript": 6
+      "get /v1/order/{{order_id}}/payload": 3,
+      "delete /v1/order/{{order_id}}": 4,
+      "get /v1/orders": 5,
+      "get /v1/order/{{order_id}}/ubl": 6,
+      "post /v1/orders/convert/transcript": 7
     }};
 
     const getOperationKey = (operation) => {{

@@ -52,6 +52,64 @@ button {
   background: transparent;
 }
 
+.app-confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 14, 24, 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.app-confirm-dialog {
+  width: min(460px, calc(100vw - 32px));
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid rgba(111, 127, 162, 0.28);
+  border-radius: 24px;
+  background: rgba(18, 22, 34, 0.98);
+  box-shadow: 0 24px 60px rgba(4, 8, 16, 0.34);
+}
+
+.app-confirm-dialog-body {
+  display: grid;
+  gap: 10px;
+}
+
+.app-confirm-dialog-body h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.05;
+}
+
+.app-confirm-dialog-body p,
+.app-confirm-dialog-meta {
+  margin: 0;
+  color: #aeb9ca;
+  line-height: 1.55;
+}
+
+.app-confirm-dialog-meta {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(95, 111, 144, 0.2);
+  background: rgba(10, 15, 26, 0.72);
+}
+
+.app-confirm-dialog-error {
+  color: #f4bcc4;
+}
+
+.app-confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .voice-app {
   width: min(1380px, calc(100vw - 2rem));
   margin: 0 auto;

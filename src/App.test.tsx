@@ -139,6 +139,38 @@ describe("App routing", () => {
     expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
   });
 
+  it("renders the dashboard for /orders when a session exists", async () => {
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    window.history.replaceState({}, "", "/orders");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            items: [],
+            page: { limit: 10, offset: 0, hasMore: false, total: 0 },
+          }),
+        }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", {
+          name: /orders and analytics/i,
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("renders the registration page for /register", () => {
     window.history.replaceState({}, "", "/register");
 
@@ -194,17 +226,33 @@ describe("App routing", () => {
 
     render(<App />);
 
-    const menuButton = screen.getByRole("button", { name: /open menu/i });
+    const menuButton = screen.getByRole("button", { name: /open account menu/i });
+    expect(screen.getByText(/guest/i)).toBeInTheDocument();
     await user.click(menuButton);
 
-    expect(screen.getByRole("button", { name: /close menu/i })).toBeInTheDocument();
-    const mobileNav = screen.getByRole("navigation", { name: /mobile/i });
-    expect(within(mobileNav).getByRole("link", { name: /^register$/i })).toBeInTheDocument();
-    expect(within(mobileNav).getByRole("link", { name: /^log in$/i })).toBeInTheDocument();
-    expect(within(mobileNav).queryByRole("link", { name: /^orders$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /close account menu/i })).toBeInTheDocument();
+    const menuNav = screen.getByRole("navigation", { name: /main/i });
+    expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^register$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^log in$/i })).toBeInTheDocument();
+    expect(within(menuNav).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("navigation", { name: /main/i })).not.toBeInTheDocument();
   });
 
-  it("hides register and log in when a session already exists and allows logout", async () => {
+  it("closes the dropdown when clicking outside the header actions", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /open account menu/i }));
+    expect(screen.getByRole("navigation", { name: /main/i })).toBeInTheDocument();
+
+    await user.click(document.body);
+    expect(screen.queryByRole("navigation", { name: /main/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the signed-in email in the header and routes navigation through the dropdown", async () => {
     const user = userEvent.setup();
     setStoredSession({
       partyId: "buyer@example.com",
@@ -215,11 +263,17 @@ describe("App routing", () => {
 
     render(<App />);
 
-    expect(screen.queryByRole("link", { name: /^register$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^log in$/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /^orders$/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /^create order$/i }).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: /log out/i }));
+    const header = screen.getByRole("banner");
+    expect(within(header).getByText("buyer@example.com")).toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: /^create order$/i })).not.toBeInTheDocument();
+
+    await user.click(within(header).getByRole("button", { name: /open account menu/i }));
+    const menuNav = screen.getByRole("navigation", { name: /main/i });
+    expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^orders dashboard$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^create order$/i })).toBeInTheDocument();
+    await user.click(within(menuNav).getByRole("button", { name: /log out/i }));
 
     expect(window.localStorage.getItem("lockedout.session")).toBeNull();
     expect(window.location.pathname).toBe("/");
@@ -235,5 +289,16 @@ describe("App routing", () => {
     });
     expect(window.location.search).toBe("?next=%2Forders%2Fcreate");
     expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
+  });
+
+  it("redirects /orders/:orderId/edit to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/orders/ord_123/edit");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders%2Ford_123%2Fedit");
   });
 });

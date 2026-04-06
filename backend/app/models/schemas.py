@@ -161,6 +161,14 @@ ORDER_FETCH_RESPONSE_EXAMPLE = {
     "updatedAt": "2026-03-14T11:00:00Z",
 }
 
+ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE = {
+    "orderId": "ord_abc123def456",
+    "status": "DRAFT",
+    "createdAt": "2026-03-14T10:30:00Z",
+    "updatedAt": "2026-03-14T11:00:00Z",
+    "payload": ORDER_REQUEST_EXAMPLE,
+}
+
 ORDER_UPDATE_RESPONSE_EXAMPLE = {
     "orderId": "ord_abc123def456",
     "status": "DRAFT",
@@ -1139,6 +1147,20 @@ class OrderFetchResponse(BaseModel):
     status: str
     createdAt: str
     updatedAt: str
+
+
+class OrderPayloadFetchResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE,
+        }
+    )
+
+    orderId: str
+    status: str
+    createdAt: str
+    updatedAt: str
+    payload: OrderRequest
 
 
 class OrderListItem(BaseModel):

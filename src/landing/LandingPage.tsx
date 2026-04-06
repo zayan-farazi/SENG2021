@@ -99,11 +99,13 @@ export function LandingPage() {
                     <span className="landing-hero-accent"> UBL 2.1 orders </span>
                     in one place.
                   </h1>
-                  <p>
-                    LockedOut gives you a web interface on top of the deployed API so you can
-                    register parties, build orders, retrieve UBL XML, and review analytics without
-                    falling back to Swagger for every step.
-                  </p>
+                  {!session ? (
+                    <p>
+                      LockedOut gives you a web interface on top of the deployed API so you can
+                      register parties, build orders, retrieve UBL XML, and review analytics without
+                      falling back to Swagger for every step.
+                    </p>
+                  ) : null}
                   <motion.div
                     className="landing-actions landing-actions-centered"
                     initial={{ opacity: 0, y: 12 }}
@@ -112,10 +114,16 @@ export function LandingPage() {
                   >
                     {!session ? (
                       <>
-                        <AppLink href="/register" className="landing-button landing-button-secondary">
+                        <AppLink
+                          href="/register"
+                          className="landing-button landing-button-primary landing-auth-cta"
+                        >
                           Register
                         </AppLink>
-                        <AppLink href="/login" className="landing-button landing-button-secondary">
+                        <AppLink
+                          href="/login"
+                          className="landing-button landing-button-secondary landing-auth-cta-secondary"
+                        >
                           Log in
                         </AppLink>
                       </>
@@ -227,7 +235,6 @@ export function LandingPage() {
             </span>
             <span>LockedOut</span>
           </div>
-          <p>University project. Frontend and API for UBL order workflows.</p>
         </div>
       </footer>
     </div>

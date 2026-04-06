@@ -18,13 +18,20 @@ function buildLoginRedirect(pathname: string, search: string): string {
   return `/login?next=${encodeURIComponent(requestedPath)}`;
 }
 
+function getEditOrderId(pathname: string): string | null {
+  const match = pathname.match(/^\/orders\/([^/]+)\/edit$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export function App() {
   const [path, setPath] = useState(getCurrentPath);
   const session = useStoredSession();
   const currentUrl = new URL(path, window.location.origin);
   const pathname = currentUrl.pathname;
   const search = currentUrl.search;
-  const isProtectedRoute = pathname === "/orders" || pathname === "/orders/create";
+  const editOrderId = getEditOrderId(pathname);
+  const isProtectedRoute =
+    pathname === "/orders" || pathname === "/orders/create" || editOrderId !== null;
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -60,7 +67,7 @@ export function App() {
     case "/orders/create":
       return <VoiceOrderDemo />;
     default:
-      return <LandingPage />;
+      return editOrderId ? <VoiceOrderDemo orderId={editOrderId} /> : <LandingPage />;
   }
 }
 

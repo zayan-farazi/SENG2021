@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.other import findAppKeyByHash, findPartyByPartyId
+from app.services.party_password_auth import authenticate_party_v2
 from app.services.party_registration import hash_app_key
 
 http_bearer = HTTPBearer(
@@ -16,22 +17,34 @@ http_bearer = HTTPBearer(
 
 def get_current_party_email(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
+    party_email: Annotated[
+        str | None, Header(alias="X-Party-Email", include_in_schema=False)
+    ] = None,
 ) -> str:
     raw_app_key = extract_bearer_token(credentials)
-    return resolve_party_from_app_key(raw_app_key)[0]
+    return resolve_party_from_app_key(raw_app_key, party_email)[0]
 
 
 def get_current_party_info(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
+    party_email: Annotated[
+        str | None, Header(alias="X-Party-Email", include_in_schema=False)
+    ] = None,
 ) -> tuple[str, str]:
     raw_app_key = extract_bearer_token(credentials)
-    return resolve_party_from_app_key(raw_app_key)
+    return resolve_party_from_app_key(raw_app_key, party_email)
 
 
-def resolve_party_from_app_key(raw_app_key: str) -> tuple[str, str]:
+def resolve_party_from_app_key(
+    raw_app_key: str,
+    party_email: str | None = None,
+) -> tuple[str, str]:
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:
+        if isinstance(party_email, str) and party_email.strip():
+            result = authenticate_party_v2(party_email.strip(), raw_app_key)
+            return result.contactEmail, result.partyName
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     contact_email = key_record.get("contact_email")
@@ -60,8 +73,8 @@ def resolve_party_from_app_key(raw_app_key: str) -> tuple[str, str]:
     return contact_email.strip().lower(), party_name.strip()
 
 
-def resolve_party_email_from_app_key(raw_app_key: str) -> str:
-    return resolve_party_from_app_key(raw_app_key)[0]
+def resolve_party_email_from_app_key(raw_app_key: str, party_email: str | None = None) -> str:
+    return resolve_party_from_app_key(raw_app_key, party_email)[0]
 
 
 get_current_party_id = get_current_party_email

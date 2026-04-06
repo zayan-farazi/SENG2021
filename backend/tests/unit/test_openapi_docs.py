@@ -90,6 +90,7 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/orders", "get"),
         ("/v1/order/create", "post"),
         ("/v1/order/{order_id}", "get"),
+        ("/v1/order/{order_id}/payload", "get"),
         ("/v1/order/{order_id}/ubl", "get"),
         ("/v1/order/{order_id}", "put"),
         ("/v1/order/{order_id}", "delete"),
@@ -126,6 +127,9 @@ def test_http_endpoints_include_summaries_and_tags():
     )
     assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == (
         "Get an order (Bearer app key required)"
+    )
+    assert schema["paths"]["/v1/order/{order_id}/payload"]["get"]["summary"] == (
+        "Get order payload (Bearer app key required)"
     )
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
         "Get order UBL XML (Bearer app key required)"
@@ -222,6 +226,18 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert "warnings" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
     assert "500" not in get_order["responses"]
     assert "422" not in get_order["responses"]
+
+    get_order_payload = schema["paths"]["/v1/order/{order_id}/payload"]["get"]
+    assert (
+        get_order_payload["responses"]["200"]["content"]["application/json"]["example"]["payload"][
+            "buyerEmail"
+        ]
+        == "orders@buyerco.example"
+    )
+    assert (
+        get_order_payload["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/RequestValidationErrorResponse"
+    )
 
     get_ubl = schema["paths"]["/v1/order/{order_id}/ubl"]["get"]
     xml_example = get_ubl["responses"]["200"]["content"]["application/xml"]["example"]
@@ -323,10 +339,11 @@ def test_docs_routes_use_custom_swagger_wrapper_for_ubl_xml_example():
         assert '"post /v1/order/create": 0' in response.text
         assert '"put /v1/order/{order_id}": 1' in response.text
         assert '"get /v1/order/{order_id}": 2' in response.text
-        assert '"delete /v1/order/{order_id}": 3' in response.text
-        assert '"get /v1/orders": 4' in response.text
-        assert '"get /v1/order/{order_id}/ubl": 5' in response.text
-        assert '"post /v1/orders/convert/transcript": 6' in response.text
+        assert '"get /v1/order/{order_id}/payload": 3' in response.text
+        assert '"delete /v1/order/{order_id}": 4' in response.text
+        assert '"get /v1/orders": 5' in response.text
+        assert '"get /v1/order/{order_id}/ubl": 6' in response.text
+        assert '"post /v1/orders/convert/transcript": 7' in response.text
 
 
 def test_custom_swagger_plugin_asset_is_served():

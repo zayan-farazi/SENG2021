@@ -22,12 +22,14 @@ from app.models.schemas import (
     ORDER_FETCH_RESPONSE_EXAMPLE,
     ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE,
     ORDER_LIST_RESPONSE_EXAMPLE,
+    ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE,
     ORDER_UPDATE_RESPONSE_EXAMPLE,
     AnalyticsResponse,
     OrderConversionResponse,
     OrderCreateResponse,
     OrderFetchResponse,
     OrderListResponse,
+    OrderPayloadFetchResponse,
     OrderRequest,
     OrderUpdateResponse,
     TranscriptConversionRequest,
@@ -531,6 +533,42 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
         "status": order["status"],
         "createdAt": order["createdAt"],
         "updatedAt": order["updatedAt"],
+    }
+
+
+@router.get(
+    "/v1/order/{order_id}/payload",
+    response_model=OrderPayloadFetchResponse,
+    summary="Get order payload (Bearer app key required)",
+    description=(
+        "Fetch the latest persisted editable payload for an order by its public `orderId`. "
+        "Only the buyer or seller on the order may access it."
+    ),
+    responses={
+        200: {
+            "description": "Order payload fetched successfully.",
+            "content": {"application/json": {"example": ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE}},
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+    },
+)
+def get_order_payload(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+    order = order_store.get_order_record(order_id)
+
+    if order is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = order.get("payload", {})
+    _assert_order_access(current_party_email, payload)
+
+    return {
+        "orderId": order["orderId"],
+        "status": order["status"],
+        "createdAt": order["createdAt"],
+        "updatedAt": order["updatedAt"],
+        "payload": payload,
     }
 
 

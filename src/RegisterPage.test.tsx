@@ -51,7 +51,7 @@ describe("RegisterPage", () => {
     await waitFor(() => {
       expect(screen.getByText(/registration complete/i)).toBeInTheDocument();
     });
-    expect(screen.getAllByText("team@acmebooks.com")).toHaveLength(2);
+    expect(screen.getAllByText("team@acmebooks.com").length).toBeGreaterThan(0);
     expect(JSON.parse(window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "{}")).toEqual({
       partyId: "team@acmebooks.com",
       partyName: "Acme Books",

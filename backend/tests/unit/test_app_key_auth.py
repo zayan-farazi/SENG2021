@@ -46,6 +46,29 @@ def test_get_current_party_email_rejects_unknown_app_key(monkeypatch):
     assert exc_info.value.detail == "Unauthorized"
 
 
+def test_get_current_party_email_accepts_v2_password_with_party_email_header(monkeypatch):
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda _key_hash: None)
+    monkeypatch.setattr(
+        app_key_auth,
+        "authenticate_party_v2",
+        lambda party_email, raw_password: type(
+            "PartyAuthResult",
+            (),
+            {
+                "contactEmail": party_email if raw_password else None,
+                "partyName": "Buyer Co",
+            },
+        )(),
+    )
+
+    contact_email = app_key_auth.get_current_party_email(
+        "Bearer super-secure-password",
+        "buyer@example.com",
+    )
+
+    assert contact_email == "buyer@example.com"
+
+
 def test_get_current_party_email_rejects_missing_party_email(monkeypatch):
     monkeypatch.setattr(
         app_key_auth,
