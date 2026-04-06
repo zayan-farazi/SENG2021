@@ -240,7 +240,9 @@ def test_get_order_payload_returns_editable_payload(client, created_order):
     assert body["status"] == "DRAFT"
     assert body["payload"]["buyerEmail"] == record["payload"]["buyerEmail"]
     assert body["payload"]["sellerEmail"] == record["payload"]["sellerEmail"]
-    assert body["payload"]["lines"][0]["productName"] == record["payload"]["lines"][0]["productName"]
+    assert (
+        body["payload"]["lines"][0]["productName"] == record["payload"]["lines"][0]["productName"]
+    )
 
 
 def test_get_order_payload_returns_404_when_order_not_found(client):

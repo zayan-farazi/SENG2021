@@ -75,12 +75,14 @@ def test_register_party_persists_hashed_key_and_returns_raw_key(monkeypatch):
     monkeypatch.setattr(party_registration, "generate_app_key", lambda: "appkey_test_value")
 
     def fake_save_party(party_id, party_name, contact_email, key_hash):
-        saved_party.update({
-            "party_id": party_id,
-            "party_name": party_name,
-            "contact_email": contact_email,
-            "key_hash": key_hash,
-        })
+        saved_party.update(
+            {
+                "party_id": party_id,
+                "party_name": party_name,
+                "contact_email": contact_email,
+                "key_hash": key_hash,
+            }
+        )
         return saved_party
 
     monkeypatch.setattr(party_registration, "saveParty", fake_save_party)
