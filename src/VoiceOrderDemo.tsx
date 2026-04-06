@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FileText, Menu, X } from "lucide-react";
 import {
   emptyDelivery,
   emptyDraft,
@@ -13,6 +14,8 @@ import {
   type OrderDraft,
   type OrderResponse,
 } from "./voiceOrder";
+import { AppLink } from "./components/AppLink";
+import "./create-order.css";
 
 type ServerEnvelope = {
   type: string;
@@ -34,6 +37,7 @@ export function VoiceOrderDemo() {
   const [speechSupported, setSpeechSupported] = useState(true);
   const [lastOrder, setLastOrder] = useState<OrderResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([
     { level: "info", text: "Awaiting websocket connection." },
   ]);
@@ -295,348 +299,467 @@ export function VoiceOrderDemo() {
     sendSocketEvent("session.reset");
   };
 
+  const closeMenu = () => {
+    setMobileMenuOpen(false);
+  };
+
   return (
-    <main className="voice-app">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">LockedOut voice order draft</p>
-          <h1>Speak the order. Watch the draft settle in real time.</h1>
-          <p className="lede">
-            Browser transcription streams finalized phrases to the backend websocket, which keeps the
-            draft authoritative until you confirm and create the order.
-          </p>
-        </div>
-        <div className="status-card">
-          <span className={`status-pill status-${connectionStatus}`}>{connectionStatus}</span>
-          <p>{connectionMessage}</p>
-          <p className="backend-label">Backend: {backendHttpUrl}</p>
-        </div>
-      </section>
+    <div className="landing-root create-page-root">
+      <div className="landing-container">
+        <section className="landing-stage create-page-stage">
+          <header className="landing-topbar">
+            <div className="landing-topbar-inner">
+              <AppLink href="/" className="landing-logo" onClick={closeMenu}>
+                <span className="landing-logo-mark" aria-hidden="true">
+                  <FileText size={16} strokeWidth={2.1} />
+                </span>
+                <span className="landing-logo-text">LockedOut</span>
+              </AppLink>
 
-      <section className="control-bar">
-        <button
-          type="button"
-          className="primary-button"
-          onClick={startListening}
-          disabled={!speechSupported || listening || connectionStatus !== "connected"}
-        >
-          Start microphone
-        </button>
-        <button type="button" className="secondary-button" onClick={stopListening} disabled={!listening}>
-          Stop microphone
-        </button>
-        <button
-          type="button"
-          className="primary-button"
-          onClick={commitDraft}
-          disabled={!isDraftReadyForCommit(draftState.draft) || connectionStatus !== "connected"}
-        >
-          Confirm order
-        </button>
-        <button type="button" className="secondary-button" onClick={resetDraft}>
-          Reset draft
-        </button>
-      </section>
+              <div className="landing-toolbar">
+                <AppLink href="/orders" className="landing-button landing-button-secondary">
+                  Orders
+                </AppLink>
+                <AppLink href="/orders/create" className="landing-button landing-button-primary">
+                  Create order
+                </AppLink>
+              </div>
 
-      {!speechSupported ? (
-        <section className="banner warning-banner" role="status">
-          This browser does not expose the Web Speech API. You can still edit the draft manually, but
-          microphone controls are disabled.
-        </section>
-      ) : null}
-
-      {errorMessage ? (
-        <section className="banner error-banner" role="alert">
-          {errorMessage}
-        </section>
-      ) : null}
-
-      <section className="panel-grid">
-        <article className="panel transcript-panel">
-          <header className="panel-header">
-            <h2>Live transcript</h2>
-            <span className={listening ? "recording-live" : "recording-idle"}>
-              {listening ? "Listening" : "Idle"}
-            </span>
-          </header>
-          <div className="transcript-current">
-            <p className="subtle-label">Current partial</p>
-            <p>{draftState.currentPartial || "Waiting for speech…"}</p>
-          </div>
-          <div className="transcript-history">
-            <p className="subtle-label">Finalized transcript history</p>
-            {draftState.transcriptLog.length === 0 ? (
-              <p className="empty-copy">Finalized phrases will appear here.</p>
-            ) : (
-              <ul>
-                {draftState.transcriptLog.map((entry, index) => (
-                  <li key={`${entry.kind}-${index}`}>{entry.text}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
-
-        <article className="panel insights-panel">
-          <header className="panel-header">
-            <h2>Diagnostics</h2>
-            <span className="subtle-label">Websocket and speech runtime events</span>
-          </header>
-          <div className="diagnostics-list" aria-label="Diagnostics log">
-            {diagnostics.map((entry, index) => (
-              <p key={`${entry.level}-${index}`} className={`diagnostic-entry diagnostic-${entry.level}`}>
-                {entry.text}
-              </p>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel draft-panel">
-          <header className="panel-header">
-            <h2>Draft form</h2>
-            <span className="subtle-label">Manual edits sync through the websocket too</span>
-          </header>
-          <div className="form-grid">
-            <label>
-              Buyer name
-              <input
-                aria-label="Buyer name"
-                value={draftState.draft.buyerName ?? ""}
-                onChange={event => updateDraftField("buyerName", nullableText(event.target.value))}
-              />
-            </label>
-            <label>
-              Seller name
-              <input
-                aria-label="Seller name"
-                value={draftState.draft.sellerName ?? ""}
-                onChange={event => updateDraftField("sellerName", nullableText(event.target.value))}
-              />
-            </label>
-            <label>
-              Currency
-              <input
-                aria-label="Currency"
-                value={draftState.draft.currency ?? ""}
-                maxLength={3}
-                onChange={event => updateDraftField("currency", nullableCode(event.target.value))}
-              />
-            </label>
-            <label>
-              Issue date
-              <input
-                aria-label="Issue date"
-                type="date"
-                value={draftState.draft.issueDate ?? ""}
-                onChange={event => updateDraftField("issueDate", nullableText(event.target.value))}
-              />
-            </label>
-            <label className="full-width">
-              Notes
-              <textarea
-                aria-label="Notes"
-                value={draftState.draft.notes ?? ""}
-                onChange={event => updateDraftField("notes", nullableText(event.target.value))}
-              />
-            </label>
-          </div>
-
-          <div className="subsection">
-            <div className="subsection-header">
-              <h3>Delivery</h3>
-            </div>
-            <div className="form-grid">
-              <label>
-                Street
-                <input
-                  aria-label="Delivery street"
-                  value={draftState.draft.delivery?.street ?? ""}
-                  onChange={event => updateDeliveryField("street", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                City
-                <input
-                  aria-label="Delivery city"
-                  value={draftState.draft.delivery?.city ?? ""}
-                  onChange={event => updateDeliveryField("city", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                State
-                <input
-                  aria-label="Delivery state"
-                  value={draftState.draft.delivery?.state ?? ""}
-                  onChange={event => updateDeliveryField("state", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Postcode
-                <input
-                  aria-label="Delivery postcode"
-                  value={draftState.draft.delivery?.postcode ?? ""}
-                  onChange={event => updateDeliveryField("postcode", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Country
-                <input
-                  aria-label="Delivery country"
-                  value={draftState.draft.delivery?.country ?? ""}
-                  onChange={event => updateDeliveryField("country", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Requested date
-                <input
-                  aria-label="Requested delivery date"
-                  type="date"
-                  value={draftState.draft.delivery?.requestedDate ?? ""}
-                  onChange={event => updateDeliveryField("requestedDate", nullableText(event.target.value))}
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="subsection">
-            <div className="subsection-header">
-              <h3>Line items</h3>
-              <button type="button" className="secondary-button compact-button" onClick={addLineItem}>
-                Add line item
+              <button
+                type="button"
+                className="landing-menu-button"
+                onClick={() => setMobileMenuOpen(open => !open)}
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
               </button>
             </div>
-            {draftState.draft.lines.length === 0 ? (
-              <p className="empty-copy">Voice commands like “I want 2 oranges” will populate this list.</p>
-            ) : (
-              <div className="line-items">
-                {draftState.draft.lines.map((line, index) => (
-                  <div className="line-item-card" key={`line-${index}`}>
-                    <label>
-                      Product
-                      <input
-                        aria-label={`Line ${index + 1} product`}
-                        value={line.productName ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { productName: nullableText(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Quantity
-                      <input
-                        aria-label={`Line ${index + 1} quantity`}
-                        type="number"
-                        min="1"
-                        value={line.quantity ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { quantity: nullableInteger(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Unit code
-                      <input
-                        aria-label={`Line ${index + 1} unit code`}
-                        value={line.unitCode ?? ""}
-                        onChange={event => updateLineItem(index, { unitCode: nullableCode(event.target.value) })}
-                      />
-                    </label>
-                    <label>
-                      Unit price
-                      <input
-                        aria-label={`Line ${index + 1} unit price`}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { unitPrice: nullableDecimal(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button compact-button"
-                      onClick={() => removeLineItem(index)}
+
+            {mobileMenuOpen ? (
+              <div className="landing-mobile-nav-wrap">
+                <nav className="landing-mobile-nav" aria-label="Mobile">
+                  <div className="landing-mobile-actions">
+                    <AppLink
+                      href="/orders"
+                      className="landing-button landing-button-secondary"
+                      onClick={closeMenu}
                     >
-                      Remove
-                    </button>
+                      Orders
+                    </AppLink>
+                    <AppLink
+                      href="/orders/create"
+                      className="landing-button landing-button-primary"
+                      onClick={closeMenu}
+                    >
+                      Create order
+                    </AppLink>
                   </div>
-                ))}
+                </nav>
               </div>
-            )}
-          </div>
-        </article>
-
-        <article className="panel insights-panel">
-          <header className="panel-header">
-            <h2>Warnings and unresolved</h2>
-            <span className="subtle-label">Unsafe or unsupported phrases land here</span>
+            ) : null}
           </header>
-          <div className="annotation-columns">
-            <section>
-              <h3>Warnings</h3>
-              {draftState.warnings.length === 0 ? (
-                <p className="empty-copy">No warnings yet.</p>
-              ) : (
-                <ul>
-                  {draftState.warnings.map((warning, index) => (
-                    <li key={`warning-${index}`}>
-                      <strong>{warning.message}</strong>
-                      <span>{warning.transcript}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section>
-              <h3>Unresolved phrases</h3>
-              {draftState.unresolved.length === 0 ? (
-                <p className="empty-copy">The parser has understood everything so far.</p>
-              ) : (
-                <ul>
-                  {draftState.unresolved.map((item, index) => (
-                    <li key={`unresolved-${index}`}>
-                      <strong>{item.message}</strong>
-                      <span>{item.transcript}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        </article>
 
-        <article className="panel result-panel">
-          <header className="panel-header">
-            <h2>Created order</h2>
-            <span className="subtle-label">The existing REST order creation response lands here</span>
-          </header>
-          {lastOrder ? (
-            <div className="result-grid">
-              <p>
-                <span className="subtle-label">Order ID</span>
-                {lastOrder.orderId}
-              </p>
-              <p>
-                <span className="subtle-label">Status</span>
-                {lastOrder.status}
-              </p>
-              <p>
-                <span className="subtle-label">Created</span>
-                {lastOrder.createdAt}
-              </p>
-              <label className="full-width">
-                UBL XML
-                <textarea readOnly value={lastOrder.ublXml} />
-              </label>
-            </div>
-          ) : (
-            <p className="empty-copy">Confirm the draft to create an order.</p>
-          )}
-        </article>
-      </section>
-    </main>
+          <main className="create-page-main">
+            <section className="create-page-intro" aria-labelledby="create-page-title">
+              <div className="create-page-intro-copy">
+                <h1 id="create-page-title">Speak the order. Watch the draft settle in real time.</h1>
+                <p>
+                  Use browser speech recognition or manual edits to build the order draft, keep it in
+                  sync with the websocket session, and confirm the final order once the required
+                  fields are complete.
+                </p>
+              </div>
+              <div className="create-page-runtime">
+                <div className="create-page-runtime-state">
+                  <span className={`create-page-state-dot create-page-state-${connectionStatus}`} />
+                  <span className="create-page-runtime-label">{connectionStatus}</span>
+                </div>
+                <p>{connectionMessage}</p>
+                <p className="create-page-backend">Backend: {backendHttpUrl}</p>
+              </div>
+            </section>
+
+            <section className="create-page-action-bar" aria-label="Draft controls">
+              <button
+                type="button"
+                className="landing-button landing-button-primary"
+                onClick={startListening}
+                disabled={!speechSupported || listening || connectionStatus !== "connected"}
+              >
+                Start microphone
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-secondary"
+                onClick={stopListening}
+                disabled={!listening}
+              >
+                Stop microphone
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-primary"
+                onClick={commitDraft}
+                disabled={!isDraftReadyForCommit(draftState.draft) || connectionStatus !== "connected"}
+              >
+                Confirm order
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-secondary"
+                onClick={resetDraft}
+              >
+                Reset draft
+              </button>
+            </section>
+
+            {!speechSupported ? (
+              <section className="create-page-banner create-page-banner-warning" role="status">
+                This browser does not expose the Web Speech API. You can still edit the draft
+                manually, but microphone controls are disabled.
+              </section>
+            ) : null}
+
+            {errorMessage ? (
+              <section className="create-page-banner create-page-banner-error" role="alert">
+                {errorMessage}
+              </section>
+            ) : null}
+
+            <section className="create-page-workspace">
+              <div className="create-page-column">
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Live transcript</h2>
+                      <p>Speech updates appear here before they settle into the draft.</p>
+                    </div>
+                    <span className={listening ? "create-page-recording-live" : "create-page-recording-idle"}>
+                      {listening ? "Listening" : "Idle"}
+                    </span>
+                  </header>
+                  <div className="create-page-panel-stack">
+                    <section className="create-page-block">
+                      <p className="create-page-label">Current partial</p>
+                      <p className="create-page-current-text">
+                        {draftState.currentPartial || "Waiting for speech..."}
+                      </p>
+                    </section>
+                    <section className="create-page-block">
+                      <p className="create-page-label">Finalized transcript history</p>
+                      {draftState.transcriptLog.length === 0 ? (
+                        <p className="create-page-empty-copy">Finalized phrases will appear here.</p>
+                      ) : (
+                        <ul className="create-page-list">
+                          {draftState.transcriptLog.map((entry, index) => (
+                            <li key={`${entry.kind}-${index}`}>{entry.text}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  </div>
+                </article>
+
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Diagnostics</h2>
+                      <p>Websocket, browser speech, and session events appear in sequence.</p>
+                    </div>
+                  </header>
+                  <div className="create-page-diagnostics-list" aria-label="Diagnostics log">
+                    {diagnostics.map((entry, index) => (
+                      <p
+                        key={`${entry.level}-${index}`}
+                        className={`create-page-diagnostic create-page-diagnostic-${entry.level}`}
+                      >
+                        {entry.text}
+                      </p>
+                    ))}
+                  </div>
+                </article>
+              </div>
+
+              <div className="create-page-column">
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Draft form</h2>
+                      <p>Manual edits still sync through the websocket session while you type.</p>
+                    </div>
+                  </header>
+                  <div className="create-page-form-grid">
+                    <label>
+                      Buyer name
+                      <input
+                        aria-label="Buyer name"
+                        value={draftState.draft.buyerName ?? ""}
+                        onChange={event => updateDraftField("buyerName", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Seller name
+                      <input
+                        aria-label="Seller name"
+                        value={draftState.draft.sellerName ?? ""}
+                        onChange={event => updateDraftField("sellerName", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Currency
+                      <input
+                        aria-label="Currency"
+                        value={draftState.draft.currency ?? ""}
+                        maxLength={3}
+                        onChange={event => updateDraftField("currency", nullableCode(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Issue date
+                      <input
+                        aria-label="Issue date"
+                        type="date"
+                        value={draftState.draft.issueDate ?? ""}
+                        onChange={event => updateDraftField("issueDate", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label className="create-page-full-width">
+                      Notes
+                      <textarea
+                        aria-label="Notes"
+                        value={draftState.draft.notes ?? ""}
+                        onChange={event => updateDraftField("notes", nullableText(event.target.value))}
+                      />
+                    </label>
+                  </div>
+
+                  <section className="create-page-subsection">
+                    <div className="create-page-subsection-header">
+                      <h3>Delivery</h3>
+                    </div>
+                    <div className="create-page-form-grid">
+                      <label>
+                        Street
+                        <input
+                          aria-label="Delivery street"
+                          value={draftState.draft.delivery?.street ?? ""}
+                          onChange={event => updateDeliveryField("street", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        City
+                        <input
+                          aria-label="Delivery city"
+                          value={draftState.draft.delivery?.city ?? ""}
+                          onChange={event => updateDeliveryField("city", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        State
+                        <input
+                          aria-label="Delivery state"
+                          value={draftState.draft.delivery?.state ?? ""}
+                          onChange={event => updateDeliveryField("state", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Postcode
+                        <input
+                          aria-label="Delivery postcode"
+                          value={draftState.draft.delivery?.postcode ?? ""}
+                          onChange={event => updateDeliveryField("postcode", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Country
+                        <input
+                          aria-label="Delivery country"
+                          value={draftState.draft.delivery?.country ?? ""}
+                          onChange={event => updateDeliveryField("country", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Requested date
+                        <input
+                          aria-label="Requested delivery date"
+                          type="date"
+                          value={draftState.draft.delivery?.requestedDate ?? ""}
+                          onChange={event =>
+                            updateDeliveryField("requestedDate", nullableText(event.target.value))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="create-page-subsection">
+                    <div className="create-page-subsection-header">
+                      <h3>Line items</h3>
+                      <button
+                        type="button"
+                        className="landing-button landing-button-secondary create-page-compact-button"
+                        onClick={addLineItem}
+                      >
+                        Add line item
+                      </button>
+                    </div>
+                    {draftState.draft.lines.length === 0 ? (
+                      <p className="create-page-empty-copy">
+                        Voice commands like “I want 2 oranges” will populate this list.
+                      </p>
+                    ) : (
+                      <div className="create-page-line-items">
+                        {draftState.draft.lines.map((line, index) => (
+                          <div className="create-page-line-item-card" key={`line-${index}`}>
+                            <label>
+                              Product
+                              <input
+                                aria-label={`Line ${index + 1} product`}
+                                value={line.productName ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    productName: nullableText(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Quantity
+                              <input
+                                aria-label={`Line ${index + 1} quantity`}
+                                type="number"
+                                min="1"
+                                value={line.quantity ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    quantity: nullableInteger(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Unit code
+                              <input
+                                aria-label={`Line ${index + 1} unit code`}
+                                value={line.unitCode ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    unitCode: nullableCode(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Unit price
+                              <input
+                                aria-label={`Line ${index + 1} unit price`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={line.unitPrice ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    unitPrice: nullableDecimal(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="landing-button landing-button-secondary create-page-compact-button"
+                              onClick={() => removeLineItem(index)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </article>
+
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Created order</h2>
+                      <p>The REST order creation response and persisted UBL XML land here.</p>
+                    </div>
+                  </header>
+                  {lastOrder ? (
+                    <div className="create-page-result-grid">
+                      <p>
+                        <span className="create-page-label">Order ID</span>
+                        {lastOrder.orderId}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Status</span>
+                        {lastOrder.status}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Created</span>
+                        {lastOrder.createdAt}
+                      </p>
+                      <label className="create-page-full-width">
+                        UBL XML
+                        <textarea readOnly value={lastOrder.ublXml} />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="create-page-empty-copy">Confirm the draft to create an order.</p>
+                  )}
+                </article>
+              </div>
+            </section>
+
+            <section className="create-page-annotations-panel">
+              <article className="create-page-panel">
+                <header className="create-page-panel-header">
+                  <div>
+                    <h2>Warnings and unresolved</h2>
+                    <p>Unsafe, ambiguous, or unsupported phrases are grouped here.</p>
+                  </div>
+                </header>
+                <div className="create-page-annotation-columns">
+                  <section className="create-page-block">
+                    <h3>Warnings</h3>
+                    {draftState.warnings.length === 0 ? (
+                      <p className="create-page-empty-copy">No warnings yet.</p>
+                    ) : (
+                      <ul className="create-page-list">
+                        {draftState.warnings.map((warning, index) => (
+                          <li key={`warning-${index}`}>
+                            <strong>{warning.message}</strong>
+                            <span>{warning.transcript}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section className="create-page-block">
+                    <h3>Unresolved phrases</h3>
+                    {draftState.unresolved.length === 0 ? (
+                      <p className="create-page-empty-copy">
+                        The parser has understood everything so far.
+                      </p>
+                    ) : (
+                      <ul className="create-page-list">
+                        {draftState.unresolved.map((item, index) => (
+                          <li key={`unresolved-${index}`}>
+                            <strong>{item.message}</strong>
+                            <span>{item.transcript}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </div>
+              </article>
+            </section>
+          </main>
+        </section>
+      </div>
+    </div>
   );
 }
 
