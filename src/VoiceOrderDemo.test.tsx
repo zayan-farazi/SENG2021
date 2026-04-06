@@ -1,5 +1,5 @@
 import { act, StrictMode } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setStoredSession } from "./session";
 import { VoiceOrderDemo } from "./VoiceOrderDemo";
@@ -351,5 +351,244 @@ describe("VoiceOrderDemo", () => {
         },
       },
     });
+  });
+
+  it("loads an editable order, seeds the websocket draft, and saves updates through REST", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_edit123",
+          status: "DRAFT",
+          createdAt: "2026-03-07T00:00:00Z",
+          updatedAt: "2026-03-08T00:00:00Z",
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
+            sellerName: "Digital Book Supply",
+            currency: "AUD",
+            issueDate: "2026-03-07",
+            notes: "Leave at loading dock",
+            delivery: {
+              street: "123 Test St",
+              city: "Sydney",
+              state: "NSW",
+              postcode: "2000",
+              country: "AU",
+              requestedDate: "2026-03-10",
+            },
+            lines: [
+              {
+                productName: "Oranges",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: "12.50",
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_edit123",
+          status: "DRAFT",
+          updatedAt: "2026-03-09T00:00:00Z",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<Order />",
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VoiceOrderDemo orderId="ord_edit123" />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({
+        type: "session.ready",
+        payload: draftStatePatch(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("buyer@example.com")).toBeInTheDocument();
+    });
+
+    expect(socket.sentMessages.some(message => message.includes('"type":"draft.patch"'))).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/^Buyer name$/i), {
+      target: { value: "Updated Buyer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /update order/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("2026-03-09T00:00:00Z")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("<Order />")).toBeInTheDocument();
+    });
+
+    const updateRequest = fetchMock.mock.calls[1];
+    expect(updateRequest?.[0]).toBe("http://localhost:8000/v1/order/ord_edit123");
+    expect(updateRequest?.[1]).toMatchObject({
+      method: "PUT",
+      headers: {
+        Authorization: "Bearer super-secure-password",
+        "Content-Type": "application/json",
+        "X-Party-Email": "buyer@example.com",
+      },
+    });
+    expect(JSON.parse(String(updateRequest?.[1]?.body))).toMatchObject({
+      buyerEmail: "buyer@example.com",
+      sellerEmail: "seller@example.com",
+      buyerName: "Updated Buyer",
+    });
+  });
+
+  it("deletes a draft order from edit mode and returns to the dashboard", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_delete123",
+          status: "DRAFT",
+          createdAt: "2026-03-07T00:00:00Z",
+          updatedAt: "2026-03-08T00:00:00Z",
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
+            sellerName: "Digital Book Supply",
+            currency: "AUD",
+            issueDate: "2026-03-07",
+            notes: null,
+            delivery: null,
+            lines: [
+              {
+                productName: "Oranges",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: "12.50",
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/orders/ord_delete123/edit");
+
+    render(<VoiceOrderDemo orderId="ord_delete123" />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({
+        type: "session.ready",
+        payload: draftStatePatch(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /delete order/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /delete order/i }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/order id: ord_delete123/i);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete order$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        "http://localhost:8000/v1/order/ord_delete123",
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: "Bearer super-secure-password",
+            "X-Party-Email": "buyer@example.com",
+          },
+        },
+      );
+      expect(window.location.pathname).toBe("/orders");
+      expect(window.location.search).toBe("?deleted=ord_delete123");
+    });
+  });
+
+  it("shows a locked state for non-draft orders in edit mode", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_locked123",
+            status: "SUBMITTED",
+            createdAt: "2026-03-07T00:00:00Z",
+            updatedAt: "2026-03-08T00:00:00Z",
+            payload: {
+              buyerEmail: "buyer@example.com",
+              buyerName: "Acme Books",
+              sellerEmail: "seller@example.com",
+              sellerName: "Digital Book Supply",
+              currency: "AUD",
+              issueDate: "2026-03-07",
+              notes: "Leave at loading dock",
+              delivery: null,
+              lines: [
+                {
+                  productName: "Oranges",
+                  quantity: 2,
+                  unitCode: "EA",
+                  unitPrice: "12.50",
+                },
+              ],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => "<LockedOrder />",
+        }),
+    );
+
+    render(<VoiceOrderDemo orderId="ord_locked123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /order locked/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /update order/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete order/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /order details/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /order xml/i })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("buyer@example.com")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("<LockedOrder />")).toBeInTheDocument();
   });
 });
