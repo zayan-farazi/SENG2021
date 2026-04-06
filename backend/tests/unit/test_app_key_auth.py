@@ -23,7 +23,12 @@ def test_get_current_party_email_resolves_email_from_valid_app_key(monkeypatch):
     monkeypatch.setattr(
         app_key_auth,
         "findAppKeyByHash",
-        lambda key_hash: {"contact_email": "buyer@example.com", "party_name": "Buyer Co"} if key_hash else None,
+        lambda key_hash: {
+            "contact_email": "buyer@example.com",
+            "party_name": "Buyer Co",
+        }
+        if key_hash
+        else None,
     )
 
     contact_email = app_key_auth.get_current_party_email("Bearer appkey_secret")
@@ -49,7 +54,10 @@ def test_get_current_party_email_accepts_v2_password_with_party_email_header(mon
         lambda party_email, raw_password: type(
             "PartyAuthResult",
             (),
-            {"contactEmail": party_email if raw_password else None},
+            {
+                "contactEmail": party_email if raw_password else None,
+                "partyName": "Buyer Co",
+            },
         )(),
     )
 
