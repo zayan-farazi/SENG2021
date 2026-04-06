@@ -36,15 +36,14 @@ def test_register_party_persists_party_and_hashed_app_key_in_supabase():
 
     assert response.status_code == 201
     body = response.json()
-    party_id = body['partyId']
-    party_name = body['partyName']
-    app_key = body['appKey']
+    party_id = body["partyId"]
+    party_name = body["partyName"]
+    app_key = body["appKey"]
     contact_email = payload["contactEmail"].strip().lower()
 
     try:
         party_row = other.findPartyByEmail(contact_email)
         app_key_row = other.findAppKeyByHash(hash_app_key(app_key))
-
 
         assert party_row is not None
         assert party_row["party_id"] == party_id
