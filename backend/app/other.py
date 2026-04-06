@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 import httpx
@@ -13,7 +14,7 @@ _SUPABASE_HTTPX_CLIENT: httpx.Client | None = None
 def get_supabase_client() -> Client:
     global _SUPABASE_CLIENT, _SUPABASE_HTTPX_CLIENT
 
-    if _SUPABASE_CLIENT is None:
+    if _SUPABASE_CLIENT is None: 
         load_local_env_files()
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
