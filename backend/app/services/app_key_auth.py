@@ -30,7 +30,7 @@ def get_current_party_info(
     return resolve_party_from_app_key(raw_app_key)
 
 
-def resolve_party_from_app_key(raw_app_key: str) -> list:
+def resolve_party_from_app_key(raw_app_key: str) -> tuple[str]:
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:

@@ -251,7 +251,7 @@ def list_orders(
         },
     },
 )
-def delete_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+def delete_order(order_id: str, current_party_email: tuple = Depends(get_current_party_email)):
     existing = order_store.get_order_record(order_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -431,7 +431,7 @@ async def _handle_commit(
         return
 
     try:
-        current_party_email = get_current_party_email(f"Bearer {raw_app_key.strip()}")
+        current_party_email = resolve_party_from_app_key(raw_app_key.strip())[0]
         _assert_string_access(current_party_email, req.buyerEmail, req.sellerEmail)
     except HTTPException as exc:
         await _send_error(websocket, "unauthorized", exc.detail)

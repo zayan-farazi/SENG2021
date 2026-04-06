@@ -33,10 +33,10 @@ def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
 
     try:
         saveParty(party_id, req.partyName.strip(), normalized_email, key_hash)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         try:
-            deleteParty(party_id)
-        except Exception:  # noqa: BLE001
+            deleteParty(normalized_email)
+        except Exception:
             pass
         raise PartyRegistrationPersistenceError("Unable to register party.") from exc
 
