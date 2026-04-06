@@ -134,7 +134,6 @@ def persist_order_to_database(req: OrderRequest) -> Any:
         delivery = req.delivery
         db_order_id = saveOrder(
             buyeremail=req.buyerEmail,
-            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -220,7 +219,6 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
         delivery = req.delivery
         saveOrder(
             buyeremail=req.buyerEmail,
-            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -299,10 +297,16 @@ def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]
     )
     client = get_supabase_client()
     buyer_rows = (
-        client.table("orders").select(fields).eq("buyeremail", current_party_email).execute()
+        client.table("orders_with_buyer")
+        .select(fields)
+        .eq("buyeremail", current_party_email)
+        .execute()
     )
     seller_rows = (
-        client.table("orders").select(fields).eq("selleremail", current_party_email).execute()
+        client.table("orders_with_buyer")
+        .select(fields)
+        .eq("selleremail", current_party_email)
+        .execute()
     )
     return (buyer_rows.data or []) + (seller_rows.data or [])
 

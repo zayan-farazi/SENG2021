@@ -34,7 +34,11 @@ from app.models.schemas import (
 )
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
-from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
+from app.services.app_key_auth import (
+    get_current_party_email,
+    get_current_party_info,
+    resolve_party_from_app_key,  # noqa F401
+)
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -50,8 +54,6 @@ from app.services.order_store import (
     OrderPersistenceError,
 )
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
-
-# from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
 router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
@@ -123,8 +125,9 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
         },
     },
 )
-def create_order(req: OrderRequest, current_party_email: str = Depends(get_current_party_email)):
-    _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
+def create_order(req: OrderRequest, current_party_info: tuple = Depends(get_current_party_info)):  # noqa: B008
+    _assert_string_access(current_party_info[0], req.buyerEmail, req.sellerEmail)
+    _assert_string_access(current_party_info[1], req.buyerName, req.sellerName)
 
     issues = _validate_order(req)
     if issues:
@@ -248,7 +251,7 @@ def list_orders(
         },
     },
 )
-def delete_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+def delete_order(order_id: str, current_party_email: tuple = Depends(get_current_party_email)):
     existing = order_store.get_order_record(order_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -428,8 +431,8 @@ async def _handle_commit(
         return
 
     try:
-        current_party_email = resolve_party_email_from_app_key(raw_app_key.strip())
-        _assert_email_access(current_party_email, req.buyerEmail, req.sellerEmail)
+        current_party_email = resolve_party_from_app_key(raw_app_key.strip())[0]
+        _assert_string_access(current_party_email, req.buyerEmail, req.sellerEmail)
     except HTTPException as exc:
         await _send_error(websocket, "unauthorized", exc.detail)
         return
@@ -654,7 +657,7 @@ def _build_conversion_response(
 
     payload, draft_errors = order_conversion.finalize_payload(draft)
     if payload is not None:
-        _assert_email_access(current_party_email, payload.buyerEmail, payload.sellerEmail)
+        _assert_string_access(current_party_email, payload.buyerEmail, payload.sellerEmail)
         issues.extend(_describe_order_completeness_issues(payload))
         return OrderConversionResponse(
             payload=payload,
@@ -686,13 +689,13 @@ def _assert_order_access(current_party_email: str, payload: dict[str, Any]) -> N
     if not isinstance(buyer_email, str) or not isinstance(seller_email, str):
         raise HTTPException(status_code=500, detail="Order participant email information missing.")
 
-    _assert_email_access(current_party_email, buyer_email, seller_email)
+    _assert_string_access(current_party_email, buyer_email, seller_email)
 
 
-def _assert_email_access(current_party_email: str, buyer_email: str, seller_email: str) -> None:
-    normalized_current = current_party_email.strip().lower()
-    normalized_buyer = buyer_email.strip().lower()
-    normalized_seller = seller_email.strip().lower()
+def _assert_string_access(strA: str, strB: str, strC: str) -> None:
+    normalized_current = strA.strip().lower()
+    normalized_buyer = strB.strip().lower()
+    normalized_seller = strC.strip().lower()
     if normalized_current not in {normalized_buyer, normalized_seller}:
         raise HTTPException(status_code=403, detail="Forbidden")
 

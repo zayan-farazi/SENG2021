@@ -19,7 +19,7 @@ def get_supabase_client() -> Client:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         if not supabase_url:
-            raise RuntimeError("SUPABASE_URL is not configured.")
+            raise RuntimeError("SUPABASE_URL is not configured.")  #
         if not supabase_key:
             raise RuntimeError("SUPABASE_KEY is not configured.")
         _SUPABASE_HTTPX_CLIENT = httpx.Client(timeout=120.0)
@@ -69,7 +69,6 @@ def close_supabase_client() -> None:
 # creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
     buyeremail,
-    buyername,
     selleremail,
     sellername,
     deliverystreet,
@@ -90,7 +89,6 @@ def saveOrder(
 ):
     query = {
         "buyeremail": buyeremail,
-        "buyername": buyername,
         "selleremail": selleremail,
         "sellername": sellername,
         "deliverystreet": deliverystreet,
@@ -129,12 +127,9 @@ def saveOrder(
     if updatedAt is not None:
         query["updatedat"] = updatedAt
 
-    # TODO remove if conditions when people have changeed their functions
-
-    if buyeremail:
-        query["buyeremail"] = buyeremail
-    if selleremail:
-        query["selleremail"] = selleremail
+    query["buyeremail"] = buyeremail
+    query["selleremail"] = selleremail
+    query["sellername"] = sellername
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -186,7 +181,7 @@ def findOrders(
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
-    query = get_supabase_client().table("orders").select("*", count="exact")
+    query = get_supabase_client().table("orders_with_buyer").select("*", count="exact")
 
     if orderId:
         query = query.eq("id", orderId)
@@ -269,49 +264,37 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
     return grouped
 
 
-def findPartyByContactEmail(contactEmail):
+def findPartyByEmail(email):
     response = (
-        get_supabase_client()
-        .table("parties")
-        .select("*")
-        .eq("contact_email", contactEmail)
-        .execute()
+        get_supabase_client().table("parties").select("*").eq("contact_email", email).execute()
     )
-    return response.data[0] if response.data else None
-
-
-def findPartyByPartyId(partyId):
-    response = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
     return response.data[0] if response.data else None
 
 
 def findAppKeyByHash(keyHash):
-    response = get_supabase_client().table("app_keys").select("*").eq("key_hash", keyHash).execute()
+    response = get_supabase_client().table("parties").select("*").eq("key_hash", keyHash).execute()
     return response.data[0] if response.data else None
 
 
-def saveParty(partyId, partyName, contactEmail):
+def saveParty(partyid, partyName, contactEmail, keyHash):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert({"party_id": partyId, "party_name": partyName, "contact_email": contactEmail})
+        .insert(
+            {
+                "party_id": partyid,
+                "party_name": partyName,
+                "contact_email": contactEmail,
+                "key_hash": keyHash,
+            }
+        )
         .execute()
     )
     return response.data[0]
 
 
-def saveAppKey(partyId, keyHash):
-    response = (
-        get_supabase_client()
-        .table("app_keys")
-        .insert({"party_id": partyId, "key_hash": keyHash})
-        .execute()
-    )
-    return response.data[0]
-
-
-def deleteParty(partyId):
-    get_supabase_client().table("parties").delete().eq("party_id", partyId).execute()
+def deleteParty(email):
+    get_supabase_client().table("parties").delete().eq("contact_email", email).execute()
 
 
 def updateOrderRuntimeMetadata(
@@ -336,6 +319,11 @@ def updateOrderRuntimeMetadata(
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
+
+
+def findPartyByPartyId(partyId):
+    res = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
+    return res.data[0] if res.data else None
 
 
 # deletes all order lines related to a query
