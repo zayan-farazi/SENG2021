@@ -205,13 +205,7 @@ def test_commit_is_blocked_when_required_fields_are_missing():
 
 
 def test_commit_succeeds_when_draft_is_valid(monkeypatch):
-    print("HELLOO")
-
-    def mock_get_email(raw_key):
-        print(f"Mock get_current_party_email called with: {raw_key}")
-        return "buyer@example.com"
-
-    monkeypatch.setattr(orders, "get_current_party_email", mock_get_email)
+    monkeypatch.setattr(orders, "get_current_party_email", "buyer@example.com")
 
     monkeypatch.setattr(
         orders, "resolve_party_from_app_key", lambda raw_key: ["buyer@example.com", "Buyer Company"]

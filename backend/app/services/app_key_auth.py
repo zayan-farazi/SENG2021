@@ -25,7 +25,7 @@ def get_current_party_email(
 
 def get_current_party_info(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
-) -> list:
+) -> tuple:
     raw_app_key = extract_bearer_token(credentials)
     return resolve_party_from_app_key(raw_app_key)
 

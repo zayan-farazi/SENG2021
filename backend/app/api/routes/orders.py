@@ -125,7 +125,7 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
         },
     },
 )
-def create_order(req: OrderRequest, current_party_info: str = Depends(get_current_party_info)):  # noqa: B008
+def create_order(req: OrderRequest, current_party_info: tuple = Depends(get_current_party_info)):  # noqa: B008
     _assert_string_access(current_party_info[0], req.buyerEmail, req.sellerEmail)
     _assert_string_access(current_party_info[1], req.buyerName, req.sellerName)
 
