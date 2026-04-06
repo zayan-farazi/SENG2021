@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from typing import Any
 
 import httpx
 from supabase import Client, create_client
@@ -37,6 +38,27 @@ def close_supabase_client() -> None:
 
     _SUPABASE_CLIENT = None
     _SUPABASE_HTTPX_CLIENT = None
+
+
+def _uses_legacy_order_party_columns(exc: Exception) -> bool:
+    message = str(exc)
+    return "buyer_id" in message or "seller_id" in message
+
+
+def _normalize_order_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+
+    normalized = dict(row)
+    buyer_email = normalized.get("buyer_id") or normalized.get("buyeremail")
+    seller_email = normalized.get("seller_id") or normalized.get("selleremail")
+    if buyer_email is not None:
+        normalized.setdefault("buyer_id", buyer_email)
+        normalized.setdefault("buyeremail", buyer_email)
+    if seller_email is not None:
+        normalized.setdefault("seller_id", seller_email)
+        normalized.setdefault("selleremail", seller_email)
+    return normalized
 
 
 # how to save order example
@@ -89,8 +111,6 @@ def saveOrder(
     orderId=None,
 ):
     query = {
-        "buyer_id": buyeremail,
-        "seller_id": selleremail,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
         "deliverystate": deliverystate,
@@ -136,6 +156,21 @@ def saveOrder(
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
+    except Exception as e:
+        if not _uses_legacy_order_party_columns(e):
+            raise RuntimeError(f"Failed to save order: {e}") from e
+
+        legacy_query = dict(query)
+        if buyeremail:
+            legacy_query["buyeremail"] = legacy_query.pop("buyer_id")
+        if selleremail:
+            legacy_query["selleremail"] = legacy_query.pop("seller_id")
+        try:
+            response = get_supabase_client().table("orders").upsert(legacy_query).execute()
+        except Exception as legacy_exc:
+            raise RuntimeError(f"Failed to save order: {legacy_exc}") from legacy_exc
+
+    try:
         return response.data[0]["id"]
     except Exception as e:
         raise RuntimeError(f"Failed to save order: {e}") from e
@@ -184,41 +219,49 @@ def findOrders(
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
-    query = get_supabase_client().table("orders").select("*", count="exact")
+    def _execute_query(*, buyer_column: str, seller_column: str) -> list[dict[str, Any]]:
+        query = get_supabase_client().table("orders").select("*", count="exact")
 
-    if orderId:
-        query = query.eq("id", orderId)
-    if externalOrderId:
-        query = query.eq("order_id", externalOrderId)
-    if buyeremail:
-        query = query.eq("buyer_id", buyeremail)
-    if selleremail:
-        query = query.eq("seller_id", selleremail)
-    if deliverystreet:
-        query = query.eq("deliverystreet", deliverystreet)
-    if deliverycity:
-        query = query.eq("deliverycity", deliverycity)
-    if deliverypostcode:
-        query = query.eq("deliverypostcode", deliverypostcode)
-    if deliverycountry:
-        query = query.eq("deliverycountry", deliverycountry)
-    if notes:
-        query = query.ilike("notes", notes)
-    if status:
-        query = query.eq("status", status)
-    if issueDate:
-        query = query.eq("issuedate", issueDate)
-    if lastChanged:
-        query = query.eq("lastchanged", lastChanged)
-    if status:
-        query = query.eq("status", status)
-    if fromDate:
-        query = query.gte("issuedate", fromDate.isoformat())
-    if toDate:
-        query = query.lte("issuedate", toDate.isoformat())
+        if orderId:
+            query = query.eq("id", orderId)
+        if externalOrderId:
+            query = query.eq("order_id", externalOrderId)
+        if buyeremail:
+            query = query.eq(buyer_column, buyeremail)
+        if selleremail:
+            query = query.eq(seller_column, selleremail)
+        if deliverystreet:
+            query = query.eq("deliverystreet", deliverystreet)
+        if deliverycity:
+            query = query.eq("deliverycity", deliverycity)
+        if deliverypostcode:
+            query = query.eq("deliverypostcode", deliverypostcode)
+        if deliverycountry:
+            query = query.eq("deliverycountry", deliverycountry)
+        if notes:
+            query = query.ilike("notes", notes)
+        if status:
+            query = query.eq("status", status)
+        if issueDate:
+            query = query.eq("issuedate", issueDate)
+        if lastChanged:
+            query = query.eq("lastchanged", lastChanged)
+        if status:
+            query = query.eq("status", status)
+        if fromDate:
+            query = query.gte("issuedate", fromDate.isoformat())
+        if toDate:
+            query = query.lte("issuedate", toDate.isoformat())
 
-    res = query.execute()
-    return res.data
+        res = query.execute()
+        return [_normalize_order_row(row) or {} for row in res.data or []]
+
+    try:
+        return _execute_query(buyer_column="buyer_id", seller_column="seller_id")
+    except Exception as e:
+        if not _uses_legacy_order_party_columns(e):
+            raise
+        return _execute_query(buyer_column="buyeremail", seller_column="selleremail")
 
 
 def findOrderByExternalId(externalOrderId):

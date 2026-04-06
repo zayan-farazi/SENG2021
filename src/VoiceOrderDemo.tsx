@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, Menu, X } from "lucide-react";
 import {
   emptyDelivery,
   emptyDraft,
@@ -14,9 +13,9 @@ import {
   type OrderDraft,
   type OrderResponse,
 } from "./voiceOrder";
-import { AppLink } from "./components/AppLink";
+import { AppHeader } from "./components/AppHeader";
 import "./create-order.css";
-import { getStoredSession } from "./session";
+import { useStoredSession } from "./session";
 
 type ServerEnvelope = {
   type: string;
@@ -38,7 +37,6 @@ export function VoiceOrderDemo() {
   const [speechSupported, setSpeechSupported] = useState(true);
   const [lastOrder, setLastOrder] = useState<OrderResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([
     { level: "info", text: "Awaiting websocket connection." },
   ]);
@@ -47,7 +45,7 @@ export function VoiceOrderDemo() {
   const socketSequenceRef = useRef(0);
   const websocketUrl = getBackendWebSocketUrl();
   const backendHttpUrl = getBackendHttpUrl();
-  const storedSession = getStoredSession();
+  const storedSession = useStoredSession();
 
   const pushDiagnostic = (level: DiagnosticLevel, text: string) => {
     setDiagnostics(current => [...current.slice(-7), { level, text }]);
@@ -315,14 +313,17 @@ export function VoiceOrderDemo() {
   };
 
   const commitDraft = () => {
-    if (!storedSession?.appKey) {
-      const message = "Register a party before confirming an order.";
+    if (!storedSession?.credential || !storedSession.contactEmail) {
+      const message = "Log in or register a party first before confirming an order.";
       setErrorMessage(message);
-      pushDiagnostic("warning", "Commit blocked until an app key is stored locally.");
+      pushDiagnostic("warning", "Commit blocked until credentials are stored locally.");
       return;
     }
 
-    sendSocketEvent("session.commit", { appKey: storedSession.appKey });
+    sendSocketEvent("session.commit", {
+      contactEmail: storedSession.contactEmail,
+      credential: storedSession.credential,
+    });
   };
 
   const resetDraft = () => {
@@ -330,76 +331,11 @@ export function VoiceOrderDemo() {
     sendSocketEvent("session.reset");
   };
 
-  const closeMenu = () => {
-    setMobileMenuOpen(false);
-  };
-
   return (
     <div className="landing-root create-page-root">
       <div className="landing-container">
         <section className="landing-stage create-page-stage">
-          <header className="landing-topbar">
-            <div className="landing-topbar-inner">
-              <AppLink href="/" className="landing-logo" onClick={closeMenu}>
-                <span className="landing-logo-mark" aria-hidden="true">
-                  <FileText size={16} strokeWidth={2.1} />
-                </span>
-                <span className="landing-logo-text">LockedOut</span>
-              </AppLink>
-
-              <div className="landing-toolbar">
-                <AppLink href="/register" className="landing-button landing-button-secondary">
-                  Register
-                </AppLink>
-                <AppLink href="/orders" className="landing-button landing-button-secondary">
-                  Orders
-                </AppLink>
-                <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                  Create order
-                </AppLink>
-              </div>
-
-              <button
-                type="button"
-                className="landing-menu-button"
-                onClick={() => setMobileMenuOpen(open => !open)}
-                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-                aria-expanded={mobileMenuOpen}
-              >
-                {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-              </button>
-            </div>
-
-            {mobileMenuOpen ? (
-              <div className="landing-mobile-nav-wrap">
-                <nav className="landing-mobile-nav" aria-label="Mobile">
-                  <div className="landing-mobile-actions">
-                    <AppLink
-                      href="/register"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Register
-                    </AppLink>
-                    <AppLink
-                      href="/orders"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Orders
-                    </AppLink>
-                    <AppLink
-                      href="/orders/create"
-                      className="landing-button landing-button-primary"
-                      onClick={closeMenu}
-                    >
-                      Create order
-                    </AppLink>
-                  </div>
-                </nav>
-              </div>
-            ) : null}
-          </header>
+          <AppHeader />
 
           <main className="create-page-main">
             <section className="create-page-intro" aria-labelledby="create-page-title">
@@ -464,13 +400,6 @@ export function VoiceOrderDemo() {
               <section className="create-page-banner create-page-banner-warning" role="status">
                 This browser does not expose the Web Speech API. You can still edit the draft
                 manually, but microphone controls are disabled.
-              </section>
-            ) : null}
-
-            {!storedSession ? (
-              <section className="create-page-banner create-page-banner-warning" role="status">
-                Register a party first so the frontend can use the saved app key and contact email
-                for protected order creation.
               </section>
             ) : null}
 

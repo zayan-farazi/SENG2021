@@ -1,16 +1,15 @@
-import { useState } from "react";
 import {
   ChartColumn,
   FileText,
   Globe as GlobeIcon,
-  Menu,
   Mic,
   ScrollText,
   ShieldCheck,
-  X,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { AppLink } from "../components/AppLink";
+import { AppHeader } from "../components/AppHeader";
+import { useStoredSession } from "../session";
 import { Globe } from "./Globe";
 
 const features = [
@@ -22,9 +21,9 @@ const features = [
   },
   {
     icon: ShieldCheck,
-    title: "Protect access with app keys",
+    title: "Protect access with password login",
     description:
-      "Register a party once and use the issued app key for protected order and analytics routes.",
+      "Register a party once and use your contact email and password for protected order routes.",
   },
   {
     icon: Mic,
@@ -63,7 +62,7 @@ const workflow = [
   {
     title: "Register a party",
     description:
-      "Create a buyer or seller identity and receive the app key used by the protected routes.",
+      "Create a buyer or seller identity and store the password-backed session used by protected routes.",
   },
   {
     title: "Prepare the order",
@@ -78,78 +77,13 @@ const workflow = [
 ];
 
 export function LandingPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const closeMenu = () => {
-    setMobileMenuOpen(false);
-  };
+  const session = useStoredSession();
 
   return (
     <div className="landing-root">
       <div className="landing-container">
         <section className="landing-stage">
-          <header className="landing-topbar">
-            <div className="landing-topbar-inner">
-              <AppLink href="/" className="landing-logo" onClick={closeMenu}>
-                <span className="landing-logo-mark" aria-hidden="true">
-                  <FileText size={16} strokeWidth={2.1} />
-                </span>
-                <span className="landing-logo-text">LockedOut</span>
-              </AppLink>
-
-              <div className="landing-toolbar">
-                <AppLink href="/register" className="landing-button landing-button-secondary">
-                  Register
-                </AppLink>
-                <AppLink href="/orders" className="landing-button landing-button-secondary">
-                  Orders
-                </AppLink>
-                <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                  Create order
-                </AppLink>
-              </div>
-
-              <button
-                type="button"
-                className="landing-menu-button"
-                onClick={() => setMobileMenuOpen(open => !open)}
-                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-                aria-expanded={mobileMenuOpen}
-              >
-                {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-              </button>
-            </div>
-
-            {mobileMenuOpen ? (
-              <div className="landing-mobile-nav-wrap">
-                <nav className="landing-mobile-nav" aria-label="Mobile">
-                  <div className="landing-mobile-actions">
-                    <AppLink
-                      href="/register"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Register
-                    </AppLink>
-                    <AppLink
-                      href="/orders"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Orders
-                    </AppLink>
-                    <AppLink
-                      href="/orders/create"
-                      className="landing-button landing-button-primary"
-                      onClick={closeMenu}
-                    >
-                      Create order
-                    </AppLink>
-                  </div>
-                </nav>
-              </div>
-            ) : null}
-          </header>
+          <AppHeader />
 
           <main className="landing-main">
             <section className="landing-hero" aria-labelledby="landing-title">
@@ -176,15 +110,25 @@ export function LandingPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.4, delay: 0.08, ease: "easeOut" }}
                   >
-                    <AppLink href="/register" className="landing-button landing-button-secondary">
-                      Register
-                    </AppLink>
-                    <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                      Create order
-                    </AppLink>
-                    <AppLink href="/orders" className="landing-button landing-button-secondary">
-                      View orders
-                    </AppLink>
+                    {!session ? (
+                      <>
+                        <AppLink href="/register" className="landing-button landing-button-secondary">
+                          Register
+                        </AppLink>
+                        <AppLink href="/login" className="landing-button landing-button-secondary">
+                          Log in
+                        </AppLink>
+                      </>
+                    ) : (
+                      <>
+                        <AppLink href="/orders/create" className="landing-button landing-button-primary">
+                          Create order
+                        </AppLink>
+                        <AppLink href="/orders" className="landing-button landing-button-secondary">
+                          View orders
+                        </AppLink>
+                      </>
+                    )}
                   </motion.div>
                 </motion.div>
 

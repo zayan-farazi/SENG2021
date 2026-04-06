@@ -85,6 +85,10 @@ def test_persist_order_to_database_with_real_supabase(monkeypatch):
             pytest.skip(
                 "Supabase orders schema is missing requesteddate; apply the order metadata migration first."
             )
+        if exc.__cause__ is not None and "foreign key constraint" in str(exc.__cause__).lower():
+            pytest.skip(
+                "Supabase orders schema requires matching parties for buyer/seller emails; seed parties first."
+            )
         raise
     finally:
         client = None

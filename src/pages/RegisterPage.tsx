@@ -1,15 +1,14 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { FileText, Menu, X } from "lucide-react";
 import { AppLink, navigate } from "../components/AppLink";
+import { AppHeader } from "../components/AppHeader";
 import { getBackendHttpUrl } from "../voiceOrder";
-import { setStoredSession, type StoredSession } from "../session";
+import { clearStoredSession, setStoredSession, type StoredSession, useStoredSession } from "../session";
 import "../register-page.css";
 
 type PartyRegistrationResponse = {
   partyId: string;
   partyName: string;
-  appKey: string;
-  message: string;
+  contactEmail: string;
 };
 
 type ValidationErrorItem = {
@@ -22,19 +21,29 @@ type ValidationErrorResponse = {
   errors?: ValidationErrorItem[];
 };
 
+function getNextPath(): string {
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get("next");
+
+  if (!next || !next.startsWith("/") || next.startsWith("//")) {
+    return "/orders";
+  }
+
+  return next;
+}
+
 export function RegisterPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [partyName, setPartyName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [registration, setRegistration] = useState<(StoredSession & { message: string }) | null>(null);
+  const [registration, setRegistration] = useState<StoredSession | null>(null);
   const backendUrl = useMemo(() => getBackendHttpUrl(), []);
-
-  const closeMenu = () => {
-    setMobileMenuOpen(false);
-  };
+  const session = useStoredSession();
+  const nextPath = useMemo(() => getNextPath(), []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,8 +51,14 @@ export function RegisterPage() {
     setSubmitError(null);
     setFieldErrors({});
 
+    if (password !== confirmPassword) {
+      setFieldErrors({ confirmPassword: "Passwords must match." });
+      setSubmitting(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`${backendUrl}/v1/parties/register`, {
+      const response = await fetch(`${backendUrl}/v2/parties/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -51,6 +66,7 @@ export function RegisterPage() {
         body: JSON.stringify({
           partyName,
           contactEmail,
+          password,
         }),
       });
 
@@ -59,11 +75,11 @@ export function RegisterPage() {
         const storedSession: StoredSession = {
           partyId: body.partyId,
           partyName: body.partyName,
-          contactEmail: contactEmail.trim().toLowerCase(),
-          appKey: body.appKey,
+          contactEmail: body.contactEmail.trim().toLowerCase(),
+          credential: password,
         };
         setStoredSession(storedSession);
-        setRegistration({ ...storedSession, message: body.message });
+        setRegistration(storedSession);
         return;
       }
 
@@ -97,77 +113,15 @@ export function RegisterPage() {
     <div className="landing-root register-page-root">
       <div className="landing-container">
         <section className="landing-stage register-page-stage">
-          <header className="landing-topbar">
-            <div className="landing-topbar-inner">
-              <AppLink href="/" className="landing-logo" onClick={closeMenu}>
-                <span className="landing-logo-mark" aria-hidden="true">
-                  <FileText size={16} strokeWidth={2.1} />
-                </span>
-                <span className="landing-logo-text">LockedOut</span>
-              </AppLink>
-
-              <div className="landing-toolbar">
-                <AppLink href="/register" className="landing-button landing-button-secondary">
-                  Register
-                </AppLink>
-                <AppLink href="/orders" className="landing-button landing-button-secondary">
-                  Orders
-                </AppLink>
-                <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                  Create order
-                </AppLink>
-              </div>
-
-              <button
-                type="button"
-                className="landing-menu-button"
-                onClick={() => setMobileMenuOpen(open => !open)}
-                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-                aria-expanded={mobileMenuOpen}
-              >
-                {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-              </button>
-            </div>
-
-            {mobileMenuOpen ? (
-              <div className="landing-mobile-nav-wrap">
-                <nav className="landing-mobile-nav" aria-label="Mobile">
-                  <div className="landing-mobile-actions">
-                    <AppLink
-                      href="/register"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Register
-                    </AppLink>
-                    <AppLink
-                      href="/orders"
-                      className="landing-button landing-button-secondary"
-                      onClick={closeMenu}
-                    >
-                      Orders
-                    </AppLink>
-                    <AppLink
-                      href="/orders/create"
-                      className="landing-button landing-button-primary"
-                      onClick={closeMenu}
-                    >
-                      Create order
-                    </AppLink>
-                  </div>
-                </nav>
-              </div>
-            ) : null}
-          </header>
+          <AppHeader />
 
           <main className="register-page-main">
             <section className="register-page-intro">
               <div>
-                <h1>Register a party and store the app key once.</h1>
+                <h1>Register a party with an email and password.</h1>
                 <p>
-                  The frontend uses the same lightweight auth model as the backend. Register a buyer
-                  or seller identity, save the returned app key locally, and continue into the
-                  protected order flow.
+                  Register a buyer or seller identity, store the password-backed session locally in
+                  this browser, and continue into the protected order flow.
                 </p>
               </div>
             </section>
@@ -176,7 +130,7 @@ export function RegisterPage() {
               {registration ? (
                 <div className="register-page-success">
                   <h2>Registration complete</h2>
-                  <p>{registration.message}</p>
+                  <p>Your party has been registered and this browser is now signed in.</p>
                   <div className="register-page-credentials">
                     <div>
                       <span className="register-page-label">Party ID</span>
@@ -190,22 +144,56 @@ export function RegisterPage() {
                       <span className="register-page-label">Contact email</span>
                       <strong>{registration.contactEmail}</strong>
                     </div>
-                    <div className="register-page-app-key">
-                      <span className="register-page-label">App key</span>
-                      <code>{registration.appKey}</code>
-                    </div>
                   </div>
                   <p className="register-page-note">
-                    This key is now stored locally in this browser. You are already signed in and
-                    can continue once you have copied it down.
+                    Your credential is stored locally in this browser. You are already signed in and
+                    can continue into the protected order flow.
                   </p>
                   <div className="register-page-actions">
                     <button
                       type="button"
                       className="landing-button landing-button-primary"
-                      onClick={() => navigate("/orders")}
+                      onClick={() => navigate(nextPath)}
                     >
-                      Continue to orders
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              ) : session ? (
+                <div className="register-page-success">
+                  <h2>Already signed in</h2>
+                  <p>
+                    You already have a valid local session for this browser. You can continue into the
+                    orders area or log out to register a different party.
+                  </p>
+                  <div className="register-page-credentials">
+                    <div>
+                      <span className="register-page-label">Party ID</span>
+                      <strong>{session.partyId}</strong>
+                    </div>
+                    <div>
+                      <span className="register-page-label">Party name</span>
+                      <strong>{session.partyName}</strong>
+                    </div>
+                    <div>
+                      <span className="register-page-label">Contact email</span>
+                      <strong>{session.contactEmail}</strong>
+                    </div>
+                  </div>
+                  <div className="register-page-actions">
+                    <button
+                      type="button"
+                      className="landing-button landing-button-primary"
+                      onClick={() => navigate(nextPath)}
+                    >
+                      Continue
+                    </button>
+                    <button
+                      type="button"
+                      className="landing-button landing-button-secondary landing-button-reset"
+                      onClick={() => clearStoredSession()}
+                    >
+                      Log out
                     </button>
                   </div>
                 </div>
@@ -245,6 +233,44 @@ export function RegisterPage() {
                       </p>
                     ) : null}
                   </div>
+                  <div className="register-page-field-group">
+                    <label htmlFor="password">Password</label>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      value={password}
+                      onChange={event => setPassword(event.target.value)}
+                      aria-invalid={fieldErrors.password ? "true" : "false"}
+                      aria-describedby={fieldErrors.password ? "password-error" : undefined}
+                      autoComplete="new-password"
+                    />
+                    {fieldErrors.password ? (
+                      <p id="password-error" className="register-page-field-error">
+                        {fieldErrors.password}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="register-page-field-group">
+                    <label htmlFor="confirmPassword">Confirm password</label>
+                    <input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={event => setConfirmPassword(event.target.value)}
+                      aria-invalid={fieldErrors.confirmPassword ? "true" : "false"}
+                      aria-describedby={
+                        fieldErrors.confirmPassword ? "confirmPassword-error" : undefined
+                      }
+                      autoComplete="new-password"
+                    />
+                    {fieldErrors.confirmPassword ? (
+                      <p id="confirmPassword-error" className="register-page-field-error">
+                        {fieldErrors.confirmPassword}
+                      </p>
+                    ) : null}
+                  </div>
 
                   {submitError ? <p className="register-page-submit-error">{submitError}</p> : null}
 
@@ -252,12 +278,21 @@ export function RegisterPage() {
                     <button
                       type="submit"
                       className="landing-button landing-button-primary"
-                      disabled={submitting}
+                      disabled={
+                        submitting ||
+                        !partyName.trim() ||
+                        !contactEmail.trim() ||
+                        !password.trim() ||
+                        !confirmPassword.trim()
+                      }
                     >
                       {submitting ? "Registering..." : "Register party"}
                     </button>
-                    <AppLink href="/orders/create" className="landing-button landing-button-secondary">
-                      Back to create flow
+                    <AppLink
+                      href={`/login?next=${encodeURIComponent(nextPath)}`}
+                      className="landing-button landing-button-secondary"
+                    >
+                      Log in instead
                     </AppLink>
                   </div>
                 </form>

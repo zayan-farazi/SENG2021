@@ -251,7 +251,7 @@ describe("VoiceOrderDemo", () => {
       partyId: "buyer-party",
       partyName: "Acme Books",
       contactEmail: "buyer@example.com",
-      appKey: "appkey_test_value",
+      credential: "super-secure-password",
     });
 
     render(<VoiceOrderDemo />);
@@ -272,7 +272,10 @@ describe("VoiceOrderDemo", () => {
 
     expect(JSON.parse(socket.sentMessages.at(-1) ?? "{}")).toEqual({
       type: "session.commit",
-      payload: { appKey: "appkey_test_value" },
+      payload: {
+        contactEmail: "buyer@example.com",
+        credential: "super-secure-password",
+      },
     });
 
     act(() => {
@@ -299,7 +302,7 @@ describe("VoiceOrderDemo", () => {
     expect(screen.getByDisplayValue("<Order />")).toBeInTheDocument();
   });
 
-  it("blocks commit when no stored app key exists", () => {
+  it("blocks commit when no stored credentials exist", () => {
     render(<VoiceOrderDemo />);
     const socket = openSocket();
 
@@ -316,7 +319,9 @@ describe("VoiceOrderDemo", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /confirm order/i }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/register a party before confirming an order/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /log in or register a party first/i,
+    );
     expect(socket.sentMessages.some(message => message.includes("session.commit"))).toBe(false);
   });
 

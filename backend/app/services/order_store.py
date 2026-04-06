@@ -291,15 +291,9 @@ def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
 
 
 def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]]:
-    from app.other import get_supabase_client
+    from app.other import findOrders
 
-    fields = "id,order_id,status,createdat,updatedat,lastchanged,buyer_id,seller_id,issuedate"
-    client = get_supabase_client()
-    buyer_rows = client.table("orders").select(fields).eq("buyer_id", current_party_email).execute()
-    seller_rows = (
-        client.table("orders").select(fields).eq("seller_id", current_party_email).execute()
-    )
-    return (buyer_rows.data or []) + (seller_rows.data or [])
+    return findOrders(buyeremail=current_party_email) + findOrders(selleremail=current_party_email)
 
 
 def _rollback_created_order(db_order_id: Any) -> None:

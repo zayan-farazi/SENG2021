@@ -1,9 +1,9 @@
 :root {
-  color: #182119;
+  color: #edf2f9;
   background:
-    radial-gradient(circle at top left, rgba(250, 210, 122, 0.4), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(130, 170, 121, 0.28), transparent 24%),
-    linear-gradient(160deg, #f4efe2 0%, #efe4cb 48%, #e4d5b1 100%);
+    radial-gradient(55% 68% at 18% 10%, rgba(98, 104, 168, 0.12) 0%, rgba(98, 104, 168, 0.04) 42%, rgba(98, 104, 168, 0) 70%),
+    radial-gradient(40% 58% at 82% 18%, rgba(70, 128, 174, 0.07) 0%, rgba(70, 128, 174, 0.025) 42%, rgba(70, 128, 174, 0) 72%),
+    linear-gradient(180deg, #1f2131 0%, #191c2a 28%, #141723 100%);
   font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
   line-height: 1.5;
 }
@@ -12,19 +12,27 @@
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+  background-color: #141723;
+  background:
+    radial-gradient(55% 68% at 18% 10%, rgba(98, 104, 168, 0.12) 0%, rgba(98, 104, 168, 0.04) 42%, rgba(98, 104, 168, 0) 70%),
+    radial-gradient(40% 58% at 82% 18%, rgba(70, 128, 174, 0.07) 0%, rgba(70, 128, 174, 0.025) 42%, rgba(70, 128, 174, 0) 72%),
+    linear-gradient(180deg, #1f2131 0%, #191c2a 28%, #141723 100%);
+  overscroll-behavior-y: none;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background-color: #141723;
   background:
-    linear-gradient(135deg, rgba(28, 47, 33, 0.08), transparent 60%),
-    repeating-linear-gradient(
-      -32deg,
-      rgba(24, 33, 25, 0.03),
-      rgba(24, 33, 25, 0.03) 14px,
-      transparent 14px,
-      transparent 28px
-    );
+    radial-gradient(55% 68% at 18% 10%, rgba(98, 104, 168, 0.12) 0%, rgba(98, 104, 168, 0.04) 42%, rgba(98, 104, 168, 0) 70%),
+    radial-gradient(40% 58% at 82% 18%, rgba(70, 128, 174, 0.07) 0%, rgba(70, 128, 174, 0.025) 42%, rgba(70, 128, 174, 0) 72%),
+    linear-gradient(180deg, #1f2131 0%, #191c2a 28%, #141723 100%);
+  color: #edf2f9;
+  overscroll-behavior-y: none;
 }
 
 button,
@@ -39,6 +47,9 @@ button {
 
 #root {
   width: 100%;
+  min-height: 100vh;
+  background-color: #141723;
+  background: transparent;
 }
 
 .voice-app {

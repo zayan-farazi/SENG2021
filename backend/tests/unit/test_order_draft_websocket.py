@@ -208,7 +208,7 @@ def test_commit_succeeds_when_draft_is_valid(monkeypatch):
     monkeypatch.setattr(orders, "get_current_party_email", "buyer@example.com")
 
     monkeypatch.setattr(
-        orders, "resolve_party_from_app_key", lambda raw_key: ["buyer@example.com", "Buyer Company"]
+        orders, "resolve_party_email_from_app_key", lambda raw_key: "buyer@example.com"
     )
 
     with TestClient(app) as client:
@@ -239,6 +239,51 @@ def test_commit_succeeds_when_draft_is_valid(monkeypatch):
     assert created["payload"]["order"]["orderId"].startswith("ord_")
 
 
+def test_commit_succeeds_with_v2_credentials(monkeypatch):
+    monkeypatch.setattr(
+        orders,
+        "authenticate_party_v2",
+        lambda contact_email, credential: type(
+            "PartyAuthResult",
+            (),
+            {"contactEmail": contact_email if credential else None},
+        )(),
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/order/draft/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "session.start",
+                    "payload": {
+                        "draft": {
+                            "buyerEmail": "buyer@example.com",
+                            "buyerName": "Acme Books",
+                            "sellerEmail": "seller@example.com",
+                            "sellerName": "Digital Book Supply",
+                            "lines": [{"productName": "oranges", "quantity": 4, "unitCode": "EA"}],
+                        }
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "session.commit",
+                    "payload": {
+                        "contactEmail": "buyer@example.com",
+                        "credential": "super-secure-password",
+                    },
+                }
+            )
+
+            created = websocket.receive_json()
+
+    assert created["type"] == "order.created"
+    assert created["payload"]["order"]["status"] == "DRAFT"
+
+
 def test_commit_requires_app_key_when_draft_is_valid():
     with TestClient(app) as client:
         with client.websocket_connect("/v1/order/draft/ws") as websocket:
@@ -266,7 +311,7 @@ def test_commit_requires_app_key_when_draft_is_valid():
         "type": "error",
         "payload": {
             "code": "unauthorized",
-            "message": "session.commit requires a valid appKey.",
+            "message": "session.commit requires valid credentials.",
         },
     }
 
