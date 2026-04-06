@@ -32,9 +32,12 @@ def test_openapi_exposes_bearer_auth_security_scheme():
     assert "## Authentication" in schema["info"]["description"]
     assert "## Successful Use Case" in schema["info"]["description"]
     assert "POST /v1/parties/register" in schema["info"]["description"]
+    assert "POST /v2/parties/register" in schema["info"]["description"]
+    assert "POST /v2/parties/login" in schema["info"]["description"]
     assert "POST /v1/order/create" in schema["info"]["description"]
     assert "<baseUrl>" not in schema["info"]["description"]
     assert "http://testserver/v1/parties/register" in schema["info"]["description"]
+    assert "password authentication is also available" in schema["info"]["description"]
     assert "http://testserver/v1/order/create" in schema["info"]["description"]
     assert "http://testserver/v1/orders?limit=20&offset=0" in schema["info"]["description"]
     assert "http://testserver/v1/order/<orderId>" in schema["info"]["description"]
@@ -87,6 +90,7 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/orders", "get"),
         ("/v1/order/create", "post"),
         ("/v1/order/{order_id}", "get"),
+        ("/v1/order/{order_id}/payload", "get"),
         ("/v1/order/{order_id}/ubl", "get"),
         ("/v1/order/{order_id}", "put"),
         ("/v1/order/{order_id}", "delete"),
@@ -108,6 +112,12 @@ def test_http_endpoints_include_summaries_and_tags():
         "Register a party and issue an app key"
     )
     assert schema["paths"]["/v1/parties/register"]["post"]["tags"] == ["Parties"]
+    assert schema["paths"]["/v2/parties/register"]["post"]["summary"] == (
+        "Register a party with email and password"
+    )
+    assert schema["paths"]["/v2/parties/login"]["post"]["summary"] == (
+        "Log in with contact email and password"
+    )
     assert schema["paths"]["/v1/order/create"]["post"]["summary"] == (
         "Create an order (Bearer app key required)"
     )
@@ -117,6 +127,9 @@ def test_http_endpoints_include_summaries_and_tags():
     )
     assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == (
         "Get an order (Bearer app key required)"
+    )
+    assert schema["paths"]["/v1/order/{order_id}/payload"]["get"]["summary"] == (
+        "Get order payload (Bearer app key required)"
     )
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
         "Get order UBL XML (Bearer app key required)"
@@ -139,6 +152,8 @@ def test_key_schemas_include_examples():
     assert "Issue" not in schemas
     assert "ValidationResponse" not in schemas
     assert schemas["PartyRegistrationRequest"]["example"]["partyName"] == "Acme Books"
+    assert schemas["PartyRegistrationV2Request"]["example"]["password"] == "super-secure-password"
+    assert schemas["PartyLoginV2Request"]["example"]["contactEmail"] == "orders@acmebooks.example"
     assert schemas["OrderConversionResponse"]["examples"][0]["source"] == "transcript"
     assert (
         schemas["OrderConversionResponse"]["examples"][1]["issues"][0]
@@ -211,6 +226,18 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert "warnings" not in get_order["responses"]["200"]["content"]["application/json"]["example"]
     assert "500" not in get_order["responses"]
     assert "422" not in get_order["responses"]
+
+    get_order_payload = schema["paths"]["/v1/order/{order_id}/payload"]["get"]
+    assert (
+        get_order_payload["responses"]["200"]["content"]["application/json"]["example"]["payload"][
+            "buyerEmail"
+        ]
+        == "orders@buyerco.example"
+    )
+    assert (
+        get_order_payload["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/RequestValidationErrorResponse"
+    )
 
     get_ubl = schema["paths"]["/v1/order/{order_id}/ubl"]["get"]
     xml_example = get_ubl["responses"]["200"]["content"]["application/xml"]["example"]
@@ -312,10 +339,11 @@ def test_docs_routes_use_custom_swagger_wrapper_for_ubl_xml_example():
         assert '"post /v1/order/create": 0' in response.text
         assert '"put /v1/order/{order_id}": 1' in response.text
         assert '"get /v1/order/{order_id}": 2' in response.text
-        assert '"delete /v1/order/{order_id}": 3' in response.text
-        assert '"get /v1/orders": 4' in response.text
-        assert '"get /v1/order/{order_id}/ubl": 5' in response.text
-        assert '"post /v1/orders/convert/transcript": 6' in response.text
+        assert '"get /v1/order/{order_id}/payload": 3' in response.text
+        assert '"delete /v1/order/{order_id}": 4' in response.text
+        assert '"get /v1/orders": 5' in response.text
+        assert '"get /v1/order/{order_id}/ubl": 6' in response.text
+        assert '"post /v1/orders/convert/transcript": 7' in response.text
 
 
 def test_custom_swagger_plugin_asset_is_served():

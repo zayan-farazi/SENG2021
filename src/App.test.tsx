@@ -1,6 +1,7 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setStoredSession } from "./session";
 
 vi.mock("cobe", () => ({
   default: () => ({
@@ -84,6 +85,7 @@ class MockResizeObserver {
 describe("App routing", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    window.localStorage.clear();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
@@ -120,23 +122,87 @@ describe("App routing", () => {
         name: /create and manage ubl 2\.1 orders in one place/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /create order/i })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /register/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /create order/i })).not.toBeInTheDocument();
   });
 
-  it("renders the orders placeholder page for /orders", () => {
+  it("redirects /orders to login when no session exists", async () => {
     window.history.replaceState({}, "", "/orders");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders");
+    expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
+  });
+
+  it("renders the dashboard for /orders when a session exists", async () => {
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    window.history.replaceState({}, "", "/orders");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            items: [],
+            page: { limit: 10, offset: 0, hasMore: false, total: 0 },
+          }),
+        }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", {
+          name: /orders and analytics/i,
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the registration page for /register", () => {
+    window.history.replaceState({}, "", "/register");
 
     render(<App />);
 
     expect(
       screen.getByRole("heading", {
-        name: /the order area is still being built/i,
+        name: /register a party with an email and password/i,
       }),
     ).toBeInTheDocument();
   });
 
-  it("navigates to the create route from the landing page CTA", async () => {
+  it("renders the login page for /login", () => {
+    window.history.replaceState({}, "", "/login");
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: /log back in with your email and password/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("navigates to the create route from the landing page CTA when a session exists", async () => {
     const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
 
     render(<App />);
 
@@ -160,11 +226,79 @@ describe("App routing", () => {
 
     render(<App />);
 
-    const menuButton = screen.getByRole("button", { name: /open menu/i });
+    const menuButton = screen.getByRole("button", { name: /open account menu/i });
+    expect(screen.getByText(/guest/i)).toBeInTheDocument();
     await user.click(menuButton);
 
-    expect(screen.getByRole("button", { name: /close menu/i })).toBeInTheDocument();
-    const mobileNav = screen.getByRole("navigation", { name: /mobile/i });
-    expect(within(mobileNav).getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /close account menu/i })).toBeInTheDocument();
+    const menuNav = screen.getByRole("navigation", { name: /main/i });
+    expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^register$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^log in$/i })).toBeInTheDocument();
+    expect(within(menuNav).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("navigation", { name: /main/i })).not.toBeInTheDocument();
+  });
+
+  it("closes the dropdown when clicking outside the header actions", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /open account menu/i }));
+    expect(screen.getByRole("navigation", { name: /main/i })).toBeInTheDocument();
+
+    await user.click(document.body);
+    expect(screen.queryByRole("navigation", { name: /main/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the signed-in email in the header and routes navigation through the dropdown", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    render(<App />);
+
+    const header = screen.getByRole("banner");
+    expect(within(header).getByText("buyer@example.com")).toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: /^create order$/i })).not.toBeInTheDocument();
+
+    await user.click(within(header).getByRole("button", { name: /open account menu/i }));
+    const menuNav = screen.getByRole("navigation", { name: /main/i });
+    expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^orders dashboard$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^create order$/i })).toBeInTheDocument();
+    await user.click(within(menuNav).getByRole("button", { name: /log out/i }));
+
+    expect(window.localStorage.getItem("lockedout.session")).toBeNull();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("redirects /orders/create to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/orders/create");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders%2Fcreate");
+    expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
+  });
+
+  it("redirects /orders/:orderId/edit to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/orders/ord_123/edit");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders%2Ford_123%2Fedit");
   });
 });

@@ -20,15 +20,13 @@ def test_extract_bearer_token_rejects_missing_or_malformed_headers(authorization
 
 
 def test_get_current_party_email_resolves_email_from_valid_app_key(monkeypatch):
-    # Mock findAppKeyByHash to return a record with party_id
     monkeypatch.setattr(
         app_key_auth,
         "findAppKeyByHash",
         lambda key_hash: (
             {
-                "party_id": "buyer-party",
                 "contact_email": "buyer@example.com",
-                "party_name": "Buyer Company",
+                "party_name": "Buyer Co",
             }
             if key_hash
             else None
@@ -36,6 +34,7 @@ def test_get_current_party_email_resolves_email_from_valid_app_key(monkeypatch):
     )
 
     contact_email = app_key_auth.get_current_party_email("Bearer appkey_secret")
+
     assert contact_email == "buyer@example.com"
 
 
@@ -49,16 +48,34 @@ def test_get_current_party_email_rejects_unknown_app_key(monkeypatch):
     assert exc_info.value.detail == "Unauthorized"
 
 
+def test_get_current_party_email_accepts_v2_password_with_party_email_header(monkeypatch):
+    monkeypatch.setattr(app_key_auth, "findAppKeyByHash", lambda _key_hash: None)
+    monkeypatch.setattr(
+        app_key_auth,
+        "authenticate_party_v2",
+        lambda party_email, raw_password: type(
+            "PartyAuthResult",
+            (),
+            {
+                "contactEmail": party_email if raw_password else None,
+                "partyName": "Buyer Co",
+            },
+        )(),
+    )
+
+    contact_email = app_key_auth.get_current_party_email(
+        "Bearer super-secure-password",
+        "buyer@example.com",
+    )
+
+    assert contact_email == "buyer@example.com"
+
+
 def test_get_current_party_email_rejects_missing_party_email(monkeypatch):
     monkeypatch.setattr(
         app_key_auth,
         "findAppKeyByHash",
-        lambda key_hash: {"party_id": "buyer-party"} if key_hash else None,
-    )
-    monkeypatch.setattr(
-        app_key_auth,
-        "findPartyByPartyId",
-        lambda _party_id: {"contact_email": ""},
+        lambda key_hash: {"contact_email": ""} if key_hash else None,
     )
 
     with pytest.raises(HTTPException) as exc_info:

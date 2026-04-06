@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { AppLink, navigate } from "./components/AppLink";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import {
+  draftToOrderRequest,
   emptyDelivery,
   emptyDraft,
   emptyDraftState,
@@ -13,6 +16,10 @@ import {
   type OrderDraft,
   type OrderResponse,
 } from "./voiceOrder";
+import { AppHeader } from "./components/AppHeader";
+import { deleteOrder, fetchEditableOrder, fetchOrderUblXml, updateExistingOrder } from "./orderApi";
+import "./create-order.css";
+import { useStoredSession } from "./session";
 
 type ServerEnvelope = {
   type: string;
@@ -26,22 +33,63 @@ type DiagnosticEntry = {
   text: string;
 };
 
-export function VoiceOrderDemo() {
+type VoiceOrderDemoProps = {
+  orderId?: string;
+};
+
+type EditableOrderMeta = {
+  orderId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type UpdateResultState = {
+  orderId: string;
+  status: string;
+  updatedAt: string;
+  ublXml: string | null;
+};
+
+type LockedOrderState = {
+  orderId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  ublXml: string | null;
+};
+
+type EditLoadState = "loading" | "ready" | "locked" | "error";
+
+export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
+  const isEditMode = Boolean(orderId);
   const [draftState, setDraftState] = useState<DraftState>(emptyDraftState);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [connectionMessage, setConnectionMessage] = useState("Connecting to backend draft session...");
   const [listening, setListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [lastOrder, setLastOrder] = useState<OrderResponse | null>(null);
+  const [updatedOrder, setUpdatedOrder] = useState<UpdateResultState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [editLoadState, setEditLoadState] = useState<EditLoadState>(
+    isEditMode ? "loading" : "ready",
+  );
+  const [editableOrderMeta, setEditableOrderMeta] = useState<EditableOrderMeta | null>(null);
+  const [initialDraftSnapshot, setInitialDraftSnapshot] = useState<OrderDraft | null>(null);
+  const [lockedOrder, setLockedOrder] = useState<LockedOrderState | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([
     { level: "info", text: "Awaiting websocket connection." },
   ]);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const socketSequenceRef = useRef(0);
+  const seededDraftOrderIdRef = useRef<string | null>(null);
   const websocketUrl = getBackendWebSocketUrl();
   const backendHttpUrl = getBackendHttpUrl();
+  const storedSession = useStoredSession();
 
   const pushDiagnostic = (level: DiagnosticLevel, text: string) => {
     setDiagnostics(current => [...current.slice(-7), { level, text }]);
@@ -236,6 +284,123 @@ export function VoiceOrderDemo() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isEditMode || !orderId || !storedSession) {
+      return;
+    }
+
+    let cancelled = false;
+    setEditLoadState("loading");
+    setErrorMessage(null);
+    setLockedOrder(null);
+
+    void fetchEditableOrder(storedSession, orderId)
+      .then(async response => {
+        if (cancelled) {
+          return;
+        }
+
+        const normalizedDraft = normalizeDraftState({
+          ...emptyDraftState(),
+          draft: response.payload,
+          connectionStatus: "connected",
+        }).draft;
+
+        setEditableOrderMeta({
+          orderId: response.orderId,
+          status: response.status,
+          createdAt: response.createdAt,
+          updatedAt: response.updatedAt,
+        });
+        setInitialDraftSnapshot(normalizedDraft);
+        setDraftState(current => ({ ...current, draft: normalizedDraft }));
+        setUpdatedOrder(null);
+        seededDraftOrderIdRef.current = null;
+
+        if (response.status !== "DRAFT") {
+          const ublXml = await fetchOrderUblXml(storedSession, response.orderId).catch(() => null);
+          if (cancelled) {
+            return;
+          }
+
+          setLockedOrder({
+            orderId: response.orderId,
+            status: response.status,
+            createdAt: response.createdAt,
+            updatedAt: response.updatedAt,
+            ublXml,
+          });
+          setEditLoadState("locked");
+          setConnectionMessage("This order is locked and can no longer be updated.");
+          pushDiagnostic("warning", `Loaded locked order ${response.orderId}.`);
+          return;
+        }
+
+        setEditLoadState("ready");
+        setConnectionMessage("Loaded persisted order draft.");
+        pushDiagnostic("info", `Loaded order ${response.orderId} for editing.`);
+      })
+      .catch((error: Error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setEditLoadState("error");
+        if (error.message === "order-payload:404") {
+          setErrorMessage("The order could not be found.");
+        } else if (error.message === "order-payload:403") {
+          setErrorMessage("You do not have access to this order.");
+        } else {
+          setErrorMessage("The order could not be loaded.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, orderId, storedSession]);
+
+  useEffect(() => {
+    if (
+      isEditMode ||
+      connectionStatus !== "connected" ||
+      !storedSession?.contactEmail ||
+      draftState.draft.buyerEmail ||
+      draftState.draft.sellerEmail
+    ) {
+      return;
+    }
+
+    patchDraft({
+      ...draftState.draft,
+      buyerEmail: storedSession.contactEmail,
+    });
+  }, [
+    connectionStatus,
+    draftState.draft,
+    draftState.draft.buyerEmail,
+    draftState.draft.sellerEmail,
+    isEditMode,
+    storedSession?.contactEmail,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isEditMode ||
+      !orderId ||
+      editLoadState !== "ready" ||
+      connectionStatus !== "connected" ||
+      !initialDraftSnapshot ||
+      seededDraftOrderIdRef.current === orderId
+    ) {
+      return;
+    }
+
+    patchDraft(initialDraftSnapshot);
+    seededDraftOrderIdRef.current = orderId;
+    pushDiagnostic("info", "Seeded the websocket draft with the stored order.");
+  }, [connectionStatus, editLoadState, initialDraftSnapshot, isEditMode, orderId]);
+
   const patchDraft = (nextDraft: OrderDraft) => {
     setDraftState(current => ({ ...current, draft: nextDraft }));
     sendSocketEvent("draft.patch", { draft: nextDraft });
@@ -269,7 +434,11 @@ export function VoiceOrderDemo() {
   };
 
   const startListening = () => {
-    if (!recognitionRef.current || connectionStatus !== "connected") {
+    if (
+      !recognitionRef.current ||
+      connectionStatus !== "connected" ||
+      (isEditMode && editLoadState !== "ready")
+    ) {
       pushDiagnostic("warning", "Microphone start blocked until the websocket is connected.");
       return;
     }
@@ -287,356 +456,824 @@ export function VoiceOrderDemo() {
   };
 
   const commitDraft = () => {
-    sendSocketEvent("session.commit");
+    if (!storedSession?.credential || !storedSession.contactEmail) {
+      const message = "Log in or register a party first before confirming an order.";
+      setErrorMessage(message);
+      pushDiagnostic("warning", "Commit blocked until credentials are stored locally.");
+      return;
+    }
+
+    sendSocketEvent("session.commit", {
+      contactEmail: storedSession.contactEmail,
+      credential: storedSession.credential,
+    });
+  };
+
+  const updateOrder = async () => {
+    if (!storedSession || !orderId) {
+      return;
+    }
+
+    const payload = draftToOrderRequest(draftState.draft);
+    if (!payload) {
+      const message = "Complete the required fields before updating the order.";
+      setErrorMessage(message);
+      pushDiagnostic("warning", "Update blocked until the draft is complete.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setConnectionMessage("Updating order...");
+
+    try {
+      const result = await updateExistingOrder(storedSession, orderId, payload);
+      const ublXml = await fetchOrderUblXml(storedSession, orderId).catch(() => null);
+      const normalizedDraft = normalizeDraftState({
+        ...emptyDraftState(),
+        draft: payload,
+        connectionStatus: draftState.connectionStatus,
+      }).draft;
+
+      setEditableOrderMeta(current =>
+        current
+          ? {
+              ...current,
+              status: result.status,
+              updatedAt: result.updatedAt,
+            }
+          : current,
+      );
+      setInitialDraftSnapshot(normalizedDraft);
+      setUpdatedOrder({
+        orderId: result.orderId,
+        status: result.status,
+        updatedAt: result.updatedAt,
+        ublXml,
+      });
+      setConnectionMessage("Order updated successfully.");
+      pushDiagnostic("info", `Updated order ${result.orderId}.`);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.startsWith("order-update:409:")
+          ? error.message.slice("order-update:409:".length) || "Order can no longer be updated."
+          : error instanceof Error && error.message === "order-update:404:"
+            ? "The order could not be found."
+            : "Unable to update the order.";
+      setErrorMessage(message);
+      pushDiagnostic("error", `Order update failed: ${message}`);
+    }
   };
 
   const resetDraft = () => {
+    if (isEditMode && initialDraftSnapshot) {
+      setUpdatedOrder(null);
+      setErrorMessage(null);
+      setDraftState(current => ({
+        ...current,
+        draft: initialDraftSnapshot,
+        transcriptLog: [],
+        warnings: [],
+        unresolved: [],
+        currentPartial: "",
+      }));
+      sendSocketEvent("session.reset");
+      sendSocketEvent("draft.patch", { draft: initialDraftSnapshot });
+      pushDiagnostic("info", "Reset the draft back to the stored order snapshot.");
+      return;
+    }
+
     setLastOrder(null);
     sendSocketEvent("session.reset");
   };
 
+  const deleteCurrentOrder = async () => {
+    if (!storedSession || !orderId) {
+      return;
+    }
+
+    setDeletePending(true);
+    setDeleteError(null);
+
+    try {
+      await deleteOrder(storedSession, orderId);
+      pushDiagnostic("info", `Deleted order ${orderId}.`);
+      navigate(`/orders?deleted=${encodeURIComponent(orderId)}`);
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        setDeleteError("The order could not be deleted.");
+        setDeletePending(false);
+        return;
+      }
+
+      if (error.message.startsWith("order-delete:404:")) {
+        pushDiagnostic("warning", `Delete reported missing order ${orderId}.`);
+        navigate("/orders");
+        return;
+      }
+
+      if (
+        error.message.startsWith("order-delete:401:") ||
+        error.message.startsWith("order-delete:403:")
+      ) {
+        setDeleteError("You do not have permission to delete this order.");
+      } else {
+        setDeleteError("The order could not be deleted.");
+      }
+    } finally {
+      setDeletePending(false);
+    }
+  };
+
+  const requestPayload = draftToOrderRequest(draftState.draft);
+  const pageTitle = isEditMode
+    ? "Edit the order. Keep the live draft in sync."
+    : "Speak the order. Watch the draft settle in real time.";
+  const pageDescription = isEditMode
+    ? "Use live transcript input or manual edits to refine the existing order, then save the updated payload back to the backend."
+    : "Use browser speech recognition or manual edits to build the order draft, keep it in sync with the websocket session, and confirm the final order once the required fields are complete.";
+  const primaryActionLabel = isEditMode ? "Update order" : "Confirm order";
+  const resetActionLabel = isEditMode ? "Reset changes" : "Reset draft";
+  const resultTitle = isEditMode ? "Updated order" : "Created order";
+  const resultEmptyCopy = isEditMode
+    ? "Save the draft to update the order."
+    : "Confirm the draft to create an order.";
+  const introStatusNote = editableOrderMeta
+    ? `Order ${editableOrderMeta.orderId} · ${editableOrderMeta.status}`
+    : null;
+
   return (
-    <main className="voice-app">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">LockedOut voice order draft</p>
-          <h1>Speak the order. Watch the draft settle in real time.</h1>
-          <p className="lede">
-            Browser transcription streams finalized phrases to the backend websocket, which keeps the
-            draft authoritative until you confirm and create the order.
-          </p>
-        </div>
-        <div className="status-card">
-          <span className={`status-pill status-${connectionStatus}`}>{connectionStatus}</span>
-          <p>{connectionMessage}</p>
-          <p className="backend-label">Backend: {backendHttpUrl}</p>
-        </div>
-      </section>
+    <div className="landing-root create-page-root">
+      <div className="landing-container">
+        <section className="landing-stage create-page-stage">
+          <AppHeader />
 
-      <section className="control-bar">
-        <button
-          type="button"
-          className="primary-button"
-          onClick={startListening}
-          disabled={!speechSupported || listening || connectionStatus !== "connected"}
-        >
-          Start microphone
-        </button>
-        <button type="button" className="secondary-button" onClick={stopListening} disabled={!listening}>
-          Stop microphone
-        </button>
-        <button
-          type="button"
-          className="primary-button"
-          onClick={commitDraft}
-          disabled={!isDraftReadyForCommit(draftState.draft) || connectionStatus !== "connected"}
-        >
-          Confirm order
-        </button>
-        <button type="button" className="secondary-button" onClick={resetDraft}>
-          Reset draft
-        </button>
-      </section>
-
-      {!speechSupported ? (
-        <section className="banner warning-banner" role="status">
-          This browser does not expose the Web Speech API. You can still edit the draft manually, but
-          microphone controls are disabled.
-        </section>
-      ) : null}
-
-      {errorMessage ? (
-        <section className="banner error-banner" role="alert">
-          {errorMessage}
-        </section>
-      ) : null}
-
-      <section className="panel-grid">
-        <article className="panel transcript-panel">
-          <header className="panel-header">
-            <h2>Live transcript</h2>
-            <span className={listening ? "recording-live" : "recording-idle"}>
-              {listening ? "Listening" : "Idle"}
-            </span>
-          </header>
-          <div className="transcript-current">
-            <p className="subtle-label">Current partial</p>
-            <p>{draftState.currentPartial || "Waiting for speech…"}</p>
-          </div>
-          <div className="transcript-history">
-            <p className="subtle-label">Finalized transcript history</p>
-            {draftState.transcriptLog.length === 0 ? (
-              <p className="empty-copy">Finalized phrases will appear here.</p>
-            ) : (
-              <ul>
-                {draftState.transcriptLog.map((entry, index) => (
-                  <li key={`${entry.kind}-${index}`}>{entry.text}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
-
-        <article className="panel insights-panel">
-          <header className="panel-header">
-            <h2>Diagnostics</h2>
-            <span className="subtle-label">Websocket and speech runtime events</span>
-          </header>
-          <div className="diagnostics-list" aria-label="Diagnostics log">
-            {diagnostics.map((entry, index) => (
-              <p key={`${entry.level}-${index}`} className={`diagnostic-entry diagnostic-${entry.level}`}>
-                {entry.text}
-              </p>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel draft-panel">
-          <header className="panel-header">
-            <h2>Draft form</h2>
-            <span className="subtle-label">Manual edits sync through the websocket too</span>
-          </header>
-          <div className="form-grid">
-            <label>
-              Buyer name
-              <input
-                aria-label="Buyer name"
-                value={draftState.draft.buyerName ?? ""}
-                onChange={event => updateDraftField("buyerName", nullableText(event.target.value))}
-              />
-            </label>
-            <label>
-              Seller name
-              <input
-                aria-label="Seller name"
-                value={draftState.draft.sellerName ?? ""}
-                onChange={event => updateDraftField("sellerName", nullableText(event.target.value))}
-              />
-            </label>
-            <label>
-              Currency
-              <input
-                aria-label="Currency"
-                value={draftState.draft.currency ?? ""}
-                maxLength={3}
-                onChange={event => updateDraftField("currency", nullableCode(event.target.value))}
-              />
-            </label>
-            <label>
-              Issue date
-              <input
-                aria-label="Issue date"
-                type="date"
-                value={draftState.draft.issueDate ?? ""}
-                onChange={event => updateDraftField("issueDate", nullableText(event.target.value))}
-              />
-            </label>
-            <label className="full-width">
-              Notes
-              <textarea
-                aria-label="Notes"
-                value={draftState.draft.notes ?? ""}
-                onChange={event => updateDraftField("notes", nullableText(event.target.value))}
-              />
-            </label>
-          </div>
-
-          <div className="subsection">
-            <div className="subsection-header">
-              <h3>Delivery</h3>
-            </div>
-            <div className="form-grid">
-              <label>
-                Street
-                <input
-                  aria-label="Delivery street"
-                  value={draftState.draft.delivery?.street ?? ""}
-                  onChange={event => updateDeliveryField("street", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                City
-                <input
-                  aria-label="Delivery city"
-                  value={draftState.draft.delivery?.city ?? ""}
-                  onChange={event => updateDeliveryField("city", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                State
-                <input
-                  aria-label="Delivery state"
-                  value={draftState.draft.delivery?.state ?? ""}
-                  onChange={event => updateDeliveryField("state", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Postcode
-                <input
-                  aria-label="Delivery postcode"
-                  value={draftState.draft.delivery?.postcode ?? ""}
-                  onChange={event => updateDeliveryField("postcode", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Country
-                <input
-                  aria-label="Delivery country"
-                  value={draftState.draft.delivery?.country ?? ""}
-                  onChange={event => updateDeliveryField("country", nullableText(event.target.value))}
-                />
-              </label>
-              <label>
-                Requested date
-                <input
-                  aria-label="Requested delivery date"
-                  type="date"
-                  value={draftState.draft.delivery?.requestedDate ?? ""}
-                  onChange={event => updateDeliveryField("requestedDate", nullableText(event.target.value))}
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="subsection">
-            <div className="subsection-header">
-              <h3>Line items</h3>
-              <button type="button" className="secondary-button compact-button" onClick={addLineItem}>
-                Add line item
-              </button>
-            </div>
-            {draftState.draft.lines.length === 0 ? (
-              <p className="empty-copy">Voice commands like “I want 2 oranges” will populate this list.</p>
-            ) : (
-              <div className="line-items">
-                {draftState.draft.lines.map((line, index) => (
-                  <div className="line-item-card" key={`line-${index}`}>
-                    <label>
-                      Product
-                      <input
-                        aria-label={`Line ${index + 1} product`}
-                        value={line.productName ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { productName: nullableText(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Quantity
-                      <input
-                        aria-label={`Line ${index + 1} quantity`}
-                        type="number"
-                        min="1"
-                        value={line.quantity ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { quantity: nullableInteger(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Unit code
-                      <input
-                        aria-label={`Line ${index + 1} unit code`}
-                        value={line.unitCode ?? ""}
-                        onChange={event => updateLineItem(index, { unitCode: nullableCode(event.target.value) })}
-                      />
-                    </label>
-                    <label>
-                      Unit price
-                      <input
-                        aria-label={`Line ${index + 1} unit price`}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice ?? ""}
-                        onChange={event =>
-                          updateLineItem(index, { unitPrice: nullableDecimal(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button compact-button"
-                      onClick={() => removeLineItem(index)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+          <main className="create-page-main">
+            <section className="create-page-intro" aria-labelledby="create-page-title">
+              <div className="create-page-intro-copy">
+                <h1 id="create-page-title">{pageTitle}</h1>
+                <p>{pageDescription}</p>
               </div>
+              <div className="create-page-runtime">
+                <div className="create-page-runtime-state">
+                  <span className={`create-page-state-dot create-page-state-${connectionStatus}`} />
+                  <span className="create-page-runtime-label">{connectionStatus}</span>
+                </div>
+                <p>{connectionMessage}</p>
+                <p className="create-page-backend">Backend: {backendHttpUrl}</p>
+                {introStatusNote ? <p className="create-page-session-note">{introStatusNote}</p> : null}
+                {storedSession ? (
+                  <p className="create-page-session-note">
+                    Registered as {storedSession.partyName} ({storedSession.contactEmail})
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            {(!isEditMode || editLoadState === "ready") && (
+              <section className="create-page-action-bar" aria-label="Draft controls">
+              <button
+                type="button"
+                className="landing-button landing-button-primary"
+                onClick={startListening}
+                disabled={!speechSupported || listening || connectionStatus !== "connected"}
+              >
+                Start microphone
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-secondary"
+                onClick={stopListening}
+                disabled={!listening}
+              >
+                Stop microphone
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-primary"
+                onClick={isEditMode ? () => void updateOrder() : commitDraft}
+                disabled={
+                  isEditMode
+                    ? editLoadState !== "ready" || requestPayload === null
+                    : !isDraftReadyForCommit(draftState.draft) || connectionStatus !== "connected"
+                }
+              >
+                {primaryActionLabel}
+              </button>
+              <button
+                type="button"
+                className="landing-button landing-button-secondary"
+                onClick={resetDraft}
+              >
+                {resetActionLabel}
+              </button>
+              {isEditMode ? (
+                <button
+                  type="button"
+                  className="landing-button landing-button-danger"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteDialogOpen(true);
+                  }}
+                >
+                  Delete order
+                </button>
+              ) : null}
+            </section>
             )}
-          </div>
-        </article>
 
-        <article className="panel insights-panel">
-          <header className="panel-header">
-            <h2>Warnings and unresolved</h2>
-            <span className="subtle-label">Unsafe or unsupported phrases land here</span>
-          </header>
-          <div className="annotation-columns">
-            <section>
-              <h3>Warnings</h3>
-              {draftState.warnings.length === 0 ? (
-                <p className="empty-copy">No warnings yet.</p>
-              ) : (
-                <ul>
-                  {draftState.warnings.map((warning, index) => (
-                    <li key={`warning-${index}`}>
-                      <strong>{warning.message}</strong>
-                      <span>{warning.transcript}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section>
-              <h3>Unresolved phrases</h3>
-              {draftState.unresolved.length === 0 ? (
-                <p className="empty-copy">The parser has understood everything so far.</p>
-              ) : (
-                <ul>
-                  {draftState.unresolved.map((item, index) => (
-                    <li key={`unresolved-${index}`}>
-                      <strong>{item.message}</strong>
-                      <span>{item.transcript}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        </article>
+            {!speechSupported ? (
+              <section className="create-page-banner create-page-banner-warning" role="status">
+                This browser does not expose the Web Speech API. You can still edit the draft
+                manually, but microphone controls are disabled.
+              </section>
+            ) : null}
 
-        <article className="panel result-panel">
-          <header className="panel-header">
-            <h2>Created order</h2>
-            <span className="subtle-label">The existing REST order creation response lands here</span>
-          </header>
-          {lastOrder ? (
-            <div className="result-grid">
-              <p>
-                <span className="subtle-label">Order ID</span>
-                {lastOrder.orderId}
-              </p>
-              <p>
-                <span className="subtle-label">Status</span>
-                {lastOrder.status}
-              </p>
-              <p>
-                <span className="subtle-label">Created</span>
-                {lastOrder.createdAt}
-              </p>
-              <label className="full-width">
-                UBL XML
-                <textarea readOnly value={lastOrder.ublXml} />
-              </label>
-            </div>
-          ) : (
-            <p className="empty-copy">Confirm the draft to create an order.</p>
-          )}
-        </article>
-      </section>
-    </main>
+            {errorMessage ? (
+              <section className="create-page-banner create-page-banner-error" role="alert">
+                {errorMessage}
+              </section>
+            ) : null}
+
+            {isEditMode && editLoadState === "loading" ? (
+              <section className="create-page-panel create-page-state-panel">
+                <h2>Loading order</h2>
+                <p className="create-page-empty-copy">Fetching the stored order payload.</p>
+              </section>
+            ) : null}
+
+            {isEditMode && editLoadState === "error" ? (
+              <section className="create-page-panel create-page-state-panel" role="alert">
+                <h2>Order unavailable</h2>
+                <p className="create-page-empty-copy">
+                  {errorMessage ?? "The order could not be loaded."}
+                </p>
+                <AppLink href="/orders" className="landing-button landing-button-secondary">
+                  Back to dashboard
+                </AppLink>
+              </section>
+            ) : null}
+
+            {isEditMode && editLoadState === "locked" ? (
+              <section className="create-page-locked-view">
+                <article className="create-page-panel create-page-state-panel">
+                  <h2>Order locked</h2>
+                  <p className="create-page-empty-copy">
+                    This order can no longer be updated because it is not in DRAFT status.
+                  </p>
+                  <AppLink href="/orders" className="landing-button landing-button-secondary">
+                    Back to dashboard
+                  </AppLink>
+                </article>
+
+                <section className="create-page-workspace create-page-workspace-readonly">
+                  <div className="create-page-column">
+                    <article className="create-page-panel">
+                      <header className="create-page-panel-header">
+                        <div>
+                          <h2>Order details</h2>
+                          <p>Read-only order fields for the locked order.</p>
+                        </div>
+                      </header>
+
+                      <div className="create-page-subsection create-page-subsection-compact">
+                        <div className="create-page-subsection-header">
+                          <h3>Participants</h3>
+                        </div>
+                        <div className="create-page-form-grid">
+                          <label>
+                            Buyer email
+                            <input readOnly value={draftState.draft.buyerEmail ?? ""} />
+                          </label>
+                          <label>
+                            Seller email
+                            <input readOnly value={draftState.draft.sellerEmail ?? ""} />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="create-page-form-grid">
+                        <label>
+                          Buyer name
+                          <input readOnly value={draftState.draft.buyerName ?? ""} />
+                        </label>
+                        <label>
+                          Seller name
+                          <input readOnly value={draftState.draft.sellerName ?? ""} />
+                        </label>
+                        <label>
+                          Currency
+                          <input readOnly value={draftState.draft.currency ?? ""} />
+                        </label>
+                        <label>
+                          Issue date
+                          <input readOnly value={draftState.draft.issueDate ?? ""} />
+                        </label>
+                        <label className="create-page-full-width">
+                          Notes
+                          <textarea readOnly value={draftState.draft.notes ?? ""} />
+                        </label>
+                      </div>
+
+                      <section className="create-page-subsection">
+                        <div className="create-page-subsection-header">
+                          <h3>Delivery</h3>
+                        </div>
+                        <div className="create-page-form-grid">
+                          <label>
+                            Street
+                            <input readOnly value={draftState.draft.delivery?.street ?? ""} />
+                          </label>
+                          <label>
+                            City
+                            <input readOnly value={draftState.draft.delivery?.city ?? ""} />
+                          </label>
+                          <label>
+                            State
+                            <input readOnly value={draftState.draft.delivery?.state ?? ""} />
+                          </label>
+                          <label>
+                            Postcode
+                            <input readOnly value={draftState.draft.delivery?.postcode ?? ""} />
+                          </label>
+                          <label>
+                            Country
+                            <input readOnly value={draftState.draft.delivery?.country ?? ""} />
+                          </label>
+                          <label>
+                            Requested date
+                            <input readOnly value={draftState.draft.delivery?.requestedDate ?? ""} />
+                          </label>
+                        </div>
+                      </section>
+
+                      <section className="create-page-subsection">
+                        <div className="create-page-subsection-header">
+                          <h3>Line items</h3>
+                        </div>
+                        {draftState.draft.lines.length === 0 ? (
+                          <p className="create-page-empty-copy">No line items.</p>
+                        ) : (
+                          <div className="create-page-line-items">
+                            {draftState.draft.lines.map((line, index) => (
+                              <div className="create-page-line-item-card" key={`locked-line-${index}`}>
+                                <label>
+                                  Product
+                                  <input readOnly value={line.productName ?? ""} />
+                                </label>
+                                <label>
+                                  Quantity
+                                  <input readOnly value={line.quantity ?? ""} />
+                                </label>
+                                <label>
+                                  Unit code
+                                  <input readOnly value={line.unitCode ?? ""} />
+                                </label>
+                                <label>
+                                  Unit price
+                                  <input readOnly value={line.unitPrice ?? ""} />
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </article>
+                  </div>
+
+                  <div className="create-page-column">
+                    <article className="create-page-panel">
+                      <header className="create-page-panel-header">
+                        <div>
+                          <h2>Order XML</h2>
+                          <p>Stored UBL XML for this locked order.</p>
+                        </div>
+                      </header>
+                      <div className="create-page-result-grid">
+                        <p>
+                          <span className="create-page-label">Order ID</span>
+                          {lockedOrder?.orderId ?? editableOrderMeta?.orderId ?? orderId}
+                        </p>
+                        <p>
+                          <span className="create-page-label">Status</span>
+                          {lockedOrder?.status ?? editableOrderMeta?.status ?? "Unknown"}
+                        </p>
+                        <p>
+                          <span className="create-page-label">Updated</span>
+                          {lockedOrder?.updatedAt ?? editableOrderMeta?.updatedAt ?? "Unknown"}
+                        </p>
+                        <p>
+                          <span className="create-page-label">Created</span>
+                          {lockedOrder?.createdAt ?? editableOrderMeta?.createdAt ?? "Unknown"}
+                        </p>
+                        <label className="create-page-full-width">
+                          UBL XML
+                          <textarea readOnly value={lockedOrder?.ublXml ?? ""} />
+                        </label>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </section>
+            ) : null}
+
+            {(!isEditMode || editLoadState === "ready") && (
+              <>
+                <section className="create-page-workspace">
+              <div className="create-page-column">
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Live transcript</h2>
+                      <p>Speech updates appear here before they settle into the draft.</p>
+                    </div>
+                    <span className={listening ? "create-page-recording-live" : "create-page-recording-idle"}>
+                      {listening ? "Listening" : "Idle"}
+                    </span>
+                  </header>
+                  <div className="create-page-panel-stack">
+                    <section className="create-page-block">
+                      <p className="create-page-label">Current partial</p>
+                      <p className="create-page-current-text">
+                        {draftState.currentPartial || "Waiting for speech..."}
+                      </p>
+                    </section>
+                    <section className="create-page-block">
+                      <p className="create-page-label">Finalized transcript history</p>
+                      {draftState.transcriptLog.length === 0 ? (
+                        <p className="create-page-empty-copy">Finalized phrases will appear here.</p>
+                      ) : (
+                        <ul className="create-page-list">
+                          {draftState.transcriptLog.map((entry, index) => (
+                            <li key={`${entry.kind}-${index}`}>{entry.text}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  </div>
+                </article>
+
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Diagnostics</h2>
+                      <p>Websocket, browser speech, and session events appear in sequence.</p>
+                    </div>
+                  </header>
+                  <div className="create-page-diagnostics-list" aria-label="Diagnostics log">
+                    {diagnostics.map((entry, index) => (
+                      <p
+                        key={`${entry.level}-${index}`}
+                        className={`create-page-diagnostic create-page-diagnostic-${entry.level}`}
+                      >
+                        {entry.text}
+                      </p>
+                    ))}
+                  </div>
+                </article>
+              </div>
+
+              <div className="create-page-column">
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>Draft form</h2>
+                      <p>Manual edits still sync through the websocket session while you type.</p>
+                    </div>
+                  </header>
+                  {isEditMode ? (
+                    <section className="create-page-subsection create-page-subsection-compact">
+                      <div className="create-page-subsection-header">
+                        <h3>Participants</h3>
+                      </div>
+                      <div className="create-page-form-grid">
+                        <label>
+                          Buyer email
+                          <input readOnly value={draftState.draft.buyerEmail ?? ""} />
+                        </label>
+                        <label>
+                          Seller email
+                          <input readOnly value={draftState.draft.sellerEmail ?? ""} />
+                        </label>
+                      </div>
+                    </section>
+                  ) : null}
+                  <div className="create-page-form-grid">
+                    <label>
+                      Buyer name
+                      <input
+                        aria-label="Buyer name"
+                        value={draftState.draft.buyerName ?? ""}
+                        onChange={event => updateDraftField("buyerName", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Seller name
+                      <input
+                        aria-label="Seller name"
+                        value={draftState.draft.sellerName ?? ""}
+                        onChange={event => updateDraftField("sellerName", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Currency
+                      <input
+                        aria-label="Currency"
+                        value={draftState.draft.currency ?? ""}
+                        maxLength={3}
+                        onChange={event => updateDraftField("currency", nullableCode(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Issue date
+                      <input
+                        aria-label="Issue date"
+                        type="date"
+                        value={draftState.draft.issueDate ?? ""}
+                        onChange={event => updateDraftField("issueDate", nullableText(event.target.value))}
+                      />
+                    </label>
+                    <label className="create-page-full-width">
+                      Notes
+                      <textarea
+                        aria-label="Notes"
+                        value={draftState.draft.notes ?? ""}
+                        onChange={event => updateDraftField("notes", nullableText(event.target.value))}
+                      />
+                    </label>
+                  </div>
+
+                  <section className="create-page-subsection">
+                    <div className="create-page-subsection-header">
+                      <h3>Delivery</h3>
+                    </div>
+                    <div className="create-page-form-grid">
+                      <label>
+                        Street
+                        <input
+                          aria-label="Delivery street"
+                          value={draftState.draft.delivery?.street ?? ""}
+                          onChange={event => updateDeliveryField("street", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        City
+                        <input
+                          aria-label="Delivery city"
+                          value={draftState.draft.delivery?.city ?? ""}
+                          onChange={event => updateDeliveryField("city", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        State
+                        <input
+                          aria-label="Delivery state"
+                          value={draftState.draft.delivery?.state ?? ""}
+                          onChange={event => updateDeliveryField("state", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Postcode
+                        <input
+                          aria-label="Delivery postcode"
+                          value={draftState.draft.delivery?.postcode ?? ""}
+                          onChange={event => updateDeliveryField("postcode", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Country
+                        <input
+                          aria-label="Delivery country"
+                          value={draftState.draft.delivery?.country ?? ""}
+                          onChange={event => updateDeliveryField("country", nullableText(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Requested date
+                        <input
+                          aria-label="Requested delivery date"
+                          type="date"
+                          value={draftState.draft.delivery?.requestedDate ?? ""}
+                          onChange={event =>
+                            updateDeliveryField("requestedDate", nullableText(event.target.value))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="create-page-subsection">
+                    <div className="create-page-subsection-header">
+                      <h3>Line items</h3>
+                      <button
+                        type="button"
+                        className="landing-button landing-button-secondary create-page-compact-button"
+                        onClick={addLineItem}
+                      >
+                        Add line item
+                      </button>
+                    </div>
+                    {draftState.draft.lines.length === 0 ? (
+                      <p className="create-page-empty-copy">
+                        Voice commands like “I want 2 oranges” will populate this list.
+                      </p>
+                    ) : (
+                      <div className="create-page-line-items">
+                        {draftState.draft.lines.map((line, index) => (
+                          <div className="create-page-line-item-card" key={`line-${index}`}>
+                            <label>
+                              Product
+                              <input
+                                aria-label={`Line ${index + 1} product`}
+                                value={line.productName ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    productName: nullableText(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Quantity
+                              <input
+                                aria-label={`Line ${index + 1} quantity`}
+                                type="number"
+                                min="1"
+                                value={line.quantity ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    quantity: nullableInteger(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Unit code
+                              <input
+                                aria-label={`Line ${index + 1} unit code`}
+                                value={line.unitCode ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    unitCode: nullableCode(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Unit price
+                              <input
+                                aria-label={`Line ${index + 1} unit price`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={line.unitPrice ?? ""}
+                                onChange={event =>
+                                  updateLineItem(index, {
+                                    unitPrice: nullableDecimal(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="landing-button landing-button-secondary create-page-compact-button"
+                              onClick={() => removeLineItem(index)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </article>
+
+                <article className="create-page-panel">
+                  <header className="create-page-panel-header">
+                    <div>
+                      <h2>{resultTitle}</h2>
+                      <p>
+                        {isEditMode
+                          ? "The saved update response and refreshed UBL XML land here."
+                          : "The REST order creation response and persisted UBL XML land here."}
+                      </p>
+                    </div>
+                  </header>
+                  {isEditMode && updatedOrder ? (
+                    <div className="create-page-result-grid">
+                      <p>
+                        <span className="create-page-label">Order ID</span>
+                        {updatedOrder.orderId}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Status</span>
+                        {updatedOrder.status}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Updated</span>
+                        {updatedOrder.updatedAt}
+                      </p>
+                      {updatedOrder.ublXml ? (
+                        <label className="create-page-full-width">
+                          UBL XML
+                          <textarea readOnly value={updatedOrder.ublXml} />
+                        </label>
+                      ) : null}
+                    </div>
+                  ) : !isEditMode && lastOrder ? (
+                    <div className="create-page-result-grid">
+                      <p>
+                        <span className="create-page-label">Order ID</span>
+                        {lastOrder.orderId}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Status</span>
+                        {lastOrder.status}
+                      </p>
+                      <p>
+                        <span className="create-page-label">Created</span>
+                        {lastOrder.createdAt}
+                      </p>
+                      <label className="create-page-full-width">
+                        UBL XML
+                        <textarea readOnly value={lastOrder.ublXml} />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="create-page-empty-copy">{resultEmptyCopy}</p>
+                  )}
+                </article>
+              </div>
+            </section>
+
+            <section className="create-page-annotations-panel">
+              <article className="create-page-panel">
+                <header className="create-page-panel-header">
+                  <div>
+                    <h2>Warnings and unresolved</h2>
+                    <p>Unsafe, ambiguous, or unsupported phrases are grouped here.</p>
+                  </div>
+                </header>
+                <div className="create-page-annotation-columns">
+                  <section className="create-page-block">
+                    <h3>Warnings</h3>
+                    {draftState.warnings.length === 0 ? (
+                      <p className="create-page-empty-copy">No warnings yet.</p>
+                    ) : (
+                      <ul className="create-page-list">
+                        {draftState.warnings.map((warning, index) => (
+                          <li key={`warning-${index}`}>
+                            <strong>{warning.message}</strong>
+                            <span>{warning.transcript}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section className="create-page-block">
+                    <h3>Unresolved phrases</h3>
+                    {draftState.unresolved.length === 0 ? (
+                      <p className="create-page-empty-copy">
+                        The parser has understood everything so far.
+                      </p>
+                    ) : (
+                      <ul className="create-page-list">
+                        {draftState.unresolved.map((item, index) => (
+                          <li key={`unresolved-${index}`}>
+                            <strong>{item.message}</strong>
+                            <span>{item.transcript}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </div>
+              </article>
+            </section>
+              </>
+            )}
+          </main>
+        </section>
+      </div>
+
+      <ConfirmDialog
+        open={isEditMode && editLoadState === "ready" && deleteDialogOpen}
+        title="Delete order?"
+        description="This will permanently remove the draft order."
+        confirmLabel="Delete order"
+        loading={deletePending}
+        errorMessage={deleteError}
+        onClose={() => {
+          if (deletePending) {
+            return;
+          }
+          setDeleteError(null);
+          setDeleteDialogOpen(false);
+        }}
+        onConfirm={() => void deleteCurrentOrder()}
+      >
+        Order ID: {editableOrderMeta?.orderId ?? orderId ?? ""}
+      </ConfirmDialog>
+    </div>
   );
 }
 

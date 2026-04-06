@@ -16,10 +16,33 @@ PARTY_REGISTRATION_REQUEST_EXAMPLE = {
 }
 
 PARTY_REGISTRATION_RESPONSE_EXAMPLE = {
-    "partyId": "acme-books",
+    "partyId": "orders@acmebooks.example",
     "partyName": "Acme Books",
     "appKey": "appkey_live_123example",
     "message": "Store this key securely. It will not be shown again.",
+}
+
+PARTY_REGISTRATION_V2_REQUEST_EXAMPLE = {
+    "partyName": "Acme Books",
+    "contactEmail": "orders@acmebooks.example",
+    "password": "super-secure-password",
+}
+
+PARTY_AUTH_V2_RESPONSE_EXAMPLE = {
+    "partyId": "orders@acmebooks.example",
+    "partyName": "Acme Books",
+    "contactEmail": "orders@acmebooks.example",
+}
+
+PARTY_LOGIN_V2_REQUEST_EXAMPLE = {
+    "contactEmail": "orders@acmebooks.example",
+    "password": "super-secure-password",
+}
+
+PARTY_USER_FETCH_RESPONSE_EXAMPLE = {
+    "partyId": "orders@acmebooks.example",
+    "partyName": "Acme Books",
+    "contactEmail": "orders@acmebooks.example",
 }
 
 ORDER_REQUEST_EXAMPLE = {
@@ -136,6 +159,14 @@ ORDER_FETCH_RESPONSE_EXAMPLE = {
     "status": "DRAFT",
     "createdAt": "2026-03-14T10:30:00Z",
     "updatedAt": "2026-03-14T11:00:00Z",
+}
+
+ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE = {
+    "orderId": "ord_abc123def456",
+    "status": "DRAFT",
+    "createdAt": "2026-03-14T10:30:00Z",
+    "updatedAt": "2026-03-14T11:00:00Z",
+    "payload": ORDER_REQUEST_EXAMPLE,
 }
 
 ORDER_UPDATE_RESPONSE_EXAMPLE = {
@@ -338,6 +369,37 @@ PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES = {
     },
 }
 
+PARTY_V2_AUTH_VALIDATION_ERROR_EXAMPLES = {
+    "missingPassword": {
+        "summary": "Missing password",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "password",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "shortPassword": {
+        "summary": "Password is too short",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "body",
+                    "path": "password",
+                    "message": "String should have at least 8 characters",
+                    "code": "string_too_short",
+                }
+            ],
+        },
+    },
+}
+
 ORDER_REQUEST_VALIDATION_ERROR_EXAMPLES = {
     "missingBuyerName": {
         "summary": "Missing buyer name",
@@ -394,6 +456,17 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/parties/register", "post"): {
         "description": "The registration payload is missing required party details or uses an invalid contact email.",
         "examples": PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v2/parties/register", "post"): {
+        "description": "The v2 registration payload is missing required party details or uses an invalid contact email/password.",
+        "examples": {
+            **PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES,
+            **PARTY_V2_AUTH_VALIDATION_ERROR_EXAMPLES,
+        },
+    },
+    ("/v2/parties/login", "post"): {
+        "description": "The v2 login payload is missing the required contact email or password.",
+        "examples": PARTY_V2_AUTH_VALIDATION_ERROR_EXAMPLES,
     },
     ("/v1/order/create", "post"): {
         "description": "The order create payload is missing required fields or contains invalid order values.",
@@ -961,6 +1034,69 @@ class PartyRegistrationResponse(BaseModel):
     message: str
 
 
+class PartyRegistrationV2Request(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PARTY_REGISTRATION_V2_REQUEST_EXAMPLE,
+        }
+    )
+
+    partyName: str = Field(..., min_length=1)
+    contactEmail: EmailStr = Field(
+        ...,
+        description="Must be a valid email address, for example orders@acmebooks.example.",
+    )
+    password: str = Field(..., min_length=8, description="At least 8 characters.")
+
+    @field_validator("contactEmail")
+    @classmethod
+    def normalize_contact_email(cls, value: EmailStr) -> str:
+        return str(value).strip().lower()
+
+
+class PartyLoginV2Request(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PARTY_LOGIN_V2_REQUEST_EXAMPLE,
+        }
+    )
+
+    contactEmail: EmailStr = Field(
+        ...,
+        description="Must be a valid email address, for example orders@acmebooks.example.",
+    )
+    password: str = Field(..., min_length=8, description="At least 8 characters.")
+
+    @field_validator("contactEmail")
+    @classmethod
+    def normalize_contact_email(cls, value: EmailStr) -> str:
+        return str(value).strip().lower()
+
+
+class PartyAuthV2Response(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PARTY_AUTH_V2_RESPONSE_EXAMPLE,
+        }
+    )
+
+    partyId: str
+    partyName: str
+    contactEmail: str
+
+
+class PartyUserFetchResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PARTY_USER_FETCH_RESPONSE_EXAMPLE,
+        }
+    )
+
+    partyId: str
+    partyName: str
+    contactEmail: str
+
+
 class TranscriptConversionRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -1011,6 +1147,20 @@ class OrderFetchResponse(BaseModel):
     status: str
     createdAt: str
     updatedAt: str
+
+
+class OrderPayloadFetchResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": ORDER_PAYLOAD_FETCH_RESPONSE_EXAMPLE,
+        }
+    )
+
+    orderId: str
+    status: str
+    createdAt: str
+    updatedAt: str
+    payload: OrderRequest
 
 
 class OrderListItem(BaseModel):

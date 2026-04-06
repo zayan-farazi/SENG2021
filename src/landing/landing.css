@@ -50,7 +50,8 @@
 }
 
 .landing-topbar {
-  border-bottom: 1px solid rgba(124, 136, 188, 0.04);
+  position: relative;
+  border-bottom: 1px solid rgba(124, 136, 188, 0.08);
   background: transparent;
 }
 
@@ -67,9 +68,21 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(116, 130, 160, 0.2);
+  background: rgba(255, 255, 255, 0.045);
   color: inherit;
   text-decoration: none;
   font-weight: 600;
+  box-shadow: 0 8px 24px rgba(3, 7, 14, 0.14);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.landing-logo:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(132, 153, 188, 0.3);
+  box-shadow: 0 10px 28px rgba(3, 7, 14, 0.18);
 }
 
 .landing-logo-mark {
@@ -79,22 +92,23 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: #1b2431;
-  color: #bdd0e8;
-  border: 1px solid #32475d;
+  background: linear-gradient(180deg, rgba(35, 47, 66, 0.98) 0%, rgba(24, 33, 47, 0.96) 100%);
+  color: #d5e7ff;
+  border: 1px solid rgba(97, 120, 151, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .landing-logo-text {
+  color: #f4f8ff;
   letter-spacing: 0.01em;
+  text-shadow: 0 1px 12px rgba(147, 181, 235, 0.08);
 }
 
 .landing-nav,
-.landing-toolbar,
 .landing-actions,
 .placeholder-actions,
 .landing-footer-inner,
-.landing-feature-row,
-.landing-mobile-actions {
+.landing-feature-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -132,6 +146,12 @@
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
+.landing-button-reset {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+}
+
 .landing-button-primary {
   background: #ffffff;
   color: #171b24;
@@ -151,33 +171,172 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.landing-menu-button {
-  display: none;
+.landing-button-danger {
+  background: rgba(120, 28, 43, 0.82);
+  border-color: rgba(224, 135, 152, 0.32);
+  color: #fff4f5;
+}
+
+.landing-button-danger:hover {
+  background: rgba(145, 38, 56, 0.92);
+  border-color: rgba(235, 160, 174, 0.42);
+}
+
+.landing-auth-cta {
+  min-width: 132px;
+  box-shadow: 0 14px 34px rgba(4, 9, 18, 0.22);
+}
+
+.landing-auth-cta-secondary {
+  min-width: 132px;
+  border-color: rgba(150, 171, 207, 0.62);
+  background: rgba(255, 255, 255, 0.075);
+  color: #f5f8fd;
+  box-shadow: 0 12px 30px rgba(4, 9, 18, 0.18);
+}
+
+.landing-auth-cta-secondary:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(167, 189, 227, 0.72);
+}
+
+.landing-header-actions {
+  position: relative;
+  display: flex;
   align-items: center;
+}
+
+.landing-account-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  max-width: min(320px, 44vw);
+  min-width: 120px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 145, 176, 0.44);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.045) 100%);
+  color: #f5f8fd;
+  box-sizing: border-box;
+  cursor: pointer;
+  font: inherit;
+  box-shadow: 0 10px 28px rgba(3, 7, 14, 0.14);
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.landing-account-chip:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.095) 0%, rgba(255, 255, 255, 0.06) 100%);
+  border-color: rgba(142, 166, 200, 0.58);
+  box-shadow: 0 12px 32px rgba(3, 7, 14, 0.18);
+}
+
+.landing-account-chip:focus-visible {
+  outline: 2px solid rgba(140, 206, 255, 0.7);
+  outline-offset: 3px;
+}
+
+.landing-account-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.landing-account-chip-icon {
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.landing-account-chip-icon-open {
+  transform: rotate(180deg);
+}
+
+.landing-account-chip-guest {
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid rgba(110, 124, 146, 0.5);
-  background: transparent;
-  color: #edf2f9;
+  min-width: 92px;
 }
 
-.landing-mobile-nav-wrap {
-  border-top: 1px solid rgba(124, 136, 188, 0.05);
-  background: transparent;
+.landing-account-chip-guest .landing-account-chip-label {
+  text-align: center;
 }
 
-.landing-mobile-nav {
-  width: min(1180px, calc(100% - 48px));
-  margin: 0 auto;
-  padding: 16px 0 20px;
+.landing-menu-panel-wrap {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 40;
+}
+
+.landing-menu-panel {
+  min-width: 260px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(104, 120, 151, 0.24);
+  background: rgba(17, 22, 33, 0.96);
+  box-shadow: 0 18px 40px rgba(4, 8, 15, 0.28);
+  backdrop-filter: blur(10px);
 }
 
-.landing-mobile-actions {
-  padding-top: 4px;
+.landing-menu-account {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(82, 96, 129, 0.18);
+}
+
+.landing-menu-account strong {
+  color: #eef3fb;
+  font-size: 0.96rem;
+}
+
+.landing-menu-account span {
+  color: #9ea8b9;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.landing-menu-items {
+  display: grid;
+  gap: 6px;
+}
+
+.landing-menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: #edf2f9;
+  text-decoration: none;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 0.94rem;
+  font-weight: 600;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.landing-menu-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(112, 129, 157, 0.2);
+}
+
+.landing-menu-item-active {
+  background: rgba(130, 176, 235, 0.14);
+  border-color: rgba(124, 174, 240, 0.24);
+}
+
+.landing-menu-item-button {
+  appearance: none;
+  width: 100%;
+  justify-content: flex-start;
+  cursor: pointer;
+  font: inherit;
 }
 
 .landing-main {
@@ -534,12 +693,16 @@
     display: none;
   }
 
-  .landing-menu-button {
-    display: inline-flex;
-  }
-
   .landing-topbar-inner {
     padding: 0 24px;
+  }
+
+  .landing-account-chip {
+    max-width: min(220px, 54vw);
+  }
+
+  .landing-menu-panel {
+    min-width: min(280px, calc(100vw - 48px));
   }
 
   .landing-hero-layout,

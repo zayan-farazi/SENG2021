@@ -7,11 +7,15 @@ type AppLinkProps = {
 } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">;
 
 export function navigate(href: string) {
-  if (window.location.pathname === href) {
+  const url = new URL(href, window.location.origin);
+  const target = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+  if (current === target) {
     return;
   }
 
-  window.history.pushState({}, "", href);
+  window.history.pushState({}, "", target);
   window.dispatchEvent(new Event("app:navigate"));
 }
 
@@ -41,7 +45,7 @@ export function AppLink({ href, className, children, onClick, ...rest }: AppLink
     }
 
     event.preventDefault();
-    navigate(url.pathname);
+    navigate(`${url.pathname}${url.search}${url.hash}`);
   };
 
   return (

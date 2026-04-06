@@ -98,12 +98,17 @@ app = FastAPI(
     description=(
         "A buyer/seller order API for B2B integrations.\n\n"
         "## Authentication\n"
+        "Legacy `v1` app-key authentication remains available for existing integrations.\n\n"
         "1. Register once with `POST /v1/parties/register`.\n"
         "2. Save the returned `appKey` securely.\n"
         "3. Call protected endpoints with `Authorization: Bearer appKey`.\n\n"
+        "New `v2` password authentication is also available:\n"
+        "1. Register with `POST /v2/parties/register` using `partyName`, `contactEmail`, and `password`.\n"
+        "2. Log in with `POST /v2/parties/login` using `contactEmail` and `password`.\n"
+        "3. Use the returned identity in the frontend and send the stored credential for protected create-flow actions.\n\n"
         "Protected order endpoints only allow the authenticated party when their registered "
         "contact email matches the order's `buyerEmail` or `sellerEmail`. "
-        "The app key must belong to either the buyer or the seller email used in the order body.\n\n"
+        "For `v1`, the app key must belong to either the buyer or the seller email used in the order body.\n\n"
         "## Successful Use Case\n"
         "### 1. Register a party and get an app key\n"
         "Purpose: create a buyer or seller identity and receive the Bearer app key used for all "
@@ -119,7 +124,7 @@ app = FastAPI(
         "Look for:\n\n"
         "```json\n"
         "{\n"
-        '  "partyId": "buyer-co",\n'
+        '  "partyId": "orders@buyerco.example",\n'
         '  "partyName": "Buyer Co",\n'
         '  "appKey": "appKey",\n'
         '  "message": "Store this key securely. It will not be shown again."\n'
@@ -357,10 +362,11 @@ def _render_swagger_html() -> str:
       "post /v1/order/create": 0,
       "put /v1/order/{{order_id}}": 1,
       "get /v1/order/{{order_id}}": 2,
-      "delete /v1/order/{{order_id}}": 3,
-      "get /v1/orders": 4,
-      "get /v1/order/{{order_id}}/ubl": 5,
-      "post /v1/orders/convert/transcript": 6
+      "get /v1/order/{{order_id}}/payload": 3,
+      "delete /v1/order/{{order_id}}": 4,
+      "get /v1/orders": 5,
+      "get /v1/order/{{order_id}}/ubl": 6,
+      "post /v1/orders/convert/transcript": 7
     }};
 
     const getOperationKey = (operation) => {{

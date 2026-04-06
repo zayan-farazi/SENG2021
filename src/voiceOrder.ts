@@ -25,13 +25,32 @@ export type DraftDelivery = {
 };
 
 export type OrderDraft = {
+  buyerEmail: string | null;
   buyerName: string | null;
+  sellerEmail: string | null;
   sellerName: string | null;
   currency: string | null;
   issueDate: string | null;
   notes: string | null;
   delivery: DraftDelivery | null;
   lines: DraftLineItem[];
+};
+
+export type OrderRequestPayload = {
+  buyerEmail: string;
+  buyerName: string;
+  sellerEmail: string;
+  sellerName: string;
+  currency: string | null;
+  issueDate: string | null;
+  notes: string | null;
+  delivery: DraftDelivery | null;
+  lines: {
+    productName: string;
+    quantity: number;
+    unitCode: string | null;
+    unitPrice: string | null;
+  }[];
 };
 
 export type DraftState = {
@@ -51,6 +70,26 @@ export type OrderResponse = {
   warnings: string[];
 };
 
+type EnvImportMeta = ImportMeta & {
+  env?: Record<string, string | undefined>;
+};
+
+function getConfiguredBackendUrl(): string | undefined {
+  const importMetaEnv = (import.meta as EnvImportMeta).env;
+  const fromImportMeta = importMetaEnv?.BUN_PUBLIC_BACKEND_URL;
+  if (typeof fromImportMeta === "string" && fromImportMeta.trim()) {
+    return fromImportMeta;
+  }
+
+  if (typeof process !== "undefined" && typeof process.env?.BUN_PUBLIC_BACKEND_URL === "string") {
+    return process.env.BUN_PUBLIC_BACKEND_URL;
+  }
+
+  return undefined;
+}
+
+const CONFIGURED_BACKEND_URL = getConfiguredBackendUrl();
+
 export const emptyLineItem = (): DraftLineItem => ({
   productName: null,
   quantity: null,
@@ -59,7 +98,9 @@ export const emptyLineItem = (): DraftLineItem => ({
 });
 
 export const emptyDraft = (): OrderDraft => ({
+  buyerEmail: null,
   buyerName: null,
+  sellerEmail: null,
   sellerName: null,
   currency: null,
   issueDate: null,
@@ -85,15 +126,59 @@ export function isDraftReadyForCommit(draft: OrderDraft): boolean {
   return draft.lines.every(line => Boolean(line.productName?.trim()) && (line.quantity ?? 0) > 0);
 }
 
-function getConfiguredBackendUrl(): string | undefined {
-  const processEnv = typeof process !== "undefined" ? process.env : undefined;
-  return processEnv?.BUN_PUBLIC_BACKEND_URL;
+export function draftToOrderRequest(draft: OrderDraft): OrderRequestPayload | null {
+  if (
+    !draft.buyerEmail?.trim() ||
+    !draft.buyerName?.trim() ||
+    !draft.sellerEmail?.trim() ||
+    !draft.sellerName?.trim() ||
+    draft.lines.length === 0
+  ) {
+    return null;
+  }
+
+  const lines = draft.lines.map(line => {
+    if (!line.productName?.trim() || (line.quantity ?? 0) <= 0) {
+      return null;
+    }
+
+    return {
+      productName: line.productName.trim(),
+      quantity: line.quantity ?? 0,
+      unitCode: line.unitCode?.trim().toUpperCase() || "EA",
+      unitPrice: line.unitPrice?.trim() || null,
+    };
+  });
+
+  if (lines.some(line => line === null)) {
+    return null;
+  }
+
+  return {
+    buyerEmail: draft.buyerEmail.trim().toLowerCase(),
+    buyerName: draft.buyerName.trim(),
+    sellerEmail: draft.sellerEmail.trim().toLowerCase(),
+    sellerName: draft.sellerName.trim(),
+    currency: draft.currency?.trim().toUpperCase() || null,
+    issueDate: draft.issueDate?.trim() || null,
+    notes: draft.notes?.trim() || null,
+    delivery: draft.delivery
+      ? {
+          street: draft.delivery.street?.trim() || null,
+          city: draft.delivery.city?.trim() || null,
+          state: draft.delivery.state?.trim() || null,
+          postcode: draft.delivery.postcode?.trim() || null,
+          country: draft.delivery.country?.trim() || null,
+          requestedDate: draft.delivery.requestedDate?.trim() || null,
+        }
+      : null,
+    lines: lines.filter((line): line is NonNullable<typeof line> => line !== null),
+  };
 }
 
 export function getBackendHttpUrl(): string {
-  const configured = getConfiguredBackendUrl();
-  if (configured) {
-    return configured.replace(/\/$/, "");
+  if (CONFIGURED_BACKEND_URL) {
+    return CONFIGURED_BACKEND_URL.replace(/\/$/, "");
   }
 
   const protocol = window.location.protocol === "https:" ? "https:" : "http:";
