@@ -431,7 +431,7 @@ async def _handle_commit(
         return
 
     try:
-        current_party_email = get_current_party_email(raw_app_key.strip())
+        current_party_email = get_current_party_email(f"Bearer {raw_app_key.strip()}")
         _assert_string_access(current_party_email, req.buyerEmail, req.sellerEmail)
     except HTTPException as exc:
         await _send_error(websocket, "unauthorized", exc.detail)
