@@ -8,9 +8,8 @@ from app.models.schemas import PartyRegistrationRequest, PartyRegistrationRespon
 from app.other import (
     deleteParty,
     findAppKeyByHash,
-    findPartyByContactEmail,
+    findPartyByEmail,
     findPartyByPartyId,
-    saveAppKey,
     saveParty,
 )
 
@@ -25,7 +24,7 @@ class PartyRegistrationPersistenceError(RuntimeError):
 
 def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
     normalized_email = normalize_contact_email(req.contactEmail)
-    if findPartyByContactEmail(normalized_email):
+    if findPartyByEmail(normalized_email):
         raise DuplicatePartyError("A party with this contact email already exists.")
 
     party_id = generate_party_id(req.partyName)
@@ -33,12 +32,11 @@ def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
     key_hash = hash_app_key(raw_app_key)
 
     try:
-        saveParty(party_id, req.partyName.strip(), normalized_email)
-        saveAppKey(party_id, key_hash)
-    except Exception as exc:  # noqa: BLE001
+        saveParty(party_id, req.partyName.strip(), normalized_email, key_hash)
+    except Exception as exc:
         try:
-            deleteParty(party_id)
-        except Exception:  # noqa: BLE001
+            deleteParty(normalized_email)
+        except Exception:
             pass
         raise PartyRegistrationPersistenceError("Unable to register party.") from exc
 
