@@ -333,6 +333,20 @@ REQUEST_VALIDATION_ERROR_RESPONSE_EXAMPLES = {
             ],
         },
     },
+    "missingQuery": {
+        "summary": "Missing required query parameter",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "fromDate",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
 }
 
 PARTY_REGISTRATION_VALIDATION_ERROR_EXAMPLES = {
@@ -452,6 +466,37 @@ TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES = {
     }
 }
 
+ANALYTICS_VALIDATION_ERROR_EXAMPLES = {
+    "missingFromDate": {
+        "summary": "Missing fromDate",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "fromDate",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "missingToDate": {
+        "summary": "Missing toDate",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "toDate",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+}
+
 REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/parties/register", "post"): {
         "description": "The registration payload is missing required party details or uses an invalid contact email.",
@@ -479,6 +524,10 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/orders/convert/transcript", "post"): {
         "description": "The transcript conversion request is missing the required transcript body.",
         "examples": TRANSCRIPT_CONVERSION_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/analytics/orders", "get"): {
+        "description": "The analytics request is missing one or both required date-range query parameters.",
+        "examples": ANALYTICS_VALIDATION_ERROR_EXAMPLES,
     },
 }
 
@@ -876,9 +925,19 @@ UBL_FETCH_XML_OPENAPI_SCHEMA = {
 }
 
 TRANSCRIPT_CONVERSION_REQUEST_EXAMPLE = {
-    "transcript": "Create an order from Buyer Co to Supplier Pty Ltd for four oranges at 3.50 each.",
+    "transcript": (
+        "Create an order from orders@buyerco.example for sales@supplier.example: "
+        "Buyer Co wants four oranges from Supplier Pty Ltd at 3.50 each."
+    ),
     "currentPayload": None,
 }
+
+ORDER_STATUS_DESCRIPTION = (
+    "Order lifecycle status. `DRAFT` means the order is editable and not finalized yet. "
+    "`PENDING` means it is awaiting processing or fulfillment. `SUBMITTED`, `COMPLETE`, "
+    "and `COMPLETED` are treated as completed/non-editable states in the current backend. "
+    "`CANCELLED` means the order was cancelled."
+)
 
 ORDER_CONVERSION_RESPONSE_SUCCESS_EXAMPLE = {
     "payload": ORDER_REQUEST_EXAMPLE,
@@ -1132,7 +1191,7 @@ class OrderCreateResponse(BaseModel):
     )
 
     orderId: str
-    status: str
+    status: str = Field(..., description=ORDER_STATUS_DESCRIPTION)
     createdAt: str
 
 
@@ -1144,7 +1203,7 @@ class OrderFetchResponse(BaseModel):
     )
 
     orderId: str
-    status: str
+    status: str = Field(..., description=ORDER_STATUS_DESCRIPTION)
     createdAt: str
     updatedAt: str
 
@@ -1157,7 +1216,7 @@ class OrderPayloadFetchResponse(BaseModel):
     )
 
     orderId: str
-    status: str
+    status: str = Field(..., description=ORDER_STATUS_DESCRIPTION)
     createdAt: str
     updatedAt: str
     payload: OrderRequest
@@ -1171,7 +1230,7 @@ class OrderListItem(BaseModel):
     )
 
     orderId: str
-    status: str
+    status: str = Field(..., description=ORDER_STATUS_DESCRIPTION)
     createdAt: str
     updatedAt: str
     buyerName: str | None = None
@@ -1214,7 +1273,7 @@ class OrderUpdateResponse(BaseModel):
     )
 
     orderId: str
-    status: str
+    status: str = Field(..., description=ORDER_STATUS_DESCRIPTION)
     updatedAt: str
 
 

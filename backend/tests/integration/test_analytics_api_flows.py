@@ -304,8 +304,11 @@ def test_analytics_endpoint_rejects_missing_or_invalid_date_ranges(
         "/v1/analytics/orders",
         headers=_auth_headers(party["appKey"]),
     )
-    assert missing_dates.status_code == 400
-    assert missing_dates.json() == {"detail": "fromDate and toDate are required."}
+    assert missing_dates.status_code == 422
+    body = missing_dates.json()
+    assert body["message"] == "Request validation failed."
+    assert {error["path"] for error in body["errors"]} == {"fromDate", "toDate"}
+    assert all(error["source"] == "query" for error in body["errors"])
 
     invalid_range = _analytics(
         integration_client,

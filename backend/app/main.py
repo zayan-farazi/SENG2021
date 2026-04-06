@@ -222,7 +222,8 @@ app = FastAPI(
         "`GET /v1/order/{order_id}/ubl` returns XML, not JSON.\n\n"
         "Optional helper path: if you want speech-assisted drafting before create, call "
         "`POST /v1/orders/convert/transcript` after authentication and before "
-        "`POST /v1/order/create`."
+        "`POST /v1/order/create`. Include buyer and seller emails in the transcript when you can, "
+        "or provide them in `currentPayload`, so the returned draft resolves the right parties."
     ),
     lifespan=lifespan,
     openapi_tags=[

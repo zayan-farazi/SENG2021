@@ -409,7 +409,12 @@ def test_update_order_returns_403_for_non_party_caller(client, monkeypatch, db_r
     )
 
     assert resp.status_code == 403
-    assert resp.json() == {"detail": "Forbidden"}
+    assert resp.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
 
 
 def test_update_order_allows_seller_party(client, monkeypatch, db_records):

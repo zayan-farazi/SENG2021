@@ -159,7 +159,12 @@ def test_delete_order_returns_403_for_non_party_caller(client, db_records):
     response = client.delete("/v1/order/ord_delete_me", headers=auth_headers("other-key"))
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
     assert "ord_delete_me" in orders.ORDERS
 
 

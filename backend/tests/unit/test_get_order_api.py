@@ -218,7 +218,12 @@ def test_get_order_returns_403_for_non_party_caller(client, created_order):
     response = client.get(f"/v1/order/{order_id}", headers=auth_headers("other-key"))
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
 
 
 def test_get_order_allows_seller_party(client, created_order):
@@ -267,7 +272,12 @@ def test_get_order_payload_returns_403_for_non_party_caller(client, created_orde
     response = client.get(f"/v1/order/{order_id}/payload", headers=auth_headers("other-key"))
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
 
 
 def test_get_order_ubl_returns_raw_xml_for_buyer(client, created_order):
@@ -345,4 +355,9 @@ def test_get_order_ubl_returns_403_for_non_party_caller(client, created_order):
     response = client.get(f"/v1/order/{order_id}/ubl", headers=auth_headers("other-key"))
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }

@@ -59,6 +59,14 @@ from app.services.ubl_order import OrderGenerationError, generate_docs_example_u
 router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
+ANALYTICS_FROM_DATE_QUERY = Query(
+    ...,
+    description="Inclusive range start in ISO-8601 datetime form.",
+)
+ANALYTICS_TO_DATE_QUERY = Query(
+    ...,
+    description="Inclusive range end in ISO-8601 datetime form.",
+)
 
 UNAUTHORIZED_RESPONSE = {
     "description": "Missing, malformed, or unknown Bearer app key.",
@@ -70,10 +78,18 @@ UNAUTHORIZED_RESPONSE = {
 }
 
 FORBIDDEN_RESPONSE = {
-    "description": "The authenticated party is not the buyer or seller on this order.",
+    "description": (
+        "The authenticated party's registered email does not match the order's "
+        "`buyerEmail` or `sellerEmail`."
+    ),
     "content": {
         "application/json": {
-            "example": {"detail": "Forbidden"},
+            "example": {
+                "detail": (
+                    "Forbidden: your registered email does not match this order's buyerEmail "
+                    "or sellerEmail."
+                )
+            },
         }
     },
 }
@@ -156,7 +172,8 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
     description=(
         "Interpret free-form transcript text and return an `OrderRequest`-shaped payload without "
         "creating an order. Use this to prepare payloads for create or update after authenticating "
-        "with a Bearer app key."
+        "with a Bearer app key. Transcripts work best when they mention the buyer and seller "
+        "emails directly, or when those emails are already present in `currentPayload`."
     ),
     responses={
         200: {
@@ -750,7 +767,13 @@ def _assert_email_access(current_party_email: str, buyer_email: str, seller_emai
     normalized_buyer = buyer_email.strip().lower()
     normalized_seller = seller_email.strip().lower()
     if normalized_current not in {normalized_buyer, normalized_seller}:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Forbidden: your registered email does not match this order's buyerEmail "
+                "or sellerEmail."
+            ),
+        )
 
 
 def _draft_errors_to_issues(errors: list[dict[str, Any]]) -> list[str]:
@@ -934,11 +957,10 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
             },
         },
         400: {
-            "description": "The analytics date range is missing or invalid.",
+            "description": "The analytics date range is invalid.",
             "content": {
                 "application/json": {
                     "examples": {
-                        "missingDates": {"value": {"detail": "fromDate and toDate are required."}},
                         "invertedRange": {
                             "value": {"detail": "fromDate must be on or before toDate."}
                         },
@@ -956,15 +978,13 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
     },
 )
 def get_order_analytics(
-    fromDate: datetime | None = None,
-    toDate: datetime | None = None,
+    fromDate: datetime = ANALYTICS_FROM_DATE_QUERY,
+    toDate: datetime = ANALYTICS_TO_DATE_QUERY,
     current_party_email: str = Depends(get_current_party_email),
 ):
     if current_party_email is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if fromDate is None or toDate is None:
-        raise HTTPException(status_code=400, detail="fromDate and toDate are required.")
     if fromDate > toDate:
         raise HTTPException(status_code=400, detail="fromDate must be on or before toDate.")
 

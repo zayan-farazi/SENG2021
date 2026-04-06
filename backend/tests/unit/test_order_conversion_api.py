@@ -111,7 +111,12 @@ def test_transcript_conversion_returns_403_for_unrelated_party(client, monkeypat
     )
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
 
 
 def test_transcript_conversion_returns_401_when_auth_header_is_missing(client):

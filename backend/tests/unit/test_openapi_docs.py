@@ -279,6 +279,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
 
     transcript_post = schema["paths"]["/v1/orders/convert/transcript"]["post"]
     transcript_422 = transcript_post["responses"]["422"]["content"]["application/json"]
+    assert "buyer and seller emails" in transcript_post["description"]
     assert transcript_post["responses"]["422"]["description"] == (
         "The transcript conversion request is missing the required transcript body."
     )
@@ -294,8 +295,16 @@ def test_endpoint_responses_include_examples_for_common_flows():
         transcript_examples["incomplete"]["value"]["issues"][1]
         == "currency: currency is recommended before create or update."
     )
+    transcript_request_example = schema["components"]["schemas"]["TranscriptConversionRequest"][
+        "example"
+    ]
+    assert "orders@buyerco.example" in transcript_request_example["transcript"]
+    assert "sales@supplier.example" in transcript_request_example["transcript"]
     analytics_get = schema["paths"]["/v1/analytics/orders"]["get"]
     assert analytics_get["summary"] == "Get order analytics (Bearer app key required)"
+    analytics_parameters = {param["name"]: param for param in analytics_get["parameters"]}
+    assert analytics_parameters["fromDate"]["required"] is True
+    assert analytics_parameters["toDate"]["required"] is True
     assert (
         analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
             "value"
@@ -315,11 +324,18 @@ def test_endpoint_responses_include_examples_for_common_flows():
         == "No orders found"
     )
     assert (
-        analytics_get["responses"]["400"]["content"]["application/json"]["examples"][
-            "missingDates"
-        ]["value"]["detail"]
-        == "fromDate and toDate are required."
+        analytics_get["responses"]["422"]["description"]
+        == "The analytics request is missing one or both required date-range query parameters."
     )
+    analytics_422 = analytics_get["responses"]["422"]["content"]["application/json"]["examples"]
+    assert analytics_422["missingFromDate"]["value"]["errors"][0]["path"] == "fromDate"
+    assert analytics_422["missingToDate"]["value"]["errors"][0]["path"] == "toDate"
+
+    fetch_status = schema["components"]["schemas"]["OrderFetchResponse"]["properties"]["status"]
+    assert (
+        "`DRAFT` means the order is editable and not finalized yet." in fetch_status["description"]
+    )
+    assert "`CANCELLED` means the order was cancelled." in fetch_status["description"]
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
 

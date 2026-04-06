@@ -334,7 +334,12 @@ def test_create_order_returns_403_for_non_party_caller(client):
     )
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Forbidden"}
+    assert response.json() == {
+        "detail": (
+            "Forbidden: your registered email does not match this order's buyerEmail "
+            "or sellerEmail."
+        )
+    }
     assert orders.ORDERS == {}
 
 
