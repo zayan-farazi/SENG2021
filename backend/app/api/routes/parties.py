@@ -78,8 +78,14 @@ def register(req: PartyRegistrationRequest):
 @router.get(
     "/userFetch",
     response_model=PartyUserFetchResponse,
-    summary="Fetch the current party from an app key",
-    description="Resolve the current party identity from the supplied bearer app key.",
+    summary="Fetch the current party from the supplied bearer credential",
+    description=(
+        "Resolve the current party identity from the supplied bearer credential. "
+        "This endpoint accepts either a legacy `v1` app key as "
+        "`Authorization: Bearer <appKey>`, or the `v2` password flow as "
+        "`Authorization: Bearer <password>` together with "
+        "`X-Party-Email: <registered contact email>`."
+    ),
     responses={
         200: {
             "description": "Party resolved successfully.",
@@ -94,7 +100,10 @@ def register(req: PartyRegistrationRequest):
             },
         },
         401: {
-            "description": "The supplied app key is invalid.",
+            "description": (
+                "The supplied bearer credential is invalid, or `X-Party-Email` is missing for "
+                "the `v2` password flow."
+            ),
             "content": {"application/json": {"example": {"detail": "Unauthorized"}}},
         },
     },

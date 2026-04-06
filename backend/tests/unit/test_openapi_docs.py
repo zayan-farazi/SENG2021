@@ -26,6 +26,7 @@ def _openapi_with_headers(
 
 def test_openapi_exposes_bearer_auth_security_scheme():
     schema = _openapi()
+    bearer_scheme = schema["components"]["securitySchemes"]["HTTPBearer"]
 
     assert schema["info"]["title"] == "LockedOut"
     assert "/" not in schema["paths"]
@@ -37,22 +38,24 @@ def test_openapi_exposes_bearer_auth_security_scheme():
     assert "POST /v1/order/create" in schema["info"]["description"]
     assert "<baseUrl>" not in schema["info"]["description"]
     assert "http://testserver/v1/parties/register" in schema["info"]["description"]
-    assert "password authentication is also available" in schema["info"]["description"]
+    assert "two bearer credential modes" in schema["info"]["description"]
     assert "http://testserver/v1/order/create" in schema["info"]["description"]
     assert "http://testserver/v1/orders?limit=20&offset=0" in schema["info"]["description"]
     assert "http://testserver/v1/order/<orderId>" in schema["info"]["description"]
     assert "http://testserver/v1/order/<orderId>/ubl" in schema["info"]["description"]
     assert "Authorization: Bearer <appKey>" in schema["info"]["description"]
-    assert "app key must belong to either the buyer or the seller" in schema["info"]["description"]
+    assert "Authorization: Bearer <password>" in schema["info"]["description"]
+    assert "X-Party-Email: <registered contact email>" in schema["info"]["description"]
+    assert "legacy `v1`, the app key must belong to either the buyer" in schema["info"]["description"]
     assert '"buyerEmail": "orders@buyerco.example"' in schema["info"]["description"]
     assert "`GET /v1/order/{order_id}/ubl` returns XML, not JSON." in schema["info"]["description"]
     assert "POST /v1/orders/convert/transcript" in schema["info"]["description"]
     assert schema["servers"] == [{"url": "http://testserver"}]
-    assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
-        "type": "http",
-        "scheme": "bearer",
-        "description": "Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
-    }
+    assert bearer_scheme["type"] == "http"
+    assert bearer_scheme["scheme"] == "bearer"
+    assert "legacy `v1` app key" in bearer_scheme["description"]
+    assert "`v2` password" in bearer_scheme["description"]
+    assert "X-Party-Email" in bearer_scheme["description"]
 
 
 def test_openapi_description_uses_request_host_without_cross_request_leakage():
@@ -95,11 +98,30 @@ def test_protected_order_routes_declare_bearer_security():
         ("/v1/order/{order_id}", "put"),
         ("/v1/order/{order_id}", "delete"),
         ("/v1/orders/convert/transcript", "post"),
+        ("/v1/analytics/orders", "get"),
     ]
 
     for path, method in protected_paths:
         operation = schema["paths"][path][method]
         assert operation["security"] == [{"HTTPBearer": []}]
+        parameter_names = {param["name"] for param in operation.get("parameters", [])}
+        assert "X-Party-Email" in parameter_names
+
+
+def test_user_fetch_docs_reflect_mixed_bearer_auth():
+    schema = _openapi()
+    user_fetch = schema["paths"]["/v1/parties/userFetch"]["get"]
+
+    assert user_fetch["summary"] == "Fetch the current party from the supplied bearer credential"
+    assert "legacy `v1` app key" in user_fetch["description"]
+    assert "`v2` password flow" in user_fetch["description"]
+    assert "X-Party-Email" in user_fetch["description"]
+    assert user_fetch["security"] == [{"HTTPBearer": []}]
+    parameters = {param["name"]: param for param in user_fetch["parameters"]}
+    assert parameters["X-Party-Email"]["required"] is False
+    assert "Required when sending `Authorization: Bearer <password>`" in parameters[
+        "X-Party-Email"
+    ]["description"]
 
 
 def test_http_endpoints_include_summaries_and_tags():
@@ -118,21 +140,18 @@ def test_http_endpoints_include_summaries_and_tags():
     assert schema["paths"]["/v2/parties/login"]["post"]["summary"] == (
         "Log in with contact email and password"
     )
-    assert schema["paths"]["/v1/order/create"]["post"]["summary"] == (
-        "Create an order (Bearer app key required)"
-    )
+    assert schema["paths"]["/v1/order/create"]["post"]["summary"] == "Create an order (authenticated)"
     assert schema["paths"]["/v1/order/create"]["post"]["tags"] == ["Orders"]
-    assert (
-        schema["paths"]["/v1/orders"]["get"]["summary"] == "List orders (Bearer app key required)"
-    )
-    assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == (
-        "Get an order (Bearer app key required)"
-    )
+    assert schema["paths"]["/v1/orders"]["get"]["summary"] == "List orders (authenticated)"
+    assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == "Get an order (authenticated)"
     assert schema["paths"]["/v1/order/{order_id}/payload"]["get"]["summary"] == (
-        "Get order payload (Bearer app key required)"
+        "Get order payload (authenticated)"
     )
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
-        "Get order UBL XML (Bearer app key required)"
+        "Get order UBL XML (authenticated)"
+    )
+    assert schema["paths"]["/v1/analytics/orders"]["get"]["summary"] == (
+        "Get order analytics (authenticated)"
     )
     assert "/v1/orders/validate" not in schema["paths"]
 
@@ -198,7 +217,12 @@ def test_endpoint_responses_include_examples_for_common_flows():
         ]["page"]["total"]
         == 57
     )
-    assert [param["name"] for param in list_orders["parameters"]] == ["limit", "offset"]
+    list_order_parameters = {param["name"]: param for param in list_orders["parameters"]}
+    assert set(list_order_parameters) == {"limit", "offset", "X-Party-Email"}
+    assert (
+        "Required when sending `Authorization: Bearer <password>`"
+        in list_order_parameters["X-Party-Email"]["description"]
+    )
     assert "400" not in list_orders["responses"]
     assert list_orders["responses"]["422"]["content"]["application/json"]["schema"]["$ref"] == (
         "#/components/schemas/RequestValidationErrorResponse"
@@ -278,6 +302,9 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
 
     transcript_post = schema["paths"]["/v1/orders/convert/transcript"]["post"]
+    assert "legacy `v1` app key" in transcript_post["description"]
+    assert "`v2` password flow" in transcript_post["description"]
+    assert "X-Party-Email" in transcript_post["description"]
     transcript_422 = transcript_post["responses"]["422"]["content"]["application/json"]
     assert "buyer and seller emails" in transcript_post["description"]
     assert transcript_post["responses"]["422"]["description"] == (
@@ -301,10 +328,14 @@ def test_endpoint_responses_include_examples_for_common_flows():
     assert "orders@buyerco.example" in transcript_request_example["transcript"]
     assert "sales@supplier.example" in transcript_request_example["transcript"]
     analytics_get = schema["paths"]["/v1/analytics/orders"]["get"]
-    assert analytics_get["summary"] == "Get order analytics (Bearer app key required)"
+    assert analytics_get["summary"] == "Get order analytics (authenticated)"
+    assert "legacy `v1` app key" in analytics_get["description"]
+    assert "`v2` password flow" in analytics_get["description"]
+    assert "X-Party-Email" in analytics_get["description"]
     analytics_parameters = {param["name"]: param for param in analytics_get["parameters"]}
     assert analytics_parameters["fromDate"]["required"] is True
     assert analytics_parameters["toDate"]["required"] is True
+    assert analytics_parameters["X-Party-Email"]["required"] is False
     assert (
         analytics_get["responses"]["200"]["content"]["application/json"]["examples"]["seller"][
             "value"

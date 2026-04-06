@@ -59,6 +59,11 @@ from app.services.ubl_order import OrderGenerationError, generate_docs_example_u
 router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
 ORDERS = order_store.ORDERS
+PROTECTED_ORDER_AUTH_DESCRIPTION = (
+    "Authenticate with either a legacy `v1` app key as `Authorization: Bearer <appKey>`, "
+    "or the `v2` password flow as `Authorization: Bearer <password>` together with "
+    "`X-Party-Email: <registered contact email>`."
+)
 ANALYTICS_FROM_DATE_QUERY = Query(
     ...,
     description="Inclusive range start in ISO-8601 datetime form.",
@@ -69,7 +74,10 @@ ANALYTICS_TO_DATE_QUERY = Query(
 )
 
 UNAUTHORIZED_RESPONSE = {
-    "description": "Missing, malformed, or unknown Bearer app key.",
+    "description": (
+        "Missing, malformed, or unknown bearer credential, or missing `X-Party-Email` for the "
+        "`v2` password flow."
+    ),
     "content": {
         "application/json": {
             "example": {"detail": "Unauthorized"},
@@ -122,11 +130,11 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
     "/v1/order/create",
     response_model=OrderCreateResponse,
     status_code=201,
-    summary="Create an order (Bearer app key required)",
+    summary="Create an order (authenticated)",
     description=(
         "Create a new order as either the buyer or the seller. "
-        "Send `Authorization: Bearer <appKey>` and include the caller's registered email as "
-        "either `buyerEmail` or `sellerEmail` in the request body."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Include the caller's registered email as either "
+        "`buyerEmail` or `sellerEmail` in the request body."
     ),
     responses={
         201: {
@@ -168,12 +176,13 @@ def create_order(req: OrderRequest, current_party_email: str = Depends(get_curre
 @router.post(
     "/v1/orders/convert/transcript",
     response_model=OrderConversionResponse,
-    summary="Convert transcript to order payload (Bearer app key required)",
+    summary="Convert transcript to order payload (authenticated)",
     description=(
         "Interpret free-form transcript text and return an `OrderRequest`-shaped payload without "
-        "creating an order. Use this to prepare payloads for create or update after authenticating "
-        "with a Bearer app key. Transcripts work best when they mention the buyer and seller "
-        "emails directly, or when those emails are already present in `currentPayload`."
+        "creating an order. Use this to prepare payloads for create or update after "
+        f"authenticating. {PROTECTED_ORDER_AUTH_DESCRIPTION} Transcripts work best when they "
+        "mention the buyer and seller emails directly, or when those emails are already present "
+        "in `currentPayload`."
     ),
     responses={
         200: {
@@ -211,11 +220,11 @@ async def convert_transcript_to_order_payload(
 @router.get(
     "/v1/orders",
     response_model=OrderListResponse,
-    summary="List orders (Bearer app key required)",
+    summary="List orders (authenticated)",
     description=(
         "List orders where the authenticated party is either the buyer or seller. "
-        "Results are sorted newest-first by `updatedAt`, then `orderId`, and paginated with "
-        "`limit` and `offset`."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Results are sorted newest-first by `updatedAt`, "
+        "then `orderId`, and paginated with `limit` and `offset`."
     ),
     responses={
         200: {
@@ -251,11 +260,11 @@ def list_orders(
 @router.delete(
     "/v1/order/{order_id}",
     status_code=204,
-    summary="Delete an order (Bearer app key required)",
+    summary="Delete an order (authenticated)",
     description=(
         "Delete an existing order as either the buyer or the seller. "
-        "The caller must authenticate with a Bearer app key whose registered email matches "
-        "the stored `buyerEmail` or `sellerEmail`."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} The caller's registered email must match the stored "
+        "`buyerEmail` or `sellerEmail`."
     ),
     responses={
         204: {"description": "Order deleted successfully."},
@@ -521,10 +530,10 @@ async def _send_error(
 @router.get(
     "/v1/order/{order_id}",
     response_model=OrderFetchResponse,
-    summary="Get an order (Bearer app key required)",
+    summary="Get an order (authenticated)",
     description=(
         "Fetch the latest persisted order by its public `orderId`. "
-        "Only the buyer or seller on the order may access it."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Only the buyer or seller on the order may access it."
     ),
     responses={
         200: {
@@ -556,10 +565,10 @@ def get_order(order_id: str, current_party_email: str = Depends(get_current_part
 @router.get(
     "/v1/order/{order_id}/payload",
     response_model=OrderPayloadFetchResponse,
-    summary="Get order payload (Bearer app key required)",
+    summary="Get order payload (authenticated)",
     description=(
         "Fetch the latest persisted editable payload for an order by its public `orderId`. "
-        "Only the buyer or seller on the order may access it."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Only the buyer or seller on the order may access it."
     ),
     responses={
         200: {
@@ -593,10 +602,10 @@ def get_order_payload(order_id: str, current_party_email: str = Depends(get_curr
     "/v1/order/{order_id}/ubl",
     operation_id="get_order_ubl_xml",
     response_class=Response,
-    summary="Get order UBL XML (Bearer app key required)",
+    summary="Get order UBL XML (authenticated)",
     description=(
         "Fetch the raw persisted UBL XML for an order by its public `orderId`. "
-        "Only the buyer or seller on the order may access it."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Only the buyer or seller on the order may access it."
     ),
     responses={
         200: {
@@ -630,10 +639,11 @@ def get_order_ubl(order_id: str, current_party_email: str = Depends(get_current_
 @router.put(
     "/v1/order/{order_id}",
     response_model=OrderUpdateResponse,
-    summary="Update an order (Bearer app key required)",
+    summary="Update an order (authenticated)",
     description=(
         "Update an existing order as either the buyer or the seller. "
-        "`buyerEmail` and `sellerEmail` are immutable after create; changing parties requires a new order."
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} `buyerEmail` and `sellerEmail` are immutable after "
+        "create; changing parties requires a new order."
     ),
     responses={
         200: {
@@ -862,10 +872,10 @@ def _describe_order_completeness_issues(order: OrderRequest) -> list[str]:
     "/v1/analytics/orders",
     response_model=AnalyticsResponse,
     status_code=200,
-    summary="Get order analytics (Bearer app key required)",
+    summary="Get order analytics (authenticated)",
     description=(
         "Return buyer, seller, or combined buyer-and-seller analytics for the authenticated "
-        "party across the requested date range."
+        f"party across the requested date range. {PROTECTED_ORDER_AUTH_DESCRIPTION}"
     ),
     responses={
         200: {

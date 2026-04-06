@@ -98,21 +98,26 @@ app = FastAPI(
     description=(
         "A buyer/seller order API for B2B integrations.\n\n"
         "## Authentication\n"
-        "Legacy `v1` app-key authentication remains available for existing integrations.\n\n"
+        "Protected order and party-lookup endpoints support two bearer credential modes.\n\n"
+        "### Legacy `v1` app-key flow\n"
         "1. Register once with `POST /v1/parties/register`.\n"
         "2. Save the returned `appKey` securely.\n"
-        "3. Call protected endpoints with `Authorization: Bearer appKey`.\n\n"
-        "New `v2` password authentication is also available:\n"
-        "1. Register with `POST /v2/parties/register` using `partyName`, `contactEmail`, and `password`.\n"
+        "3. Call protected endpoints with `Authorization: Bearer <appKey>`.\n\n"
+        "### `v2` password flow\n"
+        "1. Register with `POST /v2/parties/register` using `partyName`, `contactEmail`, and "
+        "`password`.\n"
         "2. Log in with `POST /v2/parties/login` using `contactEmail` and `password`.\n"
-        "3. Use the returned identity in the frontend and send the stored credential for protected create-flow actions.\n\n"
+        "3. Call protected endpoints with:\n"
+        "   - `Authorization: Bearer <password>`\n"
+        "   - `X-Party-Email: <registered contact email>`\n\n"
         "Protected order endpoints only allow the authenticated party when their registered "
         "contact email matches the order's `buyerEmail` or `sellerEmail`. "
-        "For `v1`, the app key must belong to either the buyer or the seller email used in the order body.\n\n"
+        "For legacy `v1`, the app key must belong to either the buyer or the seller email used "
+        "in the order body.\n\n"
         "## Successful Use Case\n"
-        "### 1. Register a party and get an app key\n"
-        "Purpose: create a buyer or seller identity and receive the Bearer app key used for all "
-        "protected endpoints.\n\n"
+        "### 1. Register a party and get a legacy app key\n"
+        "Purpose: create a buyer or seller identity and receive the legacy Bearer app key used "
+        "by existing `v1` integrations.\n\n"
         "```bash\n"
         "curl -X POST '<baseUrl>/v1/parties/register' \\\n"
         "  -H 'Content-Type: application/json' \\\n"
@@ -130,11 +135,11 @@ app = FastAPI(
         '  "message": "Store this key securely. It will not be shown again."\n'
         "}\n"
         "```\n\n"
-        "### 2. Create an order directly\n"
+        "### 2. Create an order with the legacy `v1` app key\n"
         "Purpose: create a draft order using the same buyer identity and a seller email/name.\n\n"
         "```bash\n"
         "curl -X POST '<baseUrl>/v1/order/create' \\\n"
-        "  -H 'Authorization: Bearer appKey' \\\n"
+        "  -H 'Authorization: Bearer <appKey>' \\\n"
         "  -H 'Content-Type: application/json' \\\n"
         "  -d '{\n"
         '    "buyerEmail": "orders@buyerco.example",\n'
@@ -170,11 +175,36 @@ app = FastAPI(
         '  "createdAt": "2026-03-14T10:30:00Z"\n'
         "}\n"
         "```\n\n"
-        "### 3. List your orders\n"
+        "### 3. Create an order with the `v2` password flow\n"
+        "Purpose: call the same protected order endpoint using the `v2` password plus "
+        "`X-Party-Email`.\n\n"
+        "```bash\n"
+        "curl -X POST '<baseUrl>/v1/order/create' \\\n"
+        "  -H 'Authorization: Bearer <password>' \\\n"
+        "  -H 'X-Party-Email: orders@buyerco.example' \\\n"
+        "  -H 'Content-Type: application/json' \\\n"
+        "  -d '{\n"
+        '    "buyerEmail": "orders@buyerco.example",\n'
+        '    "buyerName": "Buyer Co",\n'
+        '    "sellerEmail": "sales@supplier.example",\n'
+        '    "sellerName": "Supplier Pty Ltd",\n'
+        '    "currency": "AUD",\n'
+        '    "issueDate": "2026-03-14",\n'
+        '    "lines": [\n'
+        "      {\n"
+        '        "productName": "Oranges",\n'
+        '        "quantity": 4,\n'
+        '        "unitCode": "EA",\n'
+        '        "unitPrice": "3.50"\n'
+        "      }\n"
+        "    ]\n"
+        "  }'\n"
+        "```\n\n"
+        "### 4. List your orders\n"
         "Purpose: confirm the created order is visible to the authenticated party.\n\n"
         "```bash\n"
         "curl -X GET '<baseUrl>/v1/orders?limit=20&offset=0' \\\n"
-        "  -H 'Authorization: Bearer appKey'\n"
+        "  -H 'Authorization: Bearer <appKey>'\n"
         "```\n\n"
         "Look for:\n\n"
         "```json\n"
@@ -193,11 +223,11 @@ app = FastAPI(
         "  }\n"
         "}\n"
         "```\n\n"
-        "### 4. Fetch the order JSON\n"
+        "### 5. Fetch the order JSON\n"
         "Purpose: inspect the current order metadata by `orderId`.\n\n"
         "```bash\n"
         "curl -X GET '<baseUrl>/v1/order/<orderId>' \\\n"
-        "  -H 'Authorization: Bearer appKey'\n"
+        "  -H 'Authorization: Bearer <appKey>'\n"
         "```\n\n"
         "Look for:\n\n"
         "```json\n"
@@ -208,7 +238,7 @@ app = FastAPI(
         '  "updatedAt": "2026-03-14T10:30:00Z"\n'
         "}\n"
         "```\n\n"
-        "### 5. Fetch the UBL XML\n"
+        "### 6. Fetch the UBL XML\n"
         "Purpose: retrieve the persisted order document as raw XML.\n\n"
         "```bash\n"
         "curl -X GET '<baseUrl>/v1/order/<orderId>/ubl' \\\n"
@@ -229,7 +259,9 @@ app = FastAPI(
     openapi_tags=[
         {
             "name": "Parties",
-            "description": "Party registration and app-key onboarding for new integrators.",
+            "description": (
+                "Party registration, credential onboarding, and identity lookup for integrators."
+            ),
         },
         {
             "name": "Orders",

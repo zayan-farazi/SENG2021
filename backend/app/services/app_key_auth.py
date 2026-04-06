@@ -9,16 +9,26 @@ from app.other import findAppKeyByHash, findPartyByPartyId
 from app.services.party_password_auth import authenticate_party_v2
 from app.services.party_registration import hash_app_key
 
+PARTY_EMAIL_HEADER_DESCRIPTION = (
+    "Registered contact email for the `v2` password flow. "
+    "Required when sending `Authorization: Bearer <password>`, and ignored for legacy `v1` app keys."
+)
+
 http_bearer = HTTPBearer(
     auto_error=False,
-    description="Register once to receive an app key, then send it as 'Authorization: Bearer <appKey>'.",
+    description=(
+        "Send either a legacy `v1` app key as `Authorization: Bearer <appKey>` or a `v2` "
+        "password as `Authorization: Bearer <password>`. When using the `v2` password flow, "
+        "also send `X-Party-Email: <registered contact email>`."
+    ),
 )
 
 
 def get_current_party_email(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
     party_email: Annotated[
-        str | None, Header(alias="X-Party-Email", include_in_schema=False)
+        str | None,
+        Header(alias="X-Party-Email", description=PARTY_EMAIL_HEADER_DESCRIPTION),
     ] = None,
 ) -> str:
     raw_app_key = extract_bearer_token(credentials)
@@ -28,7 +38,8 @@ def get_current_party_email(
 def get_current_party_info(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
     party_email: Annotated[
-        str | None, Header(alias="X-Party-Email", include_in_schema=False)
+        str | None,
+        Header(alias="X-Party-Email", description=PARTY_EMAIL_HEADER_DESCRIPTION),
     ] = None,
 ) -> tuple[str, str]:
     raw_app_key = extract_bearer_token(credentials)
