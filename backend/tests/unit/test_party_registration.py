@@ -106,6 +106,7 @@ def test_register_party_wraps_persistence_failures(monkeypatch):
 
     monkeypatch.setattr(party_registration, "findPartyByEmail", lambda _email: None)
     monkeypatch.setattr(party_registration, "findPartyByPartyId", lambda _party_id: None)
+    monkeypatch.setattr(party_registration, "generate_app_key", lambda: "appkey_test_value")  # Mock this too
     monkeypatch.setattr(
         party_registration, "saveParty", lambda *_args: (_ for _ in ()).throw(RuntimeError("boom"))
     )
