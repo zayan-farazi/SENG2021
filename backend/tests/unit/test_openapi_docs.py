@@ -46,7 +46,9 @@ def test_openapi_exposes_bearer_auth_security_scheme():
     assert "Authorization: Bearer <appKey>" in schema["info"]["description"]
     assert "Authorization: Bearer <password>" in schema["info"]["description"]
     assert "X-Party-Email: <registered contact email>" in schema["info"]["description"]
-    assert "legacy `v1`, the app key must belong to either the buyer" in schema["info"]["description"]
+    assert (
+        "legacy `v1`, the app key must belong to either the buyer" in schema["info"]["description"]
+    )
     assert '"buyerEmail": "orders@buyerco.example"' in schema["info"]["description"]
     assert "`GET /v1/order/{order_id}/ubl` returns XML, not JSON." in schema["info"]["description"]
     assert "POST /v1/orders/convert/transcript" in schema["info"]["description"]
@@ -119,9 +121,10 @@ def test_user_fetch_docs_reflect_mixed_bearer_auth():
     assert user_fetch["security"] == [{"HTTPBearer": []}]
     parameters = {param["name"]: param for param in user_fetch["parameters"]}
     assert parameters["X-Party-Email"]["required"] is False
-    assert "Required when sending `Authorization: Bearer <password>`" in parameters[
-        "X-Party-Email"
-    ]["description"]
+    assert (
+        "Required when sending `Authorization: Bearer <password>`"
+        in parameters["X-Party-Email"]["description"]
+    )
 
 
 def test_http_endpoints_include_summaries_and_tags():
@@ -140,10 +143,14 @@ def test_http_endpoints_include_summaries_and_tags():
     assert schema["paths"]["/v2/parties/login"]["post"]["summary"] == (
         "Log in with contact email and password"
     )
-    assert schema["paths"]["/v1/order/create"]["post"]["summary"] == "Create an order (authenticated)"
+    assert (
+        schema["paths"]["/v1/order/create"]["post"]["summary"] == "Create an order (authenticated)"
+    )
     assert schema["paths"]["/v1/order/create"]["post"]["tags"] == ["Orders"]
     assert schema["paths"]["/v1/orders"]["get"]["summary"] == "List orders (authenticated)"
-    assert schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == "Get an order (authenticated)"
+    assert (
+        schema["paths"]["/v1/order/{order_id}"]["get"]["summary"] == "Get an order (authenticated)"
+    )
     assert schema["paths"]["/v1/order/{order_id}/payload"]["get"]["summary"] == (
         "Get order payload (authenticated)"
     )
