@@ -45,7 +45,7 @@ def test_register_party_persists_party_and_hashed_app_key_in_supabase():
 
         assert party_row is not None
         assert party_row["party_name"] == payload["partyName"]
-        assert party_row["contact_email"] == payload["contactEmail"]
+        assert party_row["contact_email"] == payload["contactEmail"].strip().lower()
         assert app_key_row is not None
         assert app_key_row["contact_email"] == party_id
         assert app_key_row["key_hash"] != app_key
