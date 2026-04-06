@@ -5,10 +5,8 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.other import findAppKeyByHash, findPartyByEmail, findPartyByPartyId  # noqa: F401
+from app.other import findAppKeyByHash, findPartyByPartyId
 from app.services.party_registration import hash_app_key
-
-# noqa: T001
 
 http_bearer = HTTPBearer(
     auto_error=False,
@@ -25,26 +23,48 @@ def get_current_party_email(
 
 def get_current_party_info(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
-) -> tuple:
+) -> tuple[str, str]:
     raw_app_key = extract_bearer_token(credentials)
     return resolve_party_from_app_key(raw_app_key)
 
 
-def resolve_party_from_app_key(raw_app_key: str) -> tuple[str]:
+def resolve_party_from_app_key(raw_app_key: str) -> tuple[str, str]:
     key_record = findAppKeyByHash(hash_app_key(raw_app_key))
 
     if not key_record:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     contact_email = key_record.get("contact_email")
-    if not contact_email or not contact_email.strip():
+    if isinstance(contact_email, str) and contact_email.strip():
+        party_name = key_record.get("party_name")
+        if not isinstance(party_name, str) or not party_name.strip():
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return contact_email.strip().lower(), party_name.strip()
+
+    party_id = key_record.get("party_id")
+    if not isinstance(party_id, str) or not party_id.strip():
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    party_name = key_record.get("party_name")
-    if not party_name or not party_name.strip():
+    party_record = findPartyByPartyId(party_id)
+    if not party_record:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    return contact_email.strip().lower(), party_name.strip().lower()
+    contact_email = party_record.get("contact_email")
+    if not isinstance(contact_email, str) or not contact_email.strip():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    party_name = party_record.get("party_name")
+    if not isinstance(party_name, str) or not party_name.strip():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return contact_email.strip().lower(), party_name.strip()
+
+
+def resolve_party_email_from_app_key(raw_app_key: str) -> str:
+    return resolve_party_from_app_key(raw_app_key)[0]
+
+
+get_current_party_id = get_current_party_email
 
 
 def extract_bearer_token(credentials: HTTPAuthorizationCredentials | str | None) -> str:

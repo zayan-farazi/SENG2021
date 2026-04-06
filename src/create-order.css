@@ -38,7 +38,8 @@
 .create-page-runtime p,
 .create-page-empty-copy,
 .create-page-list li span,
-.create-page-backend {
+.create-page-backend,
+.create-page-session-note {
   margin: 0;
   color: #adb7c7;
 }

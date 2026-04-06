@@ -1,6 +1,7 @@
 import { act, StrictMode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setStoredSession } from "./session";
 import { VoiceOrderDemo } from "./VoiceOrderDemo";
 import { emptyDraft, emptyDraftState } from "./voiceOrder";
 
@@ -100,6 +101,7 @@ describe("VoiceOrderDemo", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     MockSpeechRecognition.instances = [];
+    window.localStorage.clear();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     installSpeechRecognition();
   });
@@ -245,6 +247,13 @@ describe("VoiceOrderDemo", () => {
   });
 
   it("sends websocket commit requests and renders created order details", () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      appKey: "appkey_test_value",
+    });
+
     render(<VoiceOrderDemo />);
     const socket = openSocket();
 
@@ -263,7 +272,7 @@ describe("VoiceOrderDemo", () => {
 
     expect(JSON.parse(socket.sentMessages.at(-1) ?? "{}")).toEqual({
       type: "session.commit",
-      payload: {},
+      payload: { appKey: "appkey_test_value" },
     });
 
     act(() => {
@@ -290,6 +299,27 @@ describe("VoiceOrderDemo", () => {
     expect(screen.getByDisplayValue("<Order />")).toBeInTheDocument();
   });
 
+  it("blocks commit when no stored app key exists", () => {
+    render(<VoiceOrderDemo />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({
+        type: "session.ready",
+        payload: draftStatePatch({
+          buyerName: "Acme Books",
+          sellerName: "Digital Book Supply",
+          lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
+        }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm order/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/register a party before confirming an order/i);
+    expect(socket.sentMessages.some(message => message.includes("session.commit"))).toBe(false);
+  });
+
   it("pushes manual draft edits back through the websocket", () => {
     render(<VoiceOrderDemo />);
     const socket = openSocket();
@@ -304,7 +334,9 @@ describe("VoiceOrderDemo", () => {
       type: "draft.patch",
       payload: {
         draft: {
+          buyerEmail: null,
           buyerName: "Acme Books",
+          sellerEmail: null,
           sellerName: null,
           currency: null,
           issueDate: null,

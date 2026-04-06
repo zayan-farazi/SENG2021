@@ -134,6 +134,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
         delivery = req.delivery
         db_order_id = saveOrder(
             buyeremail=req.buyerEmail,
+            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -219,6 +220,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
         delivery = req.delivery
         saveOrder(
             buyeremail=req.buyerEmail,
+            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -291,22 +293,11 @@ def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
 def _fetch_order_rows_for_party(current_party_email: str) -> list[dict[str, Any]]:
     from app.other import get_supabase_client
 
-    fields = (
-        "id,order_id,status,createdat,updatedat,lastchanged,buyeremail,buyername,"
-        "selleremail,sellername,issuedate"
-    )
+    fields = "id,order_id,status,createdat,updatedat,lastchanged,buyer_id,seller_id,issuedate"
     client = get_supabase_client()
-    buyer_rows = (
-        client.table("orders_with_buyer")
-        .select(fields)
-        .eq("buyeremail", current_party_email)
-        .execute()
-    )
+    buyer_rows = client.table("orders").select(fields).eq("buyer_id", current_party_email).execute()
     seller_rows = (
-        client.table("orders_with_buyer")
-        .select(fields)
-        .eq("selleremail", current_party_email)
-        .execute()
+        client.table("orders").select(fields).eq("seller_id", current_party_email).execute()
     )
     return (buyer_rows.data or []) + (seller_rows.data or [])
 
@@ -333,11 +324,14 @@ def _cache_order_record(order_id: str, record: dict[str, Any]) -> None:
 
 
 def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    buyer_email = _first_non_empty(row.get("buyer_id"), row.get("buyeremail"))
+    seller_email = _first_non_empty(row.get("seller_id"), row.get("selleremail"))
+
     payload = {
-        "buyerEmail": _normalize_email(row.get("buyeremail")),
-        "buyerName": row.get("buyername"),
-        "sellerEmail": _normalize_email(row.get("selleremail")),
-        "sellerName": row.get("sellername"),
+        "buyerEmail": _normalize_email(buyer_email),
+        "buyerName": _first_non_empty(row.get("buyername"), _resolve_party_name(buyer_email)),
+        "sellerEmail": _normalize_email(seller_email),
+        "sellerName": _first_non_empty(row.get("sellername"), _resolve_party_name(seller_email)),
         "currency": row.get("currency"),
         "issueDate": _coerce_date_string(row.get("issuedate")),
         "notes": row.get("notes"),
@@ -365,6 +359,8 @@ def _order_summary_from_database_row(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(order_id, str) or not order_id:
         raise OrderPersistenceError("Order row is missing order_id.")
 
+    buyer_email = _first_non_empty(row.get("buyer_id"), row.get("buyeremail"))
+    seller_email = _first_non_empty(row.get("seller_id"), row.get("selleremail"))
     created_at = _first_non_empty(row.get("createdat"), row.get("issuedate")) or now_z()
     updated_at = _first_non_empty(row.get("updatedat"), row.get("lastchanged"), created_at)
 
@@ -373,8 +369,8 @@ def _order_summary_from_database_row(row: dict[str, Any]) -> dict[str, Any]:
         "status": row.get("status") or "DRAFT",
         "createdAt": created_at,
         "updatedAt": updated_at,
-        "buyerName": row.get("buyername"),
-        "sellerName": row.get("sellername"),
+        "buyerName": _first_non_empty(row.get("buyername"), _resolve_party_name(buyer_email)),
+        "sellerName": _first_non_empty(row.get("sellername"), _resolve_party_name(seller_email)),
         "issueDate": _coerce_date_string(row.get("issuedate")),
     }
 
@@ -437,6 +433,25 @@ def _normalize_email(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip().lower()
+
+
+def _resolve_party_name(contact_email: Any) -> str | None:
+    from app.other import findPartyByContactEmail
+
+    normalized_email = _normalize_email(contact_email)
+    if normalized_email is None:
+        return None
+
+    try:
+        party = findPartyByContactEmail(normalized_email)
+    except Exception:
+        return normalized_email
+
+    if isinstance(party, dict):
+        party_name = party.get("party_name")
+        if isinstance(party_name, str) and party_name.strip():
+            return party_name.strip()
+    return normalized_email
 
 
 def _first_non_empty(*values: Any) -> str | None:

@@ -19,7 +19,7 @@ def get_supabase_client() -> Client:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         if not supabase_url:
-            raise RuntimeError("SUPABASE_URL is not configured.")  #
+            raise RuntimeError("SUPABASE_URL is not configured.")
         if not supabase_key:
             raise RuntimeError("SUPABASE_KEY is not configured.")
         _SUPABASE_HTTPX_CLIENT = httpx.Client(timeout=120.0)
@@ -69,6 +69,7 @@ def close_supabase_client() -> None:
 # creates an entry when orderid is empty, updates existing entry otherwise
 def saveOrder(
     buyeremail,
+    buyername,
     selleremail,
     sellername,
     deliverystreet,
@@ -88,9 +89,8 @@ def saveOrder(
     orderId=None,
 ):
     query = {
-        "buyeremail": buyeremail,
-        "selleremail": selleremail,
-        "sellername": sellername,
+        "buyer_id": buyeremail,
+        "seller_id": selleremail,
         "deliverystreet": deliverystreet,
         "deliverycity": deliverycity,
         "deliverystate": deliverystate,
@@ -127,9 +127,12 @@ def saveOrder(
     if updatedAt is not None:
         query["updatedat"] = updatedAt
 
-    query["buyeremail"] = buyeremail
-    query["selleremail"] = selleremail
-    query["sellername"] = sellername
+    # TODO remove if conditions when people have changeed their functions
+
+    if buyeremail:
+        query["buyer_id"] = buyeremail
+    if selleremail:
+        query["seller_id"] = selleremail
 
     try:
         response = get_supabase_client().table("orders").upsert(query).execute()
@@ -181,20 +184,16 @@ def findOrders(
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
-    query = get_supabase_client().table("orders_with_buyer").select("*", count="exact")
+    query = get_supabase_client().table("orders").select("*", count="exact")
 
     if orderId:
         query = query.eq("id", orderId)
     if externalOrderId:
         query = query.eq("order_id", externalOrderId)
     if buyeremail:
-        query = query.eq("buyeremail", buyeremail)
-    if buyername:
-        query = query.eq("buyername", buyername)
+        query = query.eq("buyer_id", buyeremail)
     if selleremail:
-        query = query.eq("selleremail", selleremail)
-    if sellername:
-        query = query.eq("sellername", sellername)
+        query = query.eq("seller_id", selleremail)
     if deliverystreet:
         query = query.eq("deliverystreet", deliverystreet)
     if deliverycity:
@@ -264,37 +263,57 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
     return grouped
 
 
-def findPartyByEmail(email):
+def findPartyByContactEmail(contactEmail):
     response = (
-        get_supabase_client().table("parties").select("*").eq("contact_email", email).execute()
+        get_supabase_client()
+        .table("parties")
+        .select("*")
+        .eq("contact_email", contactEmail)
+        .execute()
     )
-    return response.data[0] if response.data else None
+    row = response.data[0] if response.data else None
+    return _with_party_identity_alias(row)
+
+
+def findPartyByEmail(email):
+    return findPartyByContactEmail(email)
+
+
+def findPartyByPartyId(partyId):
+    # `partyId` is kept as a public API compatibility field, but the persisted
+    # identity is now the normalized contact email.
+    return findPartyByContactEmail(partyId)
 
 
 def findAppKeyByHash(keyHash):
     response = get_supabase_client().table("parties").select("*").eq("key_hash", keyHash).execute()
-    return response.data[0] if response.data else None
+    row = response.data[0] if response.data else None
+    return _with_party_identity_alias(row)
 
 
-def saveParty(partyid, partyName, contactEmail, keyHash):
+def saveParty(partyId, partyName, contactEmail, keyHash):
     response = (
         get_supabase_client()
         .table("parties")
-        .insert(
-            {
-                "party_id": partyid,
-                "party_name": partyName,
-                "contact_email": contactEmail,
-                "key_hash": keyHash,
-            }
-        )
+        .insert({"party_name": partyName, "contact_email": contactEmail, "key_hash": keyHash})
         .execute()
     )
-    return response.data[0]
+    return _with_party_identity_alias(response.data[0] if response.data else None)
 
 
-def deleteParty(email):
-    get_supabase_client().table("parties").delete().eq("contact_email", email).execute()
+def saveAppKey(partyId, keyHash):
+    response = (
+        get_supabase_client()
+        .table("parties")
+        .update({"key_hash": keyHash})
+        .eq("contact_email", partyId)
+        .execute()
+    )
+    return _with_party_identity_alias(response.data[0] if response.data else None)
+
+
+def deleteParty(partyId):
+    get_supabase_client().table("parties").delete().eq("contact_email", partyId).execute()
 
 
 def updateOrderRuntimeMetadata(
@@ -321,11 +340,6 @@ def updateOrderRuntimeMetadata(
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
-def findPartyByPartyId(partyId):
-    res = get_supabase_client().table("parties").select("*").eq("party_id", partyId).execute()
-    return res.data[0] if res.data else None
-
-
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
     get_supabase_client().table("orderdetails").delete().eq("orderid", orderId).execute()
@@ -346,3 +360,15 @@ def DBInfo():
 
 def _load_local_env_files() -> None:
     load_local_env_files()
+
+
+def _with_party_identity_alias(row):
+    if not row:
+        return None
+
+    normalized = dict(row)
+    contact_email = normalized.get("contact_email")
+    if isinstance(contact_email, str) and contact_email.strip():
+        normalized["contact_email"] = contact_email.strip().lower()
+        normalized.setdefault("party_id", normalized["contact_email"])
+    return normalized

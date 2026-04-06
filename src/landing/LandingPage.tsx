@@ -98,6 +98,9 @@ export function LandingPage() {
               </AppLink>
 
               <div className="landing-toolbar">
+                <AppLink href="/register" className="landing-button landing-button-secondary">
+                  Register
+                </AppLink>
                 <AppLink href="/orders" className="landing-button landing-button-secondary">
                   Orders
                 </AppLink>
@@ -121,6 +124,13 @@ export function LandingPage() {
               <div className="landing-mobile-nav-wrap">
                 <nav className="landing-mobile-nav" aria-label="Mobile">
                   <div className="landing-mobile-actions">
+                    <AppLink
+                      href="/register"
+                      className="landing-button landing-button-secondary"
+                      onClick={closeMenu}
+                    >
+                      Register
+                    </AppLink>
                     <AppLink
                       href="/orders"
                       className="landing-button landing-button-secondary"
@@ -166,6 +176,9 @@ export function LandingPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.4, delay: 0.08, ease: "easeOut" }}
                   >
+                    <AppLink href="/register" className="landing-button landing-button-secondary">
+                      Register
+                    </AppLink>
                     <AppLink href="/orders/create" className="landing-button landing-button-primary">
                       Create order
                     </AppLink>

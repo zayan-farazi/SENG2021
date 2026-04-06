@@ -3,6 +3,7 @@ import "./landing/landing.css";
 import { useEffect, useState } from "react";
 import { LandingPage } from "./landing/LandingPage";
 import { OrdersPlaceholderPage } from "./pages/OrdersPlaceholderPage";
+import { RegisterPage } from "./pages/RegisterPage";
 import { VoiceOrderDemo } from "./VoiceOrderDemo";
 
 function getCurrentPath(): string {
@@ -27,6 +28,8 @@ export function App() {
   }, []);
 
   switch (path) {
+    case "/register":
+      return <RegisterPage />;
     case "/orders":
       return <OrdersPlaceholderPage />;
     case "/orders/create":

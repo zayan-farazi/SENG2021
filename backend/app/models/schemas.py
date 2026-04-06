@@ -16,7 +16,7 @@ PARTY_REGISTRATION_REQUEST_EXAMPLE = {
 }
 
 PARTY_REGISTRATION_RESPONSE_EXAMPLE = {
-    "partyId": "acme-books",
+    "partyId": "orders@acmebooks.example",
     "partyName": "Acme Books",
     "appKey": "appkey_live_123example",
     "message": "Store this key securely. It will not be shown again.",

@@ -47,7 +47,7 @@ def tracked_supabase_records() -> Iterator[dict[str, list[str]]]:
                 client.table("orderdetails").delete().eq("orderid", row["id"]).execute()
                 client.table("orders").delete().eq("id", row["id"]).execute()
         for party_id in tracked["party_ids"]:
-            client.table("parties").delete().eq("party_id", party_id).execute()
+            client.table("parties").delete().eq("contact_email", party_id).execute()
 
     order_store.ORDERS.clear()
     other.close_supabase_client()
