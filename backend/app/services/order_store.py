@@ -134,6 +134,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
         delivery = req.delivery
         db_order_id = saveOrder(
             buyeremail=req.buyerEmail,
+            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
@@ -219,6 +220,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
         delivery = req.delivery
         saveOrder(
             buyeremail=req.buyerEmail,
+            buyername=req.buyerName,
             selleremail=req.sellerEmail,
             sellername=req.sellerName,
             deliverystreet=delivery.street if delivery else None,
