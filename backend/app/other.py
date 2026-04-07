@@ -16,11 +16,9 @@ def get_supabase_client() -> Client:
 
     if _SUPABASE_CLIENT is None:
         load_local_env_files()
-        #supabase_url = os.getenv("SUPABASE_URL")
-        #supabase_key = os.getenv("SUPABASE_KEY")
-        supabase_url = 'https://zfkanfxuznozqpqfxbly.supabase.co'
-        supabase_key = 'sb_publishable_jhMhN4VwzVrroJ202_ahAA_pChVwwnZ'
-        
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
+
         if not supabase_url:
             raise RuntimeError("SUPABASE_URL is not configured.")  #
         if not supabase_key:
