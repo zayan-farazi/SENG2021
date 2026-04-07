@@ -1,4 +1,4 @@
-.PHONY: all ci check lint format fix test test-unit test-integration coverage dev
+.PHONY: all ci check lint format fix test test-unit test-integration coverage report dev
 
 PYTHON := ./.venv/bin/python
 RUFF := $(PYTHON) -m ruff
@@ -36,6 +36,16 @@ test-integration: $(PYTHON)
 
 coverage: $(PYTHON)
 	$(PYTEST) --cov=app --cov-report=term-missing
+
+report: $(PYTHON)
+	mkdir -p reports
+	PYTHONPATH=. $(PYTEST) tests/unit tests/integration \
+		--cov=app \
+		--cov-report=html:htmlcov \
+		--cov-report=xml:coverage.xml \
+		--junitxml=reports/results.xml \
+		--html=reports/report.html \
+		--self-contained-html
 
 dev: $(PYTHON)
 	PYTHONPATH=. $(UVICORN) app.main:app --reload
