@@ -334,7 +334,7 @@ def findAppKeyByHash(keyHash):
     return _with_party_identity_alias(row)
 
 
-def saveParty(partyId, partyName, contactEmail, keyHash=None):
+def saveParty(partyName, contactEmail, keyHash=None):
     query = {"party_name": partyName, "contact_email": contactEmail}
     if keyHash is not None:
         query["key_hash"] = keyHash

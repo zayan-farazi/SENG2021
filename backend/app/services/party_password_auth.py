@@ -8,7 +8,7 @@ from app.models.schemas import (
     PartyLoginV2Request,
     PartyRegistrationV2Request,
 )
-from app.other import deleteParty, findPartyByContactEmail, saveAppKey, saveParty
+from app.other import deleteParty, findPartyByContactEmail, saveParty
 from app.services.party_registration import normalize_contact_email
 
 
@@ -40,8 +40,7 @@ def register_party_v2(req: PartyRegistrationV2Request) -> PartyAuthV2Response:
     password_hash = hash_password(req.password)
 
     try:
-        saveParty(party_id, req.partyName.strip(), normalized_email)
-        saveAppKey(party_id, password_hash)
+        saveParty(req.partyName.strip(), normalized_email, password_hash)
     except Exception as exc:  # noqa: BLE001
         try:
             deleteParty(party_id)
