@@ -807,7 +807,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                 <article className="create-page-panel create-page-state-panel">
                   <h2>Order locked</h2>
                   <p className="create-page-empty-copy">
-                    This order can no longer be updated because it is not in DRAFT status.
+                    This order is no longer editable and is now view-only.
                   </p>
                   <AppLink href="/orders" className="landing-button landing-button-secondary">
                     Back to dashboard
