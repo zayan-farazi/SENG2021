@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -202,6 +204,42 @@ def test_commit_is_blocked_when_required_fields_are_missing():
         ["sellerName"],
         ["lines"],
     ]
+
+
+def test_commit_blocked_errors_are_json_serializable_when_draft_contains_decimal_values():
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/order/draft/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "session.start",
+                    "payload": {
+                        "draft": {
+                            "buyerEmail": "buyer@example.com",
+                            "buyerName": "Acme Books",
+                            "sellerEmail": "seller@example.com",
+                            "sellerName": "Digital Book Supply",
+                            "lines": [
+                                {
+                                    "productName": "oranges",
+                                    "unitCode": "EA",
+                                    "unitPrice": str(Decimal("4.25")),
+                                }
+                            ],
+                        }
+                    },
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {"type": "session.commit", "payload": {"appKey": "appkey_test_value"}}
+            )
+
+            blocked = websocket.receive_json()
+
+    assert blocked["type"] == "commit.blocked"
+    assert blocked["payload"]["errors"][0]["loc"] == ["lines", 0, "quantity"]
+    assert blocked["payload"]["errors"][0]["input"]["unitPrice"] == 4.25
 
 
 def test_commit_succeeds_when_draft_is_valid(monkeypatch):

@@ -144,7 +144,8 @@ def test_http_endpoints_include_summaries_and_tags():
         "Log in with contact email and password"
     )
     assert (
-        schema["paths"]["/v1/order/create"]["post"]["summary"] == "Create an order (authenticated)"
+        schema["paths"]["/v1/order/create"]["post"]["summary"]
+        == "Create a draft order (authenticated)"
     )
     assert schema["paths"]["/v1/order/create"]["post"]["tags"] == ["Orders"]
     assert schema["paths"]["/v1/orders"]["get"]["summary"] == "List orders (authenticated)"
@@ -153,6 +154,10 @@ def test_http_endpoints_include_summaries_and_tags():
     )
     assert schema["paths"]["/v1/order/{order_id}/payload"]["get"]["summary"] == (
         "Get order payload (authenticated)"
+    )
+    assert (
+        schema["paths"]["/v1/order/{order_id}"]["put"]["summary"]
+        == "Save draft order updates (authenticated)"
     )
     assert schema["paths"]["/v1/order/{order_id}/ubl"]["get"]["summary"] == (
         "Get order UBL XML (authenticated)"
@@ -236,9 +241,12 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
 
     create_post = schema["paths"]["/v1/order/create"]["post"]
+    assert "Create a new draft order" in create_post["description"]
+    assert "remain editable in the current MVP" in create_post["description"]
     assert create_post["responses"]["201"]["content"]["application/json"]["example"]["orderId"] == (
         "ord_abc123def456"
     )
+    assert create_post["responses"]["201"]["description"] == "Draft order created successfully."
     assert "ublXml" not in create_post["responses"]["201"]["content"]["application/json"]["example"]
     assert (
         create_post["responses"]["401"]["content"]["application/json"]["example"]["detail"]
@@ -246,10 +254,13 @@ def test_endpoint_responses_include_examples_for_common_flows():
     )
 
     update_put = schema["paths"]["/v1/order/{order_id}"]["put"]
+    assert "Save changes to an existing draft order" in update_put["description"]
+    assert "Only orders in `DRAFT` status remain editable" in update_put["description"]
     assert (
         update_put["responses"]["200"]["content"]["application/json"]["example"]["updatedAt"]
         == "2026-03-14T11:00:00Z"
     )
+    assert update_put["responses"]["200"]["description"] == "Draft order updated successfully."
     assert "ublXml" not in update_put["responses"]["200"]["content"]["application/json"]["example"]
 
     get_order = schema["paths"]["/v1/order/{order_id}"]["get"]
@@ -371,7 +382,11 @@ def test_endpoint_responses_include_examples_for_common_flows():
 
     fetch_status = schema["components"]["schemas"]["OrderFetchResponse"]["properties"]["status"]
     assert (
-        "`DRAFT` means the order is editable and not finalized yet." in fetch_status["description"]
+        "`DRAFT` means the order is stored as an editable draft in the current MVP flow."
+        in fetch_status["description"]
+    )
+    assert (
+        "not user-reachable in the current backend MVP" in fetch_status["description"]
     )
     assert "`CANCELLED` means the order was cancelled." in fetch_status["description"]
     assert "/v1/orders/convert/csv" not in schema["paths"]

@@ -261,6 +261,32 @@
   font-size: 0.94rem;
 }
 
+.create-page-required-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.create-page-required-indicator {
+  color: #f0b1bc;
+  font-weight: 700;
+}
+
+.create-page-required-summary {
+  margin: 0;
+  color: #f2d594;
+}
+
+.create-page-required-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #f2d594;
+}
+
+.create-page-required-list li {
+  margin-bottom: 6px;
+}
+
 .create-page-full-width {
   grid-column: 1 / -1;
 }

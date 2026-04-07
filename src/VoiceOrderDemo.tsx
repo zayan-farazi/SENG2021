@@ -7,6 +7,7 @@ import {
   emptyDraft,
   emptyDraftState,
   emptyLineItem,
+  getDraftMissingFields,
   getBackendHttpUrl,
   getBackendWebSocketUrl,
   isDraftReadyForCommit,
@@ -17,13 +18,23 @@ import {
   type OrderResponse,
 } from "./voiceOrder";
 import { AppHeader } from "./components/AppHeader";
-import { deleteOrder, fetchEditableOrder, fetchOrderUblXml, updateExistingOrder } from "./orderApi";
+import {
+  createOrder,
+  deleteOrder,
+  fetchEditableOrder,
+  fetchOrderUblXml,
+  updateExistingOrder,
+} from "./orderApi";
 import "./create-order.css";
 import { useStoredSession } from "./session";
 
 type ServerEnvelope = {
   type: string;
   payload: any;
+};
+
+type CommitBlockedError = {
+  loc?: Array<string | number>;
 };
 
 type BrowserSpeechRecognition = SpeechRecognition;
@@ -94,6 +105,35 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const pushDiagnostic = (level: DiagnosticLevel, text: string) => {
     setDiagnostics(current => [...current.slice(-7), { level, text }]);
   };
+
+  const describeCommitBlocked = (errors: CommitBlockedError[] | undefined) => {
+    if (!Array.isArray(errors) || errors.length === 0) {
+      return "The draft is missing required fields.";
+    }
+
+    const fields = errors
+      .map(error => {
+        const first = error.loc?.[0];
+        return typeof first === "string" ? first : null;
+      })
+      .filter((field): field is string => field !== null);
+
+    if (fields.length === 0) {
+      return "The draft is missing required fields.";
+    }
+
+    const uniqueFields = [...new Set(fields)];
+    return `Complete the required fields before creating the draft order: ${uniqueFields.join(", ")}.`;
+  };
+
+  const formatRequiredFieldLabel = (label: string) => (
+    <span className="create-page-required-label">
+      {label}
+      <span className="create-page-required-indicator" aria-hidden="true">
+        *
+      </span>
+    </span>
+  );
 
   const sendSocketEvent = (type: string, payload: Record<string, unknown> = {}) => {
     const socket = socketRef.current;
@@ -176,12 +216,13 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         case "commit.blocked":
           applyServerState(envelope.payload.state as DraftState);
           setConnectionMessage("The draft is missing required fields.");
+          setErrorMessage(describeCommitBlocked(envelope.payload.errors as CommitBlockedError[]));
           pushDiagnostic("warning", "Commit blocked by backend validation.");
           return;
         case "order.created":
           applyServerState(envelope.payload.state as DraftState);
           setLastOrder(envelope.payload.order as OrderResponse);
-          setConnectionMessage("Order created successfully.");
+          setConnectionMessage("Draft order created successfully.");
           setErrorMessage(null);
           pushDiagnostic("info", "Received order.created.");
           return;
@@ -455,18 +496,48 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     pushDiagnostic("info", "Microphone stop requested.");
   };
 
-  const commitDraft = () => {
+  const commitDraft = async () => {
     if (!storedSession?.credential || !storedSession.contactEmail) {
-      const message = "Log in or register a party first before confirming an order.";
+      const message = "Log in or register a party first before creating a draft order.";
       setErrorMessage(message);
       pushDiagnostic("warning", "Commit blocked until credentials are stored locally.");
       return;
     }
 
-    sendSocketEvent("session.commit", {
-      contactEmail: storedSession.contactEmail,
-      credential: storedSession.credential,
-    });
+    const payload = draftToOrderRequest(draftState.draft);
+    if (!payload) {
+      const message = "Complete the required fields before creating the draft order.";
+      setErrorMessage(message);
+      pushDiagnostic("warning", "Create blocked until the draft is complete.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setConnectionMessage("Creating draft order...");
+
+    try {
+      const result = await createOrder(storedSession, payload);
+      const ublXml = await fetchOrderUblXml(storedSession, result.orderId).catch(() => "");
+      setLastOrder({
+        orderId: result.orderId,
+        status: result.status,
+        createdAt: result.createdAt,
+        ublXml,
+        warnings: [],
+      });
+      setConnectionMessage("Draft order created successfully.");
+      pushDiagnostic("info", `Created draft order ${result.orderId}.`);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.startsWith("order-create:403:")
+          ? error.message.slice("order-create:403:".length) ||
+            "You do not have permission to create this draft order."
+          : error instanceof Error && error.message.startsWith("order-create:401:")
+            ? "Log in or register a party first before creating a draft order."
+            : "Unable to create the draft order.";
+      setErrorMessage(message);
+      pushDiagnostic("error", `Draft order create failed: ${message}`);
+    }
   };
 
   const updateOrder = async () => {
@@ -476,14 +547,14 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
     const payload = draftToOrderRequest(draftState.draft);
     if (!payload) {
-      const message = "Complete the required fields before updating the order.";
+      const message = "Complete the required fields before saving the draft.";
       setErrorMessage(message);
       pushDiagnostic("warning", "Update blocked until the draft is complete.");
       return;
     }
 
     setErrorMessage(null);
-    setConnectionMessage("Updating order...");
+    setConnectionMessage("Saving draft...");
 
     try {
       const result = await updateExistingOrder(storedSession, orderId, payload);
@@ -510,17 +581,17 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         updatedAt: result.updatedAt,
         ublXml,
       });
-      setConnectionMessage("Order updated successfully.");
-      pushDiagnostic("info", `Updated order ${result.orderId}.`);
+      setConnectionMessage("Draft updated successfully.");
+      pushDiagnostic("info", `Updated draft ${result.orderId}.`);
     } catch (error) {
       const message =
         error instanceof Error && error.message.startsWith("order-update:409:")
-          ? error.message.slice("order-update:409:".length) || "Order can no longer be updated."
+          ? error.message.slice("order-update:409:".length) || "Draft can no longer be updated."
           : error instanceof Error && error.message === "order-update:404:"
-            ? "The order could not be found."
-            : "Unable to update the order.";
+            ? "The draft order could not be found."
+            : "Unable to save the draft.";
       setErrorMessage(message);
-      pushDiagnostic("error", `Order update failed: ${message}`);
+      pushDiagnostic("error", `Draft save failed: ${message}`);
     }
   };
 
@@ -585,18 +656,19 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const requestPayload = draftToOrderRequest(draftState.draft);
+  const missingRequiredFields = getDraftMissingFields(draftState.draft);
   const pageTitle = isEditMode
     ? "Edit the order. Keep the live draft in sync."
     : "Speak the order. Watch the draft settle in real time.";
   const pageDescription = isEditMode
-    ? "Use live transcript input or manual edits to refine the existing order, then save the updated payload back to the backend."
-    : "Use browser speech recognition or manual edits to build the order draft, keep it in sync with the websocket session, and confirm the final order once the required fields are complete.";
-  const primaryActionLabel = isEditMode ? "Update order" : "Confirm order";
+    ? "Use live transcript input or manual edits to refine the existing draft order, then save the updated draft back to the backend."
+    : "Use browser speech recognition or manual edits to build the draft order and keep it in sync with the websocket session before saving it.";
+  const primaryActionLabel = isEditMode ? "Save draft" : "Create draft order";
   const resetActionLabel = isEditMode ? "Reset changes" : "Reset draft";
-  const resultTitle = isEditMode ? "Updated order" : "Created order";
+  const resultTitle = isEditMode ? "Updated draft" : "Created draft";
   const resultEmptyCopy = isEditMode
-    ? "Save the draft to update the order."
-    : "Confirm the draft to create an order.";
+    ? "Save the draft to update the stored draft order."
+    : "Create the draft order once the required fields are complete.";
   const introStatusNote = editableOrderMeta
     ? `Order ${editableOrderMeta.orderId} · ${editableOrderMeta.status}`
     : null;
@@ -654,7 +726,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                 disabled={
                   isEditMode
                     ? editLoadState !== "ready" || requestPayload === null
-                    : !isDraftReadyForCommit(draftState.draft) || connectionStatus !== "connected"
+                    : !isDraftReadyForCommit(draftState.draft)
                 }
               >
                 {primaryActionLabel}
@@ -691,6 +763,23 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
             {errorMessage ? (
               <section className="create-page-banner create-page-banner-error" role="alert">
                 {errorMessage}
+              </section>
+            ) : null}
+
+            {(!isEditMode || editLoadState === "ready") && missingRequiredFields.length > 0 ? (
+              <section
+                className="create-page-banner create-page-banner-warning"
+                aria-live="polite"
+              >
+                <p className="create-page-required-summary">
+                  Fields marked * are required before {isEditMode ? "saving" : "creating"} the
+                  draft order.
+                </p>
+                <ul className="create-page-required-list">
+                  {missingRequiredFields.map(field => (
+                    <li key={field}>{field}</li>
+                  ))}
+                </ul>
               </section>
             ) : null}
 
@@ -940,36 +1029,59 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                       <p>Manual edits still sync through the websocket session while you type.</p>
                     </div>
                   </header>
-                  {isEditMode ? (
-                    <section className="create-page-subsection create-page-subsection-compact">
-                      <div className="create-page-subsection-header">
+                  <section className="create-page-subsection create-page-subsection-compact">
+                    <div className="create-page-subsection-header">
+                      <div>
                         <h3>Participants</h3>
+                        <p>Fields marked * are required.</p>
                       </div>
-                      <div className="create-page-form-grid">
-                        <label>
-                          Buyer email
-                          <input readOnly value={draftState.draft.buyerEmail ?? ""} />
-                        </label>
-                        <label>
-                          Seller email
-                          <input readOnly value={draftState.draft.sellerEmail ?? ""} />
-                        </label>
-                      </div>
-                    </section>
-                  ) : null}
+                    </div>
+                    <div className="create-page-form-grid">
+                      <label>
+                        {formatRequiredFieldLabel("Buyer email")}
+                        <input
+                          aria-label="Buyer email"
+                          aria-required="true"
+                          aria-invalid={!draftState.draft.buyerEmail?.trim()}
+                          readOnly={isEditMode}
+                          value={draftState.draft.buyerEmail ?? ""}
+                          onChange={event =>
+                            updateDraftField("buyerEmail", nullableText(event.target.value))
+                          }
+                        />
+                      </label>
+                      <label>
+                        {formatRequiredFieldLabel("Seller email")}
+                        <input
+                          aria-label="Seller email"
+                          aria-required="true"
+                          aria-invalid={!draftState.draft.sellerEmail?.trim()}
+                          readOnly={isEditMode}
+                          value={draftState.draft.sellerEmail ?? ""}
+                          onChange={event =>
+                            updateDraftField("sellerEmail", nullableText(event.target.value))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </section>
                   <div className="create-page-form-grid">
                     <label>
-                      Buyer name
+                      {formatRequiredFieldLabel("Buyer name")}
                       <input
                         aria-label="Buyer name"
+                        aria-required="true"
+                        aria-invalid={!draftState.draft.buyerName?.trim()}
                         value={draftState.draft.buyerName ?? ""}
                         onChange={event => updateDraftField("buyerName", nullableText(event.target.value))}
                       />
                     </label>
                     <label>
-                      Seller name
+                      {formatRequiredFieldLabel("Seller name")}
                       <input
                         aria-label="Seller name"
+                        aria-required="true"
+                        aria-invalid={!draftState.draft.sellerName?.trim()}
                         value={draftState.draft.sellerName ?? ""}
                         onChange={event => updateDraftField("sellerName", nullableText(event.target.value))}
                       />
@@ -1081,9 +1193,11 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                         {draftState.draft.lines.map((line, index) => (
                           <div className="create-page-line-item-card" key={`line-${index}`}>
                             <label>
-                              Product
+                              {formatRequiredFieldLabel("Product")}
                               <input
                                 aria-label={`Line ${index + 1} product`}
+                                aria-required="true"
+                                aria-invalid={!line.productName?.trim()}
                                 value={line.productName ?? ""}
                                 onChange={event =>
                                   updateLineItem(index, {
@@ -1093,9 +1207,11 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                               />
                             </label>
                             <label>
-                              Quantity
+                              {formatRequiredFieldLabel("Quantity")}
                               <input
                                 aria-label={`Line ${index + 1} quantity`}
+                                aria-required="true"
+                                aria-invalid={(line.quantity ?? 0) <= 0}
                                 type="number"
                                 min="1"
                                 value={line.quantity ?? ""}

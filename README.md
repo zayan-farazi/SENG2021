@@ -50,6 +50,12 @@ If you want to override it explicitly:
 BUN_PUBLIC_BACKEND_URL=http://localhost:8000 bun dev
 ```
 
+## Current MVP flow
+
+The current frontend and API expose a draft-order MVP. Users can create, edit, view, and delete
+orders while they remain in `DRAFT` status. Submission/finalization plus downstream invoice and
+despatch generation are planned for the next sprint and are not part of the current runtime flow.
+
 ## Deployment
 
 ### Backend on Render

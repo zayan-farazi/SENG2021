@@ -15,6 +15,12 @@ export type OrderUpdateResult = {
   updatedAt: string;
 };
 
+export type OrderCreateResult = {
+  orderId: string;
+  status: string;
+  createdAt: string;
+};
+
 function buildAuthenticatedHeaders(session: StoredSession): HeadersInit {
   return {
     Authorization: `Bearer ${session.credential}`,
@@ -60,6 +66,30 @@ export async function updateExistingOrder(
   }
 
   return (await response.json()) as OrderUpdateResult;
+}
+
+export async function createOrder(
+  session: StoredSession,
+  payload: OrderRequestPayload,
+): Promise<OrderCreateResult> {
+  const response = await fetch(`${getBackendHttpUrl()}/v1/order/create`, {
+    method: "POST",
+    headers: {
+      ...buildAuthenticatedHeaders(session),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then(body => body?.detail)
+      .catch(() => undefined);
+    throw new Error(`order-create:${response.status}:${typeof detail === "string" ? detail : ""}`);
+  }
+
+  return (await response.json()) as OrderCreateResult;
 }
 
 export async function fetchOrderUblXml(session: StoredSession, orderId: string): Promise<string> {

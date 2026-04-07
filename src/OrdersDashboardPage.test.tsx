@@ -131,6 +131,11 @@ describe("Orders dashboard", () => {
       expect(screen.getByText("$148.50")).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: /value comparison/i })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: /recent status mix/i })).toBeInTheDocument();
+      expect(
+        screen
+          .getAllByRole("link", { name: /create draft order/i })
+          .some(link => link.getAttribute("href") === "/orders/create"),
+      ).toBe(true);
       expect(screen.getByRole("link", { name: /edit/i })).toHaveAttribute(
         "href",
         "/orders/ord_123/edit",

@@ -135,7 +135,7 @@ app = FastAPI(
         '  "message": "Store this key securely. It will not be shown again."\n'
         "}\n"
         "```\n\n"
-        "### 2. Create an order with the legacy `v1` app key\n"
+        "### 2. Create a draft order with the legacy `v1` app key\n"
         "Purpose: create a draft order using the same buyer identity and a seller email/name.\n\n"
         "```bash\n"
         "curl -X POST '<baseUrl>/v1/order/create' \\\n"
@@ -175,8 +175,8 @@ app = FastAPI(
         '  "createdAt": "2026-03-14T10:30:00Z"\n'
         "}\n"
         "```\n\n"
-        "### 3. Create an order with the `v2` password flow\n"
-        "Purpose: call the same protected order endpoint using the `v2` password plus "
+        "### 3. Create a draft order with the `v2` password flow\n"
+        "Purpose: call the same protected draft-order endpoint using the `v2` password plus "
         "`X-Party-Email`.\n\n"
         "```bash\n"
         "curl -X POST '<baseUrl>/v1/order/create' \\\n"
