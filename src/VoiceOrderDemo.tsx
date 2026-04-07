@@ -71,6 +71,7 @@ type LockedOrderState = {
 };
 
 type EditLoadState = "loading" | "ready" | "locked" | "error";
+const MANUAL_DRAFT_SYNC_DEBOUNCE_MS = 250;
 
 export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const isEditMode = Boolean(orderId);
@@ -98,6 +99,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const socketRef = useRef<WebSocket | null>(null);
   const socketSequenceRef = useRef(0);
   const seededDraftOrderIdRef = useRef<string | null>(null);
+  const pendingDraftSyncTimerRef = useRef<number | null>(null);
+  const pendingDraftSyncRef = useRef<OrderDraft | null>(null);
   const websocketUrl = getBackendWebSocketUrl();
   const backendHttpUrl = getBackendHttpUrl();
   const storedSession = useStoredSession();
@@ -147,9 +150,36 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     pushDiagnostic("info", `Sent ${type}.`);
   };
 
-  const applyServerState = (state: DraftState) => {
-    setDraftState(normalizeDraftState(state));
+  const applyServerState = (state: DraftState, preserveLocalDraft = false) => {
+    const normalizedState = normalizeDraftState(state);
+    setDraftState(current =>
+      preserveLocalDraft ? { ...normalizedState, draft: current.draft } : normalizedState,
+    );
     setConnectionStatus(state.connectionStatus || "connected");
+  };
+
+  const clearPendingDraftSync = () => {
+    if (pendingDraftSyncTimerRef.current !== null) {
+      window.clearTimeout(pendingDraftSyncTimerRef.current);
+      pendingDraftSyncTimerRef.current = null;
+    }
+  };
+
+  const flushPendingDraftSync = () => {
+    const nextDraft = pendingDraftSyncRef.current;
+    clearPendingDraftSync();
+    pendingDraftSyncRef.current = null;
+    if (nextDraft) {
+      sendSocketEvent("draft.patch", { draft: nextDraft });
+    }
+  };
+
+  const queueDraftSync = (nextDraft: OrderDraft) => {
+    pendingDraftSyncRef.current = nextDraft;
+    clearPendingDraftSync();
+    pendingDraftSyncTimerRef.current = window.setTimeout(() => {
+      flushPendingDraftSync();
+    }, MANUAL_DRAFT_SYNC_DEBOUNCE_MS);
   };
 
   useEffect(() => {
@@ -204,7 +234,10 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
           pushDiagnostic("info", `Received transcript echo (${envelope.payload.kind}).`);
           return;
         case "draft.updated":
-          applyServerState(envelope.payload.state as DraftState);
+          applyServerState(
+            envelope.payload.state as DraftState,
+            pendingDraftSyncTimerRef.current !== null,
+          );
           setConnectionMessage(
             envelope.payload.appliedChanges.length > 0
               ? envelope.payload.appliedChanges.join(" ")
@@ -267,6 +300,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       if (socket.readyState === WebSocket.OPEN) {
         socket.close();
       }
+
+      clearPendingDraftSync();
+      pendingDraftSyncRef.current = null;
     };
   }, [websocketUrl]);
 
@@ -412,10 +448,13 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       return;
     }
 
-    patchDraft({
-      ...draftState.draft,
-      buyerEmail: storedSession.contactEmail,
-    });
+    patchDraft(
+      {
+        ...draftState.draft,
+        buyerEmail: storedSession.contactEmail,
+      },
+      "immediate",
+    );
   }, [
     connectionStatus,
     draftState.draft,
@@ -437,14 +476,20 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       return;
     }
 
-    patchDraft(initialDraftSnapshot);
+    patchDraft(initialDraftSnapshot, "immediate");
     seededDraftOrderIdRef.current = orderId;
     pushDiagnostic("info", "Seeded the websocket draft with the stored order.");
   }, [connectionStatus, editLoadState, initialDraftSnapshot, isEditMode, orderId]);
 
-  const patchDraft = (nextDraft: OrderDraft) => {
+  const patchDraft = (nextDraft: OrderDraft, syncMode: "debounced" | "immediate" = "debounced") => {
     setDraftState(current => ({ ...current, draft: nextDraft }));
-    sendSocketEvent("draft.patch", { draft: nextDraft });
+    if (syncMode === "immediate") {
+      pendingDraftSyncRef.current = null;
+      clearPendingDraftSync();
+      sendSocketEvent("draft.patch", { draft: nextDraft });
+      return;
+    }
+    queueDraftSync(nextDraft);
   };
 
   const updateDraftField = (field: keyof OrderDraft, value: string | null) => {
@@ -485,6 +530,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     }
 
     setErrorMessage(null);
+    flushPendingDraftSync();
     pushDiagnostic("info", "Microphone start requested.");
     recognitionRef.current.start();
     setListening(true);
@@ -608,6 +654,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         currentPartial: "",
       }));
       sendSocketEvent("session.reset");
+      pendingDraftSyncRef.current = null;
+      clearPendingDraftSync();
       sendSocketEvent("draft.patch", { draft: initialDraftSnapshot });
       pushDiagnostic("info", "Reset the draft back to the stored order snapshot.");
       return;

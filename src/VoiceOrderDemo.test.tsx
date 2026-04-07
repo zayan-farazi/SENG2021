@@ -108,6 +108,7 @@ describe("VoiceOrderDemo", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -435,7 +436,9 @@ describe("VoiceOrderDemo", () => {
     );
   });
 
-  it("pushes manual draft edits back through the websocket", () => {
+  it("debounces manual draft edits before syncing them through the websocket", () => {
+    vi.useFakeTimers();
+
     render(<VoiceOrderDemo />);
     const socket = openSocket();
 
@@ -444,6 +447,13 @@ describe("VoiceOrderDemo", () => {
     });
 
     fireEvent.change(screen.getByLabelText(/^Buyer name$/i), { target: { value: "Acme Books" } });
+
+    expect(screen.getByLabelText(/^Buyer name$/i)).toHaveValue("Acme Books");
+    expect(socket.sentMessages).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
 
     expect(JSON.parse(socket.sentMessages.at(-1) ?? "{}")).toEqual({
       type: "draft.patch",
