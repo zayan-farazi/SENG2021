@@ -385,9 +385,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
         "`DRAFT` means the order is stored as an editable draft in the current MVP flow."
         in fetch_status["description"]
     )
-    assert (
-        "not user-reachable in the current backend MVP" in fetch_status["description"]
-    )
+    assert "not user-reachable in the current backend MVP" in fetch_status["description"]
     assert "`CANCELLED` means the order was cancelled." in fetch_status["description"]
     assert "/v1/orders/convert/csv" not in schema["paths"]
 
