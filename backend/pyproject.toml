@@ -41,4 +41,5 @@ dev = [
     "ruff>=0.14.0",
     "supabase>=2.18.1",
     "uvicorn[standard]>=0.41.0",
+    "pytest-html>=4.2.0",
 ]
