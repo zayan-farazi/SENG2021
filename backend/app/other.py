@@ -334,13 +334,12 @@ def findAppKeyByHash(keyHash):
     return _with_party_identity_alias(row)
 
 
-def saveParty(partyId, partyName, contactEmail, keyHash):
-    response = (
-        get_supabase_client()
-        .table("parties")
-        .insert({"party_name": partyName, "contact_email": contactEmail, "key_hash": keyHash})
-        .execute()
-    )
+def saveParty(partyId, partyName, contactEmail, keyHash=None):
+    query = {"party_name": partyName, "contact_email": contactEmail}
+    if keyHash is not None:
+        query["key_hash"] = keyHash
+
+    response = get_supabase_client().table("parties").insert(query).execute()
     return _with_party_identity_alias(response.data[0] if response.data else None)
 
 
