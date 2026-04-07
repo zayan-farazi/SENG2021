@@ -933,9 +933,9 @@ TRANSCRIPT_CONVERSION_REQUEST_EXAMPLE = {
 }
 
 ORDER_STATUS_DESCRIPTION = (
-    "Order lifecycle status. `DRAFT` means the order is editable and not finalized yet. "
-    "`PENDING` means it is awaiting processing or fulfillment. `SUBMITTED`, `COMPLETE`, "
-    "and `COMPLETED` are treated as completed/non-editable states in the current backend. "
+    "Order lifecycle status. `DRAFT` means the order is stored as an editable draft in the "
+    "current MVP flow. `PENDING`, `SUBMITTED`, `COMPLETE`, and `COMPLETED` are reserved for "
+    "future lifecycle stages and are not user-reachable in the current backend MVP. "
     "`CANCELLED` means the order was cancelled."
 )
 

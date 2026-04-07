@@ -50,6 +50,12 @@ If you want to override it explicitly:
 BUN_PUBLIC_BACKEND_URL=http://localhost:8000 bun dev
 ```
 
+## Current MVP flow
+
+The current frontend and API expose a draft-order MVP. Users can create, edit, view, and delete
+orders while they remain in `DRAFT` status. Submission/finalization plus downstream invoice and
+despatch generation are planned for the next sprint and are not part of the current runtime flow.
+
 ## Deployment
 
 ### Backend on Render
@@ -101,3 +107,33 @@ BUN_PUBLIC_BACKEND_URL=https://your-render-backend.onrender.com
 ```
 
 `BUN_PUBLIC_BACKEND_URL` is the deployed backend origin. The frontend will derive the websocket endpoint from it automatically, so `https://...` becomes `wss://.../v1/order/draft/ws`.
+
+### Frontend on Railway
+
+Deploy the repo root as a separate Railway service.
+
+- Root directory: repo root
+- Build command: `bun install --frozen-lockfile && bun run build`
+- Start command: `bun run start`
+
+The root `start` script serves the built SPA from `dist`:
+
+```bash
+serve -s dist -l ${PORT:-3000}
+```
+
+Set this Railway frontend environment variable:
+
+```bash
+BUN_PUBLIC_BACKEND_URL=https://your-backend-service.up.railway.app
+```
+
+This should point at the deployed backend origin. The frontend will derive the websocket endpoint from it automatically, so `https://...` becomes `wss://.../v1/order/draft/ws`.
+
+If the backend is also deployed on Railway, make sure the backend service has:
+
+```bash
+ALLOWED_ORIGINS=https://your-frontend-service.up.railway.app
+```
+
+Use the exact deployed frontend origin, including `https://`, so browser requests and websockets pass the backend CORS checks.

@@ -119,11 +119,39 @@ export const emptyDraftState = (): DraftState => ({
 });
 
 export function isDraftReadyForCommit(draft: OrderDraft): boolean {
-  if (!draft.buyerName || !draft.sellerName || draft.lines.length === 0) {
-    return false;
+  return draftToOrderRequest(draft) !== null;
+}
+
+export function getDraftMissingFields(draft: OrderDraft): string[] {
+  const missingFields: string[] = [];
+
+  if (!draft.buyerEmail?.trim()) {
+    missingFields.push("Buyer email");
+  }
+  if (!draft.buyerName?.trim()) {
+    missingFields.push("Buyer name");
+  }
+  if (!draft.sellerEmail?.trim()) {
+    missingFields.push("Seller email");
+  }
+  if (!draft.sellerName?.trim()) {
+    missingFields.push("Seller name");
+  }
+  if (draft.lines.length === 0) {
+    missingFields.push("At least one line item");
   }
 
-  return draft.lines.every(line => Boolean(line.productName?.trim()) && (line.quantity ?? 0) > 0);
+  draft.lines.forEach((line, index) => {
+    const itemNumber = index + 1;
+    if (!line.productName?.trim()) {
+      missingFields.push(`Line ${itemNumber} product`);
+    }
+    if ((line.quantity ?? 0) <= 0) {
+      missingFields.push(`Line ${itemNumber} quantity`);
+    }
+  });
+
+  return missingFields;
 }
 
 export function draftToOrderRequest(draft: OrderDraft): OrderRequestPayload | null {

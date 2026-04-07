@@ -12,6 +12,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from pydantic import ValidationError
 
@@ -130,15 +131,17 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
     "/v1/order/create",
     response_model=OrderCreateResponse,
     status_code=201,
-    summary="Create an order (authenticated)",
+    summary="Create a draft order (authenticated)",
     description=(
-        "Create a new order as either the buyer or the seller. "
+        "Create a new draft order as either the buyer or the seller. "
         f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Include the caller's registered email as either "
-        "`buyerEmail` or `sellerEmail` in the request body."
+        "`buyerEmail` or `sellerEmail` in the request body. New orders are created in `DRAFT` "
+        "status and remain editable in the current MVP until a future submit/finalize step is "
+        "introduced."
     ),
     responses={
         201: {
-            "description": "Order created successfully.",
+            "description": "Draft order created successfully.",
             "content": {"application/json": {"example": ORDER_CREATE_RESPONSE_EXAMPLE}},
         },
         400: VALIDATION_FAILURE_RESPONSE,
@@ -442,7 +445,10 @@ async def _handle_commit(
         await websocket.send_json(
             {
                 "type": "commit.blocked",
-                "payload": {"errors": errors, "state": serialize_state(state)},
+                "payload": {
+                    "errors": jsonable_encoder(errors),
+                    "state": serialize_state(state),
+                },
             }
         )
         return
@@ -639,15 +645,16 @@ def get_order_ubl(order_id: str, current_party_email: str = Depends(get_current_
 @router.put(
     "/v1/order/{order_id}",
     response_model=OrderUpdateResponse,
-    summary="Update an order (authenticated)",
+    summary="Save draft order updates (authenticated)",
     description=(
-        "Update an existing order as either the buyer or the seller. "
+        "Save changes to an existing draft order as either the buyer or the seller. "
         f"{PROTECTED_ORDER_AUTH_DESCRIPTION} `buyerEmail` and `sellerEmail` are immutable after "
-        "create; changing parties requires a new order."
+        "create; changing parties requires a new order. Only orders in `DRAFT` status remain "
+        "editable in the current MVP flow."
     ),
     responses={
         200: {
-            "description": "Order updated successfully.",
+            "description": "Draft order updated successfully.",
             "content": {"application/json": {"example": ORDER_UPDATE_RESPONSE_EXAMPLE}},
         },
         400: VALIDATION_FAILURE_RESPONSE,

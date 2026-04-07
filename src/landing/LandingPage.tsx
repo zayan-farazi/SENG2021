@@ -35,7 +35,7 @@ const features = [
     icon: GlobeIcon,
     title: "Convert transcripts into drafts",
     description:
-      "Turn transcript text into a structured order payload before committing the final order.",
+      "Turn transcript text into a structured draft payload before saving the draft order.",
   },
   {
     icon: ScrollText,
@@ -67,12 +67,12 @@ const workflow = [
   {
     title: "Prepare the order",
     description:
-      "Use manual entry, transcript conversion, or voice-assisted drafting to build the order payload.",
+      "Use manual entry, transcript conversion, or voice-assisted drafting to build the draft order payload.",
   },
   {
     title: "Retrieve the result",
     description:
-      "Read the order in JSON form, fetch the UBL XML, or review analytics for the same party.",
+      "Read the saved draft order in JSON form, fetch the UBL XML, or review analytics for the same party.",
   },
 ];
 
@@ -130,7 +130,7 @@ export function LandingPage() {
                     ) : (
                       <>
                         <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                          Create order
+                          Create draft order
                         </AppLink>
                         <AppLink href="/orders" className="landing-button landing-button-secondary">
                           View orders
@@ -210,13 +210,14 @@ export function LandingPage() {
                   Start with the existing draft flow
                 </h2>
                 <p>
-                  The create route and voice-assisted draft flow are already live. The orders area can
-                  expand from the same frontend foundation next.
+                  The draft-order creation route and voice-assisted draft flow are already live.
+                  Submit/finalize plus invoice and despatch generation are planned for the next
+                  sprint.
                 </p>
               </div>
               <div className="landing-actions landing-actions-inline">
                 <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                  Open create flow
+                  Open draft flow
                 </AppLink>
                 <AppLink href="/orders" className="landing-button landing-button-secondary">
                   Open orders area

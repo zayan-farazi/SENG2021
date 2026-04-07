@@ -840,7 +840,7 @@ function RecentOrdersTable({
         <p>No orders yet.</p>
         <div className="orders-dashboard-range-actions">
           <AppLink href="/orders/create" className="landing-button landing-button-primary">
-            Create order
+            Create draft order
           </AppLink>
         </div>
       </section>
@@ -854,7 +854,7 @@ function RecentOrdersTable({
         <div className="orders-dashboard-table-actions">
           <span className="orders-dashboard-table-meta">Total available: {orders.page.total}</span>
           <AppLink href="/orders/create" className="landing-button landing-button-secondary">
-            Create order
+            Create draft order
           </AppLink>
         </div>
       </div>
@@ -1195,7 +1195,7 @@ export function OrdersPlaceholderPage() {
                       Search
                     </button>
                     <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                      Create order
+                      Create draft order
                     </AppLink>
                     <button
                       type="button"
@@ -1256,10 +1256,10 @@ export function OrdersPlaceholderPage() {
             ) : analytics && isNoOrdersResponse(analytics) ? (
               <section className="orders-dashboard-empty">
                 <h2>No orders in range</h2>
-                <p>Widen the range or create an order.</p>
+                <p>Widen the range or create a draft order.</p>
                 <div className="orders-dashboard-range-actions">
                   <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                    Create order
+                    Create draft order
                   </AppLink>
                 </div>
               </section>

@@ -219,10 +219,17 @@ describe("VoiceOrderDemo", () => {
     );
   });
 
-  it("keeps confirm disabled until the draft is valid", () => {
+  it("keeps create draft disabled until the draft is valid", () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
     render(<VoiceOrderDemo />);
     const socket = openSocket();
-    const confirm = screen.getByRole("button", { name: /confirm order/i });
+    const confirm = screen.getByRole("button", { name: /create draft order/i });
 
     act(() => {
       socket.emitMessage({ type: "session.ready", payload: draftStatePatch() });
@@ -235,7 +242,9 @@ describe("VoiceOrderDemo", () => {
         payload: {
           appliedChanges: ["Draft updated from form."],
           state: draftStatePatch({
+            buyerEmail: "buyer@example.com",
             buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
             sellerName: "Digital Book Supply",
             lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
           }),
@@ -246,7 +255,144 @@ describe("VoiceOrderDemo", () => {
     expect(confirm).toBeEnabled();
   });
 
-  it("sends websocket commit requests and renders created order details", () => {
+  it("shows required field guidance and allows a fully manual draft to become creatable", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    render(<VoiceOrderDemo />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({ type: "session.ready", payload: draftStatePatch() });
+    });
+
+    expect(
+      screen.getByText(/fields marked \* are required before creating the draft order/i),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Seller email$/i)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Buyer email$/i)).toHaveValue("buyer@example.com");
+    });
+
+    const confirm = screen.getByRole("button", { name: /create draft order/i });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^Seller email$/i), {
+      target: { value: "seller@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Buyer name$/i), {
+      target: { value: "Acme Books" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Seller name$/i), {
+      target: { value: "Digital Book Supply" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add line item/i }));
+    fireEvent.change(screen.getByLabelText(/line 1 product/i), {
+      target: { value: "Oranges" },
+    });
+    fireEvent.change(screen.getByLabelText(/line 1 quantity/i), {
+      target: { value: "2" },
+    });
+
+    await waitFor(() => {
+      expect(confirm).toBeEnabled();
+    });
+  });
+
+  it("creates draft orders through the REST endpoint and renders created draft details", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_demo1234567890",
+          status: "DRAFT",
+          createdAt: "2026-03-07T00:00:00Z",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<Order />",
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VoiceOrderDemo />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({
+        type: "session.ready",
+        payload: draftStatePatch({
+          buyerEmail: "buyer@example.com",
+          buyerName: "Acme Books",
+          sellerEmail: "seller@example.com",
+          sellerName: "Digital Book Supply",
+          lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
+        }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create draft order/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        "http://localhost:8000/v1/order/create",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer super-secure-password",
+            "X-Party-Email": "buyer@example.com",
+            "Content-Type": "application/json",
+          }),
+        }),
+      );
+    });
+
+    expect(socket.sentMessages.some(message => message.includes("session.commit"))).toBe(false);
+    expect(screen.getByRole("heading", { name: /created draft/i })).toBeInTheDocument();
+    expect(screen.getByText("ord_demo1234567890")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("<Order />")).toBeInTheDocument();
+  });
+
+  it("blocks commit when no stored credentials exist", () => {
+    render(<VoiceOrderDemo />);
+    const socket = openSocket();
+
+    act(() => {
+      socket.emitMessage({
+        type: "session.ready",
+        payload: draftStatePatch({
+          buyerEmail: "buyer@example.com",
+          buyerName: "Acme Books",
+          sellerEmail: "seller@example.com",
+          sellerName: "Digital Book Supply",
+          lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
+        }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create draft order/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /log in or register a party first/i,
+    );
+    expect(socket.sentMessages.some(message => message.includes("session.commit"))).toBe(false);
+  });
+
+  it("shows a useful error when the backend blocks draft creation validation", () => {
     setStoredSession({
       partyId: "buyer-party",
       partyName: "Acme Books",
@@ -261,6 +407,7 @@ describe("VoiceOrderDemo", () => {
       socket.emitMessage({
         type: "session.ready",
         payload: draftStatePatch({
+          buyerEmail: "buyer@example.com",
           buyerName: "Acme Books",
           sellerName: "Digital Book Supply",
           lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
@@ -268,61 +415,24 @@ describe("VoiceOrderDemo", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /confirm order/i }));
-
-    expect(JSON.parse(socket.sentMessages.at(-1) ?? "{}")).toEqual({
-      type: "session.commit",
-      payload: {
-        contactEmail: "buyer@example.com",
-        credential: "super-secure-password",
-      },
-    });
-
     act(() => {
       socket.emitMessage({
-        type: "order.created",
+        type: "commit.blocked",
         payload: {
+          errors: [{ loc: ["sellerEmail"] }],
           state: draftStatePatch({
+            buyerEmail: "buyer@example.com",
             buyerName: "Acme Books",
             sellerName: "Digital Book Supply",
             lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
           }),
-          order: {
-            orderId: "ord_demo1234567890",
-            status: "DRAFT",
-            createdAt: "2026-03-07T00:00:00Z",
-            ublXml: "<Order />",
-            warnings: [],
-          },
         },
       });
     });
 
-    expect(screen.getByText("ord_demo1234567890")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("<Order />")).toBeInTheDocument();
-  });
-
-  it("blocks commit when no stored credentials exist", () => {
-    render(<VoiceOrderDemo />);
-    const socket = openSocket();
-
-    act(() => {
-      socket.emitMessage({
-        type: "session.ready",
-        payload: draftStatePatch({
-          buyerName: "Acme Books",
-          sellerName: "Digital Book Supply",
-          lines: [{ productName: "oranges", quantity: 2, unitCode: "EA", unitPrice: null }],
-        }),
-      });
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /confirm order/i }));
-
     expect(screen.getByRole("alert")).toHaveTextContent(
-      /log in or register a party first/i,
+      /complete the required fields before creating the draft order: sellerEmail/i,
     );
-    expect(socket.sentMessages.some(message => message.includes("session.commit"))).toBe(false);
   });
 
   it("pushes manual draft edits back through the websocket", () => {
@@ -430,7 +540,7 @@ describe("VoiceOrderDemo", () => {
     fireEvent.change(screen.getByLabelText(/^Buyer name$/i), {
       target: { value: "Updated Buyer" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /update order/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
 
     await waitFor(() => {
       expect(screen.getByText("2026-03-09T00:00:00Z")).toBeInTheDocument();

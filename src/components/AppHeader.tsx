@@ -54,7 +54,7 @@ export function AppHeader({ onAuthAction }: AppHeaderProps) {
   const signedInItems = [
     { href: "/", label: "Home" },
     { href: "/orders", label: "Orders dashboard" },
-    { href: "/orders/create", label: "Create order" },
+    { href: "/orders/create", label: "Create draft order" },
   ];
 
   const signedOutItems = [
