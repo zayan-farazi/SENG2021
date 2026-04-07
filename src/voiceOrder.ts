@@ -70,15 +70,11 @@ export type OrderResponse = {
   warnings: string[];
 };
 
-type EnvImportMeta = ImportMeta & {
-  env?: Record<string, string | undefined>;
-};
+declare const __APP_BACKEND_URL__: string | undefined;
 
 function getConfiguredBackendUrl(): string | undefined {
-  const importMetaEnv = (import.meta as EnvImportMeta).env;
-  const fromImportMeta = importMetaEnv?.BUN_PUBLIC_BACKEND_URL;
-  if (typeof fromImportMeta === "string" && fromImportMeta.trim()) {
-    return fromImportMeta;
+  if (typeof __APP_BACKEND_URL__ === "string" && __APP_BACKEND_URL__.trim()) {
+    return __APP_BACKEND_URL__;
   }
 
   if (typeof process !== "undefined" && typeof process.env?.BUN_PUBLIC_BACKEND_URL === "string") {
