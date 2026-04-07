@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
-    "start": "NODE_ENV=production bun src/index.ts",
+    "start": "serve -s dist -l ${PORT:-3000}",
     "test:frontend": "vitest run"
   },
   "dependencies": {
@@ -14,7 +14,8 @@
     "lucide-react": "^1.7.0",
     "motion": "^12.38.0",
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "serve": "^14.2.6"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.7.0",
