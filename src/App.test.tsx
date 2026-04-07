@@ -124,7 +124,7 @@ describe("App routing", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /register/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("link", { name: /create order/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /create draft order/i })).not.toBeInTheDocument();
   });
 
   it("redirects /orders to login when no session exists", async () => {
@@ -211,7 +211,9 @@ describe("App routing", () => {
     });
     const hero = heroHeading.closest("section");
     expect(hero).not.toBeNull();
-    await user.click(within(hero as HTMLElement).getByRole("link", { name: /create order/i }));
+    await user.click(
+      within(hero as HTMLElement).getByRole("link", { name: /create draft order/i }),
+    );
 
     expect(
       screen.getByRole("heading", {
@@ -266,13 +268,17 @@ describe("App routing", () => {
     const header = screen.getByRole("banner");
     expect(within(header).getByText("buyer@example.com")).toBeInTheDocument();
     expect(within(header).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
-    expect(within(header).queryByRole("link", { name: /^create order$/i })).not.toBeInTheDocument();
+    expect(
+      within(header).queryByRole("link", { name: /^create draft order$/i }),
+    ).not.toBeInTheDocument();
 
     await user.click(within(header).getByRole("button", { name: /open account menu/i }));
     const menuNav = screen.getByRole("navigation", { name: /main/i });
     expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
     expect(within(menuNav).getByRole("link", { name: /^orders dashboard$/i })).toBeInTheDocument();
-    expect(within(menuNav).getByRole("link", { name: /^create order$/i })).toBeInTheDocument();
+    expect(
+      within(menuNav).getByRole("link", { name: /^create draft order$/i }),
+    ).toBeInTheDocument();
     await user.click(within(menuNav).getByRole("button", { name: /log out/i }));
 
     expect(window.localStorage.getItem("lockedout.session")).toBeNull();

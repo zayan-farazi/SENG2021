@@ -32,7 +32,7 @@ def register_party(req: PartyRegistrationRequest) -> PartyRegistrationResponse:
     key_hash = hash_app_key(raw_app_key)
 
     try:
-        saveParty(party_id, req.partyName.strip(), normalized_email, key_hash)
+        saveParty(req.partyName.strip(), normalized_email, key_hash)
     except Exception as exc:
         try:
             deleteParty(normalized_email)

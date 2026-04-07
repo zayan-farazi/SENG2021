@@ -49,31 +49,30 @@ def test_register_party_v2_rejects_duplicate_contact_email(monkeypatch):
 def test_register_party_v2_persists_password_hash(monkeypatch):
     req = build_register_request()
     saved_party = {}
-    saved_key_hash = {}
 
     monkeypatch.setattr(party_password_auth, "findPartyByContactEmail", lambda _email: None)
 
-    def fake_save_party(party_id, party_name, contact_email):
+    def fake_save_party(party_name, contact_email, key_hash):
         saved_party.update(
-            {"party_id": party_id, "party_name": party_name, "contact_email": contact_email}
+            {
+                "party_name": party_name,
+                "contact_email": contact_email,
+                "key_hash": key_hash,
+            }
         )
         return saved_party
 
-    def fake_save_app_key(party_id, key_hash):
-        saved_key_hash.update({"party_id": party_id, "key_hash": key_hash})
-        return saved_key_hash
-
     monkeypatch.setattr(party_password_auth, "saveParty", fake_save_party)
-    monkeypatch.setattr(party_password_auth, "saveAppKey", fake_save_app_key)
 
     result = party_password_auth.register_party_v2(req)
 
     assert result.partyId == "team@acmebooks.com"
     assert result.partyName == "Acme Books"
     assert result.contactEmail == "team@acmebooks.com"
-    assert saved_key_hash["party_id"] == "team@acmebooks.com"
-    assert saved_key_hash["key_hash"] != req.password
-    assert party_password_auth.verify_password(req.password, saved_key_hash["key_hash"]) is True
+    assert saved_party["party_name"] == "Acme Books"
+    assert saved_party["contact_email"] == "team@acmebooks.com"
+    assert saved_party["key_hash"] != req.password
+    assert party_password_auth.verify_password(req.password, saved_party["key_hash"]) is True
 
 
 def test_register_party_v2_wraps_persistence_failures(monkeypatch):
