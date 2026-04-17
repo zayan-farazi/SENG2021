@@ -67,24 +67,7 @@ def _normalize_order_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
 
 # default currency is AUD
 # default issue date is today
-# default status is Pending
-
-"""
-    orderid = saveOrder(
-        "Rita",
-        "Tina",
-        "321 Road",
-        "Sydney",
-        344,
-        "Australia",
-        "pls work",
-        datetime.datetime.now().isoformat(),
-        "Pending",
-    )
-    saveOrderDetails(orderid, "pears", "def", 5.9, 9.8)
-    return findOrders(orderId="12")
-
-"""
+# default status is DRAFT
 
 
 # saves or updates order information and returns order Id
@@ -216,6 +199,10 @@ def findOrders(
     issueDate=None,
     lastChanged=None,
     status=None,
+    orderCount=None,
+    orderBy=None,
+    productList: list[str] | None = None,
+    isDescending: bool | None = None,
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
@@ -252,8 +239,25 @@ def findOrders(
             query = query.gte("issuedate", fromDate.isoformat())
         if toDate:
             query = query.lte("issuedate", toDate.isoformat())
+        if orderCount:
+            query = query.limit(orderCount)
+        if orderBy:
+            query = query.order(orderBy.toString(), desc=isDescending)
 
         res = query.execute()
+        if productList:
+            filteredOrders = []
+            for order in res.data:
+                productsInOrder = findOrderDetails(order.get("id")).data
+                matches = True
+                for product in productList:
+                    if not any(line.get("productname") == product for line in productsInOrder):
+                        matches = False
+                        break
+            if matches:
+                filteredOrders.append(order)
+            return [_normalize_order_row(row) or {} for row in filteredOrders or []]
+
         return [_normalize_order_row(row) or {} for row in res.data or []]
 
     try:
