@@ -2,6 +2,7 @@ import "./index.css";
 import "./landing/landing.css";
 import { useEffect, useState } from "react";
 import { LandingPage } from "./landing/LandingPage";
+import { ExperiencePlaceholderPage } from "./pages/ExperiencePlaceholderPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OrdersPlaceholderPage } from "./pages/OrdersPlaceholderPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -31,7 +32,11 @@ export function App() {
   const search = currentUrl.search;
   const editOrderId = getEditOrderId(pathname);
   const isProtectedRoute =
-    pathname === "/orders" || pathname === "/orders/create" || editOrderId !== null;
+    pathname === "/orders" ||
+    pathname === "/orders/create" ||
+    pathname === "/marketplace" ||
+    pathname === "/inventory" ||
+    editOrderId !== null;
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -66,6 +71,30 @@ export function App() {
       return <OrdersPlaceholderPage />;
     case "/orders/create":
       return <VoiceOrderDemo />;
+    case "/marketplace":
+      return (
+        <ExperiencePlaceholderPage
+          eyebrow="Marketplace"
+          title="Marketplace browsing is the next build target."
+          description="This route will become the shared catalogue and cart experience. For now, use the existing order flow while the marketplace UI is being built."
+          primaryHref="/orders/create"
+          primaryLabel="Open current order flow"
+          secondaryHref="/orders"
+          secondaryLabel="Open orders dashboard"
+        />
+      );
+    case "/inventory":
+      return (
+        <ExperiencePlaceholderPage
+          eyebrow="Inventory"
+          title="Inventory management is coming next."
+          description="This route will become the seller workspace for launched products, scheduling, and stock tracking. For now, use the orders dashboard as the existing signed-in area."
+          primaryHref="/orders"
+          primaryLabel="Open orders dashboard"
+          secondaryHref="/"
+          secondaryLabel="Back home"
+        />
+      );
     default:
       return editOrderId ? <VoiceOrderDemo orderId={editOrderId} /> : <LandingPage />;
   }
