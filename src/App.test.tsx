@@ -119,11 +119,11 @@ describe("App routing", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /create and manage ubl 2\.1 orders in one place/i,
+        name: /browse products\. build orders\. manage inventory\./i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /register/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /browse marketplace/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /manage inventory/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: /create draft order/i })).not.toBeInTheDocument();
   });
 
@@ -195,7 +195,7 @@ describe("App routing", () => {
     ).toBeInTheDocument();
   });
 
-  it("navigates to the create route from the landing page CTA when a session exists", async () => {
+  it("navigates to the marketplace route from the landing page CTA when a session exists", async () => {
     const user = userEvent.setup();
     setStoredSession({
       partyId: "buyer@example.com",
@@ -207,20 +207,44 @@ describe("App routing", () => {
     render(<App />);
 
     const heroHeading = screen.getByRole("heading", {
-      name: /create and manage ubl 2\.1 orders in one place/i,
+      name: /browse products\. build orders\. manage inventory\./i,
     });
     const hero = heroHeading.closest("section");
     expect(hero).not.toBeNull();
-    await user.click(
-      within(hero as HTMLElement).getByRole("link", { name: /create draft order/i }),
-    );
+    await user.click(within(hero as HTMLElement).getByRole("link", { name: /browse marketplace/i }));
 
     expect(
       screen.getByRole("heading", {
-        name: /speak the order\. watch the draft settle in real time\./i,
+        name: /marketplace browsing is the next build target\./i,
       }),
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/orders/create");
+    expect(window.location.pathname).toBe("/marketplace");
+  });
+
+  it("navigates to the inventory route from the landing page CTA when a session exists", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    render(<App />);
+
+    const heroHeading = screen.getByRole("heading", {
+      name: /browse products\. build orders\. manage inventory\./i,
+    });
+    const hero = heroHeading.closest("section");
+    expect(hero).not.toBeNull();
+    await user.click(within(hero as HTMLElement).getByRole("link", { name: /manage inventory/i }));
+
+    expect(
+      screen.getByRole("heading", {
+        name: /inventory management is coming next\./i,
+      }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/inventory");
   });
 
   it("opens and closes the mobile menu", async () => {
@@ -238,6 +262,7 @@ describe("App routing", () => {
     expect(within(menuNav).getByRole("link", { name: /^register$/i })).toBeInTheDocument();
     expect(within(menuNav).getByRole("link", { name: /^log in$/i })).toBeInTheDocument();
     expect(within(menuNav).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
+    expect(within(menuNav).queryByRole("link", { name: /^browse marketplace$/i })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("navigation", { name: /main/i })).not.toBeInTheDocument();
   });
@@ -268,21 +293,44 @@ describe("App routing", () => {
     const header = screen.getByRole("banner");
     expect(within(header).getByText("buyer@example.com")).toBeInTheDocument();
     expect(within(header).queryByRole("link", { name: /^orders dashboard$/i })).not.toBeInTheDocument();
-    expect(
-      within(header).queryByRole("link", { name: /^create draft order$/i }),
-    ).not.toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: /^browse marketplace$/i })).not.toBeInTheDocument();
 
     await user.click(within(header).getByRole("button", { name: /open account menu/i }));
     const menuNav = screen.getByRole("navigation", { name: /main/i });
     expect(within(menuNav).getByRole("link", { name: /^home$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^browse marketplace$/i })).toBeInTheDocument();
+    expect(within(menuNav).getByRole("link", { name: /^manage inventory$/i })).toBeInTheDocument();
     expect(within(menuNav).getByRole("link", { name: /^orders dashboard$/i })).toBeInTheDocument();
-    expect(
-      within(menuNav).getByRole("link", { name: /^create draft order$/i }),
-    ).toBeInTheDocument();
     await user.click(within(menuNav).getByRole("button", { name: /log out/i }));
 
     expect(window.localStorage.getItem("lockedout.session")).toBeNull();
     expect(window.location.pathname).toBe("/");
+  });
+
+  it("redirects signed-out marketplace clicks to login with the original destination", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getAllByRole("link", { name: /browse marketplace/i })[0]);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Fmarketplace");
+  });
+
+  it("redirects signed-out inventory clicks to login with the original destination", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getAllByRole("link", { name: /manage inventory/i })[0]);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Finventory");
   });
 
   it("redirects /orders/create to login with the original destination when no session exists", async () => {
@@ -306,5 +354,27 @@ describe("App routing", () => {
       expect(window.location.pathname).toBe("/login");
     });
     expect(window.location.search).toBe("?next=%2Forders%2Ford_123%2Fedit");
+  });
+
+  it("redirects /marketplace to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/marketplace");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Fmarketplace");
+  });
+
+  it("redirects /inventory to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/inventory");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Finventory");
   });
 });
