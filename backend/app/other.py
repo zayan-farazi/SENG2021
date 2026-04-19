@@ -202,7 +202,7 @@ def findOrders(
     orderCount=None,
     orderBy=None,
     productList: list[str] | None = None,
-    isDescending: bool | None = None,
+    isDescending: bool | None = True,
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
@@ -242,21 +242,21 @@ def findOrders(
         if orderCount:
             query = query.limit(orderCount)
         if orderBy:
-            query = query.order(orderBy.toString(), desc=isDescending)
+            query = query.order(str(orderBy), desc=isDescending)
 
         res = query.execute()
         if productList:
-            filteredOrders = []
-            for order in res.data:
-                productsInOrder = findOrderDetails(order.get("id")).data
-                matches = True
-                for product in productList:
-                    if not any(line.get("productname") == product for line in productsInOrder):
-                        matches = False
-                        break
-            if matches:
-                filteredOrders.append(order)
-            return [_normalize_order_row(row) or {} for row in filteredOrders or []]
+            required_set = set(productList)
+            details_map = findOrderDetailsByOrderIds([line["id"] for line in res.data])
+            order_to_products = {
+                order_id: {item["productname"] for item in items}
+                for order_id, items in details_map.items()
+            }
+            res.data = [
+                order
+                for order in res.data
+                if required_set.issubset(order_to_products.get(order["id"], set()))
+            ]
 
         return [_normalize_order_row(row) or {} for row in res.data or []]
 
