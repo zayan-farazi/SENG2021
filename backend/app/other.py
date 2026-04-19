@@ -67,24 +67,7 @@ def _normalize_order_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
 
 # default currency is AUD
 # default issue date is today
-# default status is Pending
-
-"""
-    orderid = saveOrder(
-        "Rita",
-        "Tina",
-        "321 Road",
-        "Sydney",
-        344,
-        "Australia",
-        "pls work",
-        datetime.datetime.now().isoformat(),
-        "Pending",
-    )
-    saveOrderDetails(orderid, "pears", "def", 5.9, 9.8)
-    return findOrders(orderId="12")
-
-"""
+# default status is DRAFT
 
 
 # saves or updates order information and returns order Id
@@ -216,6 +199,10 @@ def findOrders(
     issueDate=None,
     lastChanged=None,
     status=None,
+    orderCount=None,
+    orderBy=None,
+    productList: list[str] | None = None,
+    isDescending: bool | None = True,
     fromDate: datetime | None = None,
     toDate: datetime | None = None,
 ):
@@ -252,8 +239,25 @@ def findOrders(
             query = query.gte("issuedate", fromDate.isoformat())
         if toDate:
             query = query.lte("issuedate", toDate.isoformat())
+        if orderCount:
+            query = query.limit(orderCount)
+        if orderBy:
+            query = query.order(str(orderBy), desc=isDescending)
 
         res = query.execute()
+        if productList:
+            required_set = set(productList)
+            details_map = findOrderDetailsByOrderIds([line["id"] for line in res.data])
+            order_to_products = {
+                order_id: {item["productname"] for item in items}
+                for order_id, items in details_map.items()
+            }
+            res.data = [
+                order
+                for order in res.data
+                if required_set.issubset(order_to_products.get(order["id"], set()))
+            ]
+
         return [_normalize_order_row(row) or {} for row in res.data or []]
 
     try:
