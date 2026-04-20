@@ -123,12 +123,12 @@ def saveOrder(
         query["currency"] = currency
     if externalOrderId is not None:
         query["order_id"] = externalOrderId
-    if ublXml is not None:
-        query["ublxml"] = ublXml
     if createdAt is not None:
         query["createdat"] = createdAt
     if updatedAt is not None:
         query["updatedat"] = updatedAt
+    if ublXml is not None:
+        query["ublXml"] = ublXml
 
     # TODO remove if conditions when people have changeed their functions
 
@@ -150,6 +150,8 @@ def saveOrder(
             legacy_query["selleremail"] = legacy_query.pop("seller_id")
         try:
             response = get_supabase_client().table("orders").upsert(legacy_query).execute()
+            if ublXml is not None:
+                saveOrder("order_gen_xml", response.data[0]["id"], ublXml)
         except Exception as legacy_exc:
             raise RuntimeError(f"Failed to save order: {legacy_exc}") from legacy_exc
 
@@ -368,22 +370,33 @@ def updateOrderRuntimeMetadata(
     query = {}
     if externalOrderId is not None:
         query["order_id"] = externalOrderId
-    if ublXml is not None:
-        query["ublxml"] = ublXml
     if createdAt is not None:
         query["createdat"] = createdAt
     if updatedAt is not None:
         query["updatedat"] = updatedAt
         query["lastchanged"] = updatedAt
-
+    if ublXml is not None:
+        query["ublXml"] = ublXml
     if not query:
         return None
 
     try:
         response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
+        if ublXml is not None:
+            saveXml("order_gen_xml", externalOrderId, ublXml)
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
+
+
+def saveXml(table_name: str, orderId: str, buyer_id: str, seller_id: str, ublXml: str) -> None:
+    query = {"order_id": orderId, "seller_id": seller_id, "buyer_id": buyer_id, "xml": ublXml}
+    get_supabase_client().table(table_name).upsert(query).execute()
+
+
+def getXml(table_name: str, orderId: str):
+    result = get_supabase_client().table(table_name).select("*").eq("order_id", orderId).execute()
+    return result.data if result.data else []
 
 
 # deletes all order lines related to a query
