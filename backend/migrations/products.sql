@@ -8,5 +8,6 @@ CREATE TABLE  IF NOT products (
     release_date DATE,
     show_soldout BOOLEAN DEFAULT TRUE,
     available_units FLOAT,
+    created_at TIMESTAMP DEFAULT CUTTENT_TIMESTAMP, 
     FOREIGN KEY (party_id) REFERENCES parties(contact_email) ON DELETE CASCADE
 )

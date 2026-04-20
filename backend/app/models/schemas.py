@@ -77,6 +77,25 @@ ORDER_CREATE_RESPONSE_EXAMPLE = {
     "createdAt": "2026-03-14T10:30:00Z",
 }
 
+PRODUCT_REQUEST_EXAMPLE = {
+    "party_id": "orders@buyerco.example",
+    "name": "Apples",
+    "price": 5,
+    "unit": "EA",
+    "description": "Delicious red apples.",
+    "release_date": "2026-09-20",
+    "is_visible": False,
+    "show_soldout": True,
+}
+
+PRODUCT_CREATE_RESPONSE_EXAMPLE = {
+    "name": "Apples",
+    "price": 5,
+    "unit": "EA",
+    "description": "Delicious red apples",
+    #"image_url": ""
+}
+
 ORDER_FETCH_XML_EXAMPLE = """<?xml version="1.0" encoding="utf-8"?>
 <Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
   <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
@@ -212,6 +231,25 @@ ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE = {
         "offset": 20,
         "hasMore": False,
         "total": 21,
+    },
+}
+
+PRODUCT_LIST_RESPONSE_EXAMPLE = {
+    "items": [
+        {
+            "name": "Apples",
+            "price": 5,
+            "unit": "EA",
+            "description": "Delicious red apples",
+            "release_date": "2026-03-20",
+            #"image_url": ""
+        }
+    ],
+    "page": {
+        "limit": 20,
+        "offset": 0,
+        "hasMore": True,
+        "total": 57,
     },
 }
 
@@ -497,6 +535,51 @@ ANALYTICS_VALIDATION_ERROR_EXAMPLES = {
     },
 }
 
+PRODUCT_CREATE_ERROR_EXAMPLES = {
+    "missingPrice": {
+        "summary": "Missing price",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "price",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "missingName": {
+        "summary": "Missing product name",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "name",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+    "missingAvailableUnits": {
+        "summary": "Missing number of available units",
+        "value": {
+            "message": "Request validation failed.",
+            "errors": [
+                {
+                    "source": "query",
+                    "path": "available_units",
+                    "message": "Field required",
+                    "code": "missing",
+                }
+            ],
+        },
+    },
+}
+
 REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/parties/register", "post"): {
         "description": "The registration payload is missing required party details or uses an invalid contact email.",
@@ -528,6 +611,10 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
     ("/v1/analytics/orders", "get"): {
         "description": "The analytics request is missing one or both required date-range query parameters.",
         "examples": ANALYTICS_VALIDATION_ERROR_EXAMPLES,
+    },
+    ("/v1/inventory/add", "post"): {
+        "description": "The add inventory item payload is missing required fields or contains invalid item values.",
+        "examples": PRODUCT_CREATE_ERROR_EXAMPLES,
     },
 }
 
@@ -956,7 +1043,6 @@ ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE = {
     "source": "transcript",
 }
 
-
 class LineItem(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -1042,6 +1128,23 @@ class OrderDraft(BaseModel):
             return None
         return value.strip().lower()
 
+class ProductRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PRODUCT_REQUEST_EXAMPLE,
+        }
+    )
+
+    party_id: str = Field(..., min_length=3)
+    name: str = Field(..., max_length=2)
+    price: float = Field(..., ge=0)
+    unit: str = Field(default="EA", min_length=1)
+    description: str | None = Field(default=None, min_length=1)
+    category: str = Field(..., default="Other", min_length=1)
+    is_visible: bool = Field(default=True)
+    release_date: date | None = Field(..., default=None) 
+    show_soldout: bool = Field(default=True)
+    available_units: float = Field(..., ge=0)
 
 class HealthResponse(BaseModel):
     model_config = ConfigDict(
@@ -1396,3 +1499,15 @@ class RequestValidationErrorResponse(BaseModel):
 
     message: str
     errors: list[ValidationFieldError]
+
+class InventoryCreateResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PRODUCT_CREATE_RESPONSE_EXAMPLE,
+        }
+    )
+    name: str
+    price: float
+    unit: str
+    description: str
+    #image_url: str

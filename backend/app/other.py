@@ -430,7 +430,7 @@ def addProduct(
     show_soldout: bool,
     unit="EA",
     release_date: datetime | None = None,
-    image=None,
+    image_url=None,
 ) -> int:
 
     query = {
@@ -442,6 +442,7 @@ def addProduct(
         "is_visible": is_visible,
         "show_soldout": show_soldout,
         "available_units": available_units,
+        "image_url": image_url,
     }
 
     if release_date:
@@ -526,6 +527,7 @@ def updateProduct(
     available_units=None,
     is_visible=None,
     show_soldout=None,
+    image_url=None,
     release_date: datetime | None = None,
 ):
     query = {}
@@ -546,6 +548,8 @@ def updateProduct(
         query["description"] = description
     if release_date:
         query["release_date"] = release_date
+    if image_url:
+        query["image_url"] = image_url
 
     get_supabase_client().table("products").update(query).eq("prod_id", prod_id).execute()
 
