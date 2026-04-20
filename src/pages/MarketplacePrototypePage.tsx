@@ -1,0 +1,320 @@
+import { useEffect, useMemo, useState } from "react";
+import { Minus, Plus, Search, ShoppingBag } from "lucide-react";
+import { AppHeader } from "../components/AppHeader";
+import { navigate } from "../components/AppLink";
+import {
+  calculateCartTotal,
+  marketplaceCategories,
+  marketplaceProducts,
+  readStoredMarketplaceCart,
+  writeStoredMarketplaceCart,
+  type MarketplaceCartLine,
+  type MarketplaceCartState,
+  type MarketplaceFilterState,
+  type MarketplaceProduct,
+} from "./marketplacePrototypeData";
+import "./marketplace-prototype.css";
+
+const defaultFilters: MarketplaceFilterState = {
+  query: "",
+  category: "All",
+  inStockOnly: false,
+};
+
+function formatPrice(value: number): string {
+  return `$${value.toFixed(0)}`;
+}
+
+function getBadgeClassName(badge: MarketplaceProduct["badge"]): string {
+  if (badge === "Low stock") {
+    return "marketplace-product-badge marketplace-product-badge-warning";
+  }
+
+  if (badge === "New") {
+    return "marketplace-product-badge marketplace-product-badge-new";
+  }
+
+  return "marketplace-product-badge marketplace-product-badge-featured";
+}
+
+function buildCartLine(product: MarketplaceProduct, quantity: number): MarketplaceCartLine {
+  return {
+    productId: product.id,
+    name: product.name,
+    seller: product.seller,
+    unitPrice: product.price,
+    quantity,
+    stock: product.stock,
+    subtotal: product.price * quantity,
+  };
+}
+
+type MarketplaceProductCardProps = {
+  product: MarketplaceProduct;
+  quantity: number;
+  onChangeQuantity: (product: MarketplaceProduct, delta: number) => void;
+};
+
+function MarketplaceProductCard({
+  product,
+  quantity,
+  onChangeQuantity,
+}: MarketplaceProductCardProps) {
+  const Icon = product.icon;
+  const isSelected = quantity > 0;
+
+  return (
+    <article className="marketplace-product-card" data-selected={isSelected ? "true" : "false"}>
+      <div className={`marketplace-product-media marketplace-product-media-${product.tone}`} aria-hidden="true">
+        <Icon size={34} strokeWidth={2} />
+      </div>
+
+      <div className="marketplace-product-card-body">
+        <div className="marketplace-product-heading">
+          <div className="marketplace-product-heading-copy">
+            <div className="marketplace-product-labels">
+              <span className="marketplace-product-category">{product.category}</span>
+              {product.badge ? <span className={getBadgeClassName(product.badge)}>{product.badge}</span> : null}
+            </div>
+            <h2>{product.name}</h2>
+            <p>{product.seller}</p>
+          </div>
+          <strong>{formatPrice(product.price)}</strong>
+        </div>
+
+        <div className="marketplace-product-footer">
+          <span className="marketplace-product-stock">{product.stock} available</span>
+
+          <div className="marketplace-quantity-stepper" aria-label={`Quantity for ${product.name}`}>
+            <button
+              type="button"
+              className="marketplace-stepper-button"
+              aria-label={`Decrease ${product.name}`}
+              onClick={() => onChangeQuantity(product, -1)}
+              disabled={quantity === 0}
+            >
+              <Minus size={14} strokeWidth={2.2} />
+            </button>
+            <span className="marketplace-stepper-value" aria-live="polite">
+              {quantity}
+            </span>
+            <button
+              type="button"
+              className="marketplace-stepper-button"
+              aria-label={`Increase ${product.name}`}
+              onClick={() => onChangeQuantity(product, 1)}
+              disabled={quantity >= product.stock}
+            >
+              <Plus size={14} strokeWidth={2.2} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export function MarketplacePrototypePage() {
+  const [filters, setFilters] = useState<MarketplaceFilterState>(defaultFilters);
+  const [cart, setCart] = useState<MarketplaceCartState>(() => readStoredMarketplaceCart());
+
+  useEffect(() => {
+    writeStoredMarketplaceCart(cart);
+  }, [cart]);
+
+  const filteredProducts = useMemo(() => {
+    return marketplaceProducts.filter(product => {
+      const matchesQuery =
+        filters.query.trim().length === 0 ||
+        `${product.name} ${product.seller}`.toLowerCase().includes(filters.query.trim().toLowerCase());
+      const matchesCategory = filters.category === "All" || product.category === filters.category;
+      const matchesStock = !filters.inStockOnly || product.stock > 0;
+      return matchesQuery && matchesCategory && matchesStock;
+    });
+  }, [filters]);
+
+  const totalItems = useMemo(
+    () => cart.lines.reduce((sum, line) => sum + line.quantity, 0),
+    [cart.lines],
+  );
+  const totalPrice = useMemo(() => calculateCartTotal(cart.lines), [cart.lines]);
+
+  const getQuantity = (productId: string) =>
+    cart.lines.find(line => line.productId === productId)?.quantity ?? 0;
+
+  const handleChangeQuantity = (product: MarketplaceProduct, delta: number) => {
+    setCart(current => {
+      const existing = current.lines.find(line => line.productId === product.id);
+      const nextQuantity = Math.max(0, Math.min(product.stock, (existing?.quantity ?? 0) + delta));
+
+      if (nextQuantity === 0) {
+        return {
+          lines: current.lines.filter(line => line.productId !== product.id),
+        };
+      }
+
+      const nextLine = buildCartLine(product, nextQuantity);
+
+      if (!existing) {
+        return { lines: [...current.lines, nextLine] };
+      }
+
+      return {
+        lines: current.lines.map(line => (line.productId === product.id ? nextLine : line)),
+      };
+    });
+  };
+
+  const openReview = () => {
+    if (cart.lines.length === 0) {
+      return;
+    }
+
+    navigate("/marketplace/review");
+  };
+
+  return (
+    <div className="landing-root">
+      <div className="landing-container">
+        <section className="landing-stage">
+          <AppHeader />
+
+          <main className="marketplace-page">
+            <header className="marketplace-page-header">
+              <div>
+                <h1>Marketplace</h1>
+                <p>Browse seller listings, set quantities, and stage an order before review.</p>
+              </div>
+
+              <div className="marketplace-toolbar">
+                <label className="marketplace-search">
+                  <span className="marketplace-search-icon" aria-hidden="true">
+                    <Search size={16} strokeWidth={2.2} />
+                  </span>
+                  <input
+                    type="search"
+                    value={filters.query}
+                    onChange={event =>
+                      setFilters(current => ({ ...current, query: event.target.value }))
+                    }
+                    placeholder="Search products or sellers"
+                    aria-label="Search products or sellers"
+                  />
+                </label>
+
+                <label className="marketplace-select-field">
+                  <span className="marketplace-select-label">Category</span>
+                  <select
+                    value={filters.category}
+                    onChange={event =>
+                      setFilters(current => ({ ...current, category: event.target.value }))
+                    }
+                    aria-label="Filter by category"
+                  >
+                    {marketplaceCategories.map(category => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="marketplace-filter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={filters.inStockOnly}
+                    onChange={event =>
+                      setFilters(current => ({ ...current, inStockOnly: event.target.checked }))
+                    }
+                  />
+                  <span className="marketplace-filter-toggle-mark" aria-hidden="true" />
+                  <span>In stock only</span>
+                </label>
+              </div>
+            </header>
+
+            <div className="marketplace-content">
+              <section className="marketplace-products-shell" aria-labelledby="marketplace-products-title">
+                <div className="marketplace-section-header">
+                  <div>
+                    <h2 id="marketplace-products-title">Available listings</h2>
+                    <p>{filteredProducts.length} products match the current filters.</p>
+                  </div>
+                  <span className="marketplace-count-chip">{totalItems} items selected</span>
+                </div>
+
+                {filteredProducts.length === 0 ? (
+                  <div className="marketplace-empty-state">
+                    <strong>No listings match these filters.</strong>
+                    <span>Adjust the search or category to bring products back into view.</span>
+                  </div>
+                ) : (
+                  <div className="marketplace-product-grid">
+                    {filteredProducts.map(product => (
+                      <MarketplaceProductCard
+                        key={product.id}
+                        product={product}
+                        quantity={getQuantity(product.id)}
+                        onChangeQuantity={handleChangeQuantity}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <aside className="marketplace-cart-shell" aria-labelledby="marketplace-cart-title">
+                <div className="marketplace-cart-header">
+                  <div>
+                    <h2 id="marketplace-cart-title">Cart summary</h2>
+                    <p>Selections stay local in this prototype.</p>
+                  </div>
+                  <span className="marketplace-cart-pill">
+                    <ShoppingBag size={14} strokeWidth={2.1} />
+                    {totalItems} items
+                  </span>
+                </div>
+
+                {cart.lines.length === 0 ? (
+                  <div className="marketplace-empty-state marketplace-empty-state-cart">
+                    <strong>Your cart is empty.</strong>
+                    <span>Select quantities from the product cards to begin building the order.</span>
+                  </div>
+                ) : (
+                  <div className="marketplace-cart-lines">
+                    {cart.lines.map(line => (
+                      <article key={line.productId} className="marketplace-cart-line">
+                        <div>
+                          <strong>{line.name}</strong>
+                          <span>
+                            {line.seller} · {line.quantity} × {formatPrice(line.unitPrice)}
+                          </span>
+                        </div>
+                        <strong>{formatPrice(line.subtotal)}</strong>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <div className="marketplace-cart-footer">
+                  <div className="marketplace-cart-total">
+                    <span>Total</span>
+                    <strong>{formatPrice(totalPrice)}</strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="marketplace-primary-action"
+                    onClick={openReview}
+                    disabled={cart.lines.length === 0}
+                  >
+                    Review order
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+  );
+}
