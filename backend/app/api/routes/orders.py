@@ -35,9 +35,11 @@ from app.models.schemas import (
     OrderUpdateResponse,
     TranscriptConversionRequest,
 )
+from app.other import getXml, saveXml
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
+from app.services.despatch import create_despatch_from_order_xml
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -54,9 +56,6 @@ from app.services.order_store import (
 )
 from app.services.party_password_auth import authenticate_party_v2
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
-
-from app.other import saveXml, getXml
-from app.services.despatch import create_despatch_from_order_xml
 
 # from other import findOrders, saveOrder, saveOrderDetails, DBInfo
 
@@ -1022,6 +1021,7 @@ def get_order_analytics(
 
     return analytics
 
+
 @router.post(
     "/v1/order/{order_id}/despatch",
     status_code=200,
@@ -1054,9 +1054,7 @@ def get_order_analytics(
         500: {
             "description": "Despatch generation or persistence failed.",
             "content": {
-                "application/json": {
-                    "example": {"detail": "Unable to generate despatch advice."}
-                }
+                "application/json": {"example": {"detail": "Unable to generate despatch advice."}}
             },
         },
     },
@@ -1078,7 +1076,6 @@ async def despatch_order(
 
     if current_party_email.strip().lower() != seller_email.strip().lower():
         raise HTTPException(status_code=403, detail="Only the seller may despatch.")
-
 
     existing_xml = getXml("dispatch_xml", order_id)
     if existing_xml:
@@ -1126,6 +1123,7 @@ async def despatch_order(
         "despatch": despatch,
     }
 
+
 @router.get(
     "/v1/order/{order_id}/despatch",
     status_code=200,
@@ -1138,18 +1136,16 @@ async def despatch_order(
     responses={
         200: {
             "description": "Despatch XML retrieved successfully.",
-            "content": {
-                "application/xml": {
-                    "example": "<DespatchAdvice>...</DespatchAdvice>"
-                }
-            },
+            "content": {"application/xml": {"example": "<DespatchAdvice>...</DespatchAdvice>"}},
         },
         401: UNAUTHORIZED_RESPONSE,
         403: FORBIDDEN_RESPONSE,
         404: NOT_FOUND_RESPONSE,
         500: {
             "description": "Despatch retrieval failed.",
-            "content": {"application/json": {"example": {"detail": "Unable to fetch despatch XML."}}},
+            "content": {
+                "application/json": {"example": {"detail": "Unable to fetch despatch XML."}}
+            },
         },
     },
 )
