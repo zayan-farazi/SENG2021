@@ -241,9 +241,13 @@ describe("App routing", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /inventory management is coming next\./i,
+        name: /^inventory$/i,
       }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/launched/i)).toBeInTheDocument();
+    expect(screen.getByText(/draft listings/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add product/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /view all/i }).length).toBeGreaterThan(0);
     expect(window.location.pathname).toBe("/inventory");
   });
 

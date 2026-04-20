@@ -3,6 +3,7 @@ import "./landing/landing.css";
 import { useEffect, useState } from "react";
 import { LandingPage } from "./landing/LandingPage";
 import { ExperiencePlaceholderPage } from "./pages/ExperiencePlaceholderPage";
+import { InventoryPrototypePage } from "./pages/InventoryPrototypePage";
 import { LoginPage } from "./pages/LoginPage";
 import { OrdersPlaceholderPage } from "./pages/OrdersPlaceholderPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -84,17 +85,7 @@ export function App() {
         />
       );
     case "/inventory":
-      return (
-        <ExperiencePlaceholderPage
-          eyebrow="Inventory"
-          title="Inventory management is coming next."
-          description="This route will become the seller workspace for launched products, scheduling, and stock tracking. For now, use the orders dashboard as the existing signed-in area."
-          primaryHref="/orders"
-          primaryLabel="Open orders dashboard"
-          secondaryHref="/"
-          secondaryLabel="Back home"
-        />
-      );
+      return <InventoryPrototypePage />;
     default:
       return editOrderId ? <VoiceOrderDemo orderId={editOrderId} /> : <LandingPage />;
   }
