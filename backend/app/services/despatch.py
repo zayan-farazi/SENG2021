@@ -1,7 +1,20 @@
-import httpx
 import os
 
+import httpx
+
 from app.env import load_local_env_files
+
+DEFAULT_DEVEX_TIMEOUT_SECONDS = 30.0
+
+
+def _parse_timeout_seconds(value: str | None) -> float:
+    if value is None:
+        return DEFAULT_DEVEX_TIMEOUT_SECONDS
+    try:
+        parsed = float(value)
+    except ValueError:
+        return DEFAULT_DEVEX_TIMEOUT_SECONDS
+    return parsed if parsed > 0 else DEFAULT_DEVEX_TIMEOUT_SECONDS
 
 
 async def create_despatch_from_order_xml(ubl_xml: str) -> dict:
