@@ -21,11 +21,13 @@ async def create_despatch_from_order_xml(ubl_xml: str) -> dict:
     load_local_env_files()
     api_key = os.getenv("DEVEX_API_KEY")
     if not api_key:
-        raise ValueError("DevEx API key not configured. Set DEVEX_API_KEY to enable despatch creation.")
-    
+        raise ValueError(
+            "DevEx API key not configured. Set DEVEX_API_KEY to enable despatch creation."
+        )
+
     base_url = os.getenv("DEVEX_BASE_URL", "https://devex.cloud.tcore.network").rstrip("/")
     timeout_seconds = _parse_timeout_seconds(os.getenv("DEVEX_TIMEOUT_SECONDS"))
-    
+
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         create_response = await client.post(
             f"{base_url}/api/v1/despatch/create",

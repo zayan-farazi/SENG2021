@@ -1085,7 +1085,7 @@ async def despatch_order(
             status_code=500,
             detail="Unable to fetch despatch XML.",
         ) from exc
-    
+
     if existing_xml:
         stored = existing_xml[0]
         return {
