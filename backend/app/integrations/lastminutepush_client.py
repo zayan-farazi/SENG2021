@@ -46,3 +46,35 @@ async def get_invoice_pdf(invoice_id: str) -> bytes:
         )
     r.raise_for_status()
     return r.content
+
+
+async def update_invoice(invoice_id: str, payload: dict) -> dict:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.put(
+            f"{_base_url()}/v1/invoices/{invoice_id}",
+            json=payload,
+            headers=_headers(),
+        )
+    r.raise_for_status()
+    return r.json()
+
+
+async def delete_invoice(invoice_id: str) -> None:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.delete(
+            f"{_base_url()}/v1/invoices/{invoice_id}",
+            headers=_headers(),
+        )
+    r.raise_for_status()
+    # API returns 204 No Content
+
+
+async def transition_invoice_status(invoice_id: str, payload: dict) -> dict:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            f"{_base_url()}/v1/invoices/{invoice_id}/status",
+            json=payload,
+            headers=_headers(),
+        )
+    r.raise_for_status()
+    return r.json()

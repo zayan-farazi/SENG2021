@@ -69,3 +69,36 @@ async def fetch_invoice_ubl(invoice_id: str, _=Depends(get_current_party_email))
 async def fetch_invoice_pdf(invoice_id: str, _=Depends(get_current_party_email)):
     pdf_bytes = await lastminutepush_client.get_invoice_pdf(invoice_id)
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+@router.put("/v1/invoice/{invoice_id}")
+async def update_invoice(invoice_id: str, body: dict, _=Depends(get_current_party_email)):
+    """
+    Proxy update to LastMinutePush.
+    We keep it as dict for MVP so we don't have to replicate their schema in ours.
+    """
+    try:
+        return await lastminutepush_client.update_invoice(invoice_id, body)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Invoice service failed.") from exc
+
+
+@router.delete("/v1/invoice/{invoice_id}", status_code=204)
+async def delete_invoice(invoice_id: str, _=Depends(get_current_party_email)):
+    try:
+        await lastminutepush_client.delete_invoice(invoice_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Invoice service failed.") from exc
+    return Response(status_code=204)
+
+
+@router.post("/v1/invoice/{invoice_id}/status")
+async def transition_invoice_status(invoice_id: str, body: dict, _=Depends(get_current_party_email)):
+    """
+    body examples:
+      {"status": "sent"}
+      {"status": "paid", "payment_date": "2026-03-16"}
+    """
+    try:
+        return await lastminutepush_client.transition_invoice_status(invoice_id, body)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Invoice service failed.") from exc
