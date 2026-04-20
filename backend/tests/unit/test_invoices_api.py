@@ -32,7 +32,9 @@ def test_generate_invoice_returns_500_when_order_missing_participant_emails(clie
             # buyerEmail missing
             "sellerEmail": "seller@example.com",
             "sellerName": "Seller Pty Ltd",
-            "lines": [{"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}],
+            "lines": [
+                {"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}
+            ],
         },
     }
 
@@ -60,7 +62,9 @@ def test_generate_invoice_returns_403_when_caller_not_buyer_or_seller(client, mo
             "buyerName": "Buyer Co",
             "sellerEmail": "seller@example.com",
             "sellerName": "Seller Pty Ltd",
-            "lines": [{"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}],
+            "lines": [
+                {"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}
+            ],
         },
     }
 
@@ -122,7 +126,9 @@ def test_generate_invoice_returns_502_when_invoice_service_throws(client, monkey
             "sellerName": "Seller Pty Ltd",
             "currency": "AUD",
             "issueDate": "2026-03-14",
-            "lines": [{"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}],
+            "lines": [
+                {"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}
+            ],
         },
     }
 

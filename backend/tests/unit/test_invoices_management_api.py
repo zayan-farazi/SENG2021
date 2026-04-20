@@ -22,7 +22,11 @@ def test_update_invoice_returns_200_and_payload(client, monkeypatch):
     _override_auth()
 
     async def fake_update(invoice_id: str, body: dict):  # noqa: ARG001
-        return {"message": "Invoice updated successfully", "invoice_id": invoice_id, "updated_at": "2026-03-16T01:30:00Z"}
+        return {
+            "message": "Invoice updated successfully",
+            "invoice_id": invoice_id,
+            "updated_at": "2026-03-16T01:30:00Z",
+        }
 
     monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.update_invoice", fake_update)
 
@@ -83,7 +87,9 @@ def test_transition_status_returns_200(client, monkeypatch):
             "updated_at": "2026-03-16T01:35:00Z",
         }
 
-    monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.transition_invoice_status", fake_transition)
+    monkeypatch.setattr(
+        "app.api.routes.invoices.lastminutepush_client.transition_invoice_status", fake_transition
+    )
 
     resp = client.post("/v1/invoice/INV-1/status", json={"status": "sent"})
     assert resp.status_code == 200
@@ -96,7 +102,9 @@ def test_transition_status_returns_502_when_downstream_fails(client, monkeypatch
     async def boom(invoice_id: str, body: dict):  # noqa: ARG001
         raise RuntimeError("downstream error")
 
-    monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.transition_invoice_status", boom)
+    monkeypatch.setattr(
+        "app.api.routes.invoices.lastminutepush_client.transition_invoice_status", boom
+    )
 
     resp = client.post("/v1/invoice/INV-1/status", json={"status": "sent"})
     assert resp.status_code == 502

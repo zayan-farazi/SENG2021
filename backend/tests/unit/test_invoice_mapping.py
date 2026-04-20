@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-import types
-
 import pytest
 
 from app.integrations import lastminutepush_client
