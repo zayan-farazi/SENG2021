@@ -1,15 +1,23 @@
 import httpx
+import os
 
-DEVEX_API_KEY = "6cd1b678cb0e7942eb3185e294f1552994ea41b2d16af7e2c36676fe23ab0850"
-DEVEX_BASE_URL = "https://devex.cloud.tcore.network"
+from app.env import load_local_env_files
 
 
 async def create_despatch_from_order_xml(ubl_xml: str) -> dict:
-    async with httpx.AsyncClient() as client:
+    load_local_env_files()
+    api_key = os.getenv("DEVEX_API_KEY")
+    if not api_key:
+        raise ValueError("DevEx API key not configured. Set DEVEX_API_KEY to enable despatch creation.")
+    
+    base_url = os.getenv("DEVEX_BASE_URL", "https://devex.cloud.tcore.network").rstrip("/")
+    timeout_seconds = _parse_timeout_seconds(os.getenv("DEVEX_TIMEOUT_SECONDS"))
+    
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         create_response = await client.post(
-            f"{DEVEX_BASE_URL}/api/v1/despatch/create",
+            f"{base_url}/api/v1/despatch/create",
             headers={
-                "Api-Key": DEVEX_API_KEY,
+                "Api-Key": api_key,
                 "Content-Type": "application/xml",
             },
             content=ubl_xml,
@@ -21,8 +29,8 @@ async def create_despatch_from_order_xml(ubl_xml: str) -> dict:
             raise ValueError("No despatch advice IDs returned.")
 
         retrieve_response = await client.get(
-            f"{DEVEX_BASE_URL}/api/v1/despatch/retrieve",
-            headers={"Api-Key": DEVEX_API_KEY},
+            f"{base_url}/api/v1/despatch/retrieve",
+            headers={"Api-Key": api_key},
             params={
                 "search-type": "advice-id",
                 "query": advice_ids[0],

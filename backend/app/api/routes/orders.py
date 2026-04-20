@@ -1077,7 +1077,15 @@ async def despatch_order(
     if current_party_email.strip().lower() != seller_email.strip().lower():
         raise HTTPException(status_code=403, detail="Only the seller may despatch.")
 
-    existing_xml = getXml("dispatch_xml", order_id)
+    try:
+        existing_xml = getXml("dispatch_xml", order_id)
+    except Exception as exc:
+        logger.exception("Failed to fetch despatch XML")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch despatch XML.",
+        ) from exc
+    
     if existing_xml:
         stored = existing_xml[0]
         return {
@@ -1085,7 +1093,7 @@ async def despatch_order(
             "updatedAt": existing["updatedAt"],
             "despatch": {
                 "adviceId": None,
-                "xml": stored.get("ublxml"),
+                "xml": stored.get("xml"),
             },
         }
 
@@ -1174,7 +1182,7 @@ def get_despatch_xml(
     if not result:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    xml = result[0].get("ublxml")
+    xml = result[0].get("xml")
 
     if not xml:
         logger.error("Missing despatch XML for order_id=%s", order_id)
