@@ -2,6 +2,10 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setStoredSession } from "./session";
+import {
+  clearStoredMarketplaceCart,
+  writeStoredMarketplaceCart,
+} from "./pages/marketplacePrototypeData";
 
 vi.mock("cobe", () => ({
   default: () => ({
@@ -86,6 +90,7 @@ describe("App routing", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
     window.localStorage.clear();
+    clearStoredMarketplaceCart();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
@@ -111,6 +116,7 @@ describe("App routing", () => {
 
   afterEach(() => {
     cleanup();
+    clearStoredMarketplaceCart();
     vi.unstubAllGlobals();
   });
 
@@ -215,10 +221,31 @@ describe("App routing", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /marketplace browsing is the next build target\./i,
+        name: /^marketplace$/i,
       }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /review order/i })).toBeInTheDocument();
+    expect(screen.getByText(/available listings/i)).toBeInTheDocument();
     expect(window.location.pathname).toBe("/marketplace");
+  });
+
+  it("navigates from marketplace browsing into the review route when a session exists", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    window.history.replaceState({}, "", "/marketplace");
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /increase handmade ceramic mug/i }));
+    await user.click(screen.getByRole("button", { name: /review order/i }));
+
+    expect(screen.getByRole("heading", { name: /review your order/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/marketplace/review");
   });
 
   it("navigates to the inventory route from the landing page CTA when a session exists", async () => {
@@ -369,6 +396,45 @@ describe("App routing", () => {
       expect(window.location.pathname).toBe("/login");
     });
     expect(window.location.search).toBe("?next=%2Fmarketplace");
+  });
+
+  it("redirects /marketplace/review to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/marketplace/review");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Fmarketplace%2Freview");
+  });
+
+  it("renders the review route with stored marketplace selections when a session exists", () => {
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "market-ceramic-mug",
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          subtotal: 68,
+        },
+      ],
+    });
+    window.history.replaceState({}, "", "/marketplace/review");
+
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: /review your order/i })).toBeInTheDocument();
+    expect(screen.getByText("Handmade ceramic mug")).toBeInTheDocument();
   });
 
   it("redirects /inventory to login with the original destination when no session exists", async () => {

@@ -2,9 +2,10 @@ import "./index.css";
 import "./landing/landing.css";
 import { useEffect, useState } from "react";
 import { LandingPage } from "./landing/LandingPage";
-import { ExperiencePlaceholderPage } from "./pages/ExperiencePlaceholderPage";
 import { InventoryPrototypePage } from "./pages/InventoryPrototypePage";
 import { LoginPage } from "./pages/LoginPage";
+import { MarketplacePrototypePage } from "./pages/MarketplacePrototypePage";
+import { MarketplaceReviewPage } from "./pages/MarketplaceReviewPage";
 import { OrdersPlaceholderPage } from "./pages/OrdersPlaceholderPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VoiceOrderDemo } from "./VoiceOrderDemo";
@@ -36,6 +37,7 @@ export function App() {
     pathname === "/orders" ||
     pathname === "/orders/create" ||
     pathname === "/marketplace" ||
+    pathname === "/marketplace/review" ||
     pathname === "/inventory" ||
     editOrderId !== null;
 
@@ -73,17 +75,9 @@ export function App() {
     case "/orders/create":
       return <VoiceOrderDemo />;
     case "/marketplace":
-      return (
-        <ExperiencePlaceholderPage
-          eyebrow="Marketplace"
-          title="Marketplace browsing is the next build target."
-          description="This route will become the shared catalogue and cart experience. For now, use the existing order flow while the marketplace UI is being built."
-          primaryHref="/orders/create"
-          primaryLabel="Open current order flow"
-          secondaryHref="/orders"
-          secondaryLabel="Open orders dashboard"
-        />
-      );
+      return <MarketplacePrototypePage />;
+    case "/marketplace/review":
+      return <MarketplaceReviewPage />;
     case "/inventory":
       return <InventoryPrototypePage />;
     default:
