@@ -55,7 +55,7 @@ from app.services.order_store import (
 from app.services.party_password_auth import authenticate_party_v2
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
 
-# from other import findOrders, saveOrder, saveOrderDetails, DBInfo
+from app.other import getXml
 
 router = APIRouter(tags=["Orders"])
 logger = logging.getLogger(__name__)
@@ -628,18 +628,18 @@ def get_order_payload(order_id: str, current_party_email: str = Depends(get_curr
     },
 )
 def get_order_ubl(order_id: str, current_party_email: str = Depends(get_current_party_email)):
-    order = order_store.get_order_record(order_id)
+    order = getXml("order_gen_xml", order_id)
+    info = order[0]
 
+    payload = [info["buyer_id"], info["seller_id"]]
+    _assert_email_access(current_party_email, payload[0], payload[1])    
     if order is None:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    payload = order.get("payload", {})
-    _assert_order_access(current_party_email, payload)
-
-    if not order.get("ublXml"):
+    if info["xml"] is None:
         raise HTTPException(status_code=500, detail="Order XML missing.")
 
-    return Response(content=order["ublXml"], media_type="application/xml")
+    return Response(content=info["xml"], media_type="application/xml")
 
 
 @router.put(
