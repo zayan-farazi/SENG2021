@@ -19,7 +19,6 @@ def get_supabase_client() -> Client:
         load_local_env_files()
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
-
         if not supabase_url:
             raise RuntimeError("SUPABASE_URL is not configured.")
         if not supabase_key:
@@ -128,6 +127,8 @@ def saveOrder(
         query["createdat"] = createdAt
     if updatedAt is not None:
         query["updatedat"] = updatedAt
+    if ublXml is not None:
+        query["ublXml"] = ublXml
 
     # TODO remove if conditions when people have changeed their functions
 
@@ -374,28 +375,29 @@ def updateOrderRuntimeMetadata(
     if updatedAt is not None:
         query["updatedat"] = updatedAt
         query["lastchanged"] = updatedAt
+    if ublXml is not None:
+        query["ublXml"] = ublXml
     if not query:
         return None
 
     try:
         response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
         if ublXml is not None:
-            saveXml("order_gen_xml", orderId, ublXml)
+            saveXml("order_gen_xml", externalOrderId, ublXml)
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
-def saveXml(table_name: str, orderId: int, buyer_id: str, seller_id: str, ublXml: str) -> None:
-    query = {
-        "order_id": orderId,
-        "seller_id": seller_id,
-        "buyer_id": buyer_id,
-        "xml": ublXml
-    }
+
+def saveXml(table_name: str, orderId: str, buyer_id: str, seller_id: str, ublXml: str) -> None:
+    query = {"order_id": orderId, "seller_id": seller_id, "buyer_id": buyer_id, "xml": ublXml}
     get_supabase_client().table(table_name).upsert(query).execute()
 
-def getXml(table_name: str, orderId: int):
-    return get_supabase_client().table(table_name).select("*").eq("order_id", orderId).execute().data
+
+def getXml(table_name: str, orderId: str):
+    result = get_supabase_client().table(table_name).select("*").eq("order_id", orderId).execute()
+    return result.data if result.data else []
+
 
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
