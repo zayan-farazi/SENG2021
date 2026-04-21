@@ -160,7 +160,13 @@ def saveOrder(
         try:
             response = get_supabase_client().table("orders").upsert(legacy_query).execute()
             if ublXml is not None:
-                saveOrder("order_gen_xml", response.data[0]["id"], ublXml)
+                saveXml(
+                    "order_gen_xml",
+                    externalOrderId,
+                    buyeremail,
+                    selleremail,
+                    ublXml,
+                )
         except Exception as legacy_exc:
             raise RuntimeError(f"Failed to save order: {legacy_exc}") from legacy_exc
 
@@ -426,7 +432,13 @@ def updateOrderRuntimeMetadata(
     try:
         response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
         if ublXml is not None:
-            saveXml("order_gen_xml", externalOrderId, ublXml)
+            order_rows = findOrders(orderId=orderId)
+            order_row = order_rows[0] if order_rows else {}
+            buyer_id = order_row.get("buyer_id") or order_row.get("buyeremail")
+            seller_id = order_row.get("seller_id") or order_row.get("selleremail")
+            if not buyer_id or not seller_id:
+                raise RuntimeError("Missing buyer/seller email when persisting generated order XML.")
+            saveXml("order_gen_xml", externalOrderId, buyer_id, seller_id, ublXml)
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
