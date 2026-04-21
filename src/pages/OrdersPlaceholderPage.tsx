@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { ChartNoAxesColumn, Package2, TrendingUp } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AppLink } from "../components/AppLink";
@@ -655,10 +662,19 @@ function buildMetricCards(analytics: OrdersAnalyticsResponse | null) {
     ];
   }
   return [
-    { label: "Seller daily income", value: formatCurrency(analytics.sellerAnalytics.averageDailyIncome) },
-    { label: "Buyer daily spend", value: formatCurrency(analytics.buyerAnalytics.averageDailySpend) },
+    {
+      label: "Seller daily income",
+      value: formatCurrency(analytics.sellerAnalytics.averageDailyIncome),
+    },
+    {
+      label: "Buyer daily spend",
+      value: formatCurrency(analytics.buyerAnalytics.averageDailySpend),
+    },
     { label: "Seller pending", value: formatNumber(analytics.sellerAnalytics.ordersPending) },
-    { label: "Seller completed", value: formatNumber(analytics.sellerAnalytics.ordersCompleted) },
+    {
+      label: "Seller completed",
+      value: formatNumber(analytics.sellerAnalytics.ordersCompleted),
+    },
     { label: "Buyer items", value: formatNumber(analytics.buyerAnalytics.itemsBought) },
     { label: "Seller items", value: formatNumber(analytics.sellerAnalytics.itemsSold) },
   ];
@@ -766,7 +782,10 @@ function AnalyticsGroup({
     kind === "seller"
       ? [
           { label: "Total orders", value: formatNumber(analytics.totalOrders) },
-          { label: "Total income", value: formatCurrency((analytics as SellerAnalytics).totalIncome) },
+          {
+            label: "Total income",
+            value: formatCurrency((analytics as SellerAnalytics).totalIncome),
+          },
           { label: "Items sold", value: formatNumber((analytics as SellerAnalytics).itemsSold) },
           {
             label: "Average order",
@@ -775,7 +794,10 @@ function AnalyticsGroup({
         ]
       : [
           { label: "Total orders", value: formatNumber(analytics.totalOrders) },
-          { label: "Total spent", value: formatCurrency((analytics as BuyerAnalytics).totalSpent) },
+          {
+            label: "Total spent",
+            value: formatCurrency((analytics as BuyerAnalytics).totalSpent),
+          },
           { label: "Items bought", value: formatNumber((analytics as BuyerAnalytics).itemsBought) },
           {
             label: "Average order",
@@ -925,47 +947,76 @@ function RecentOrdersTable({
   );
 }
 
-export function OrdersPlaceholderPage() {
+function OrdersSectionNav() {
+  const pathname = window.location.pathname;
+
+  return (
+    <nav className="orders-dashboard-section-nav" aria-label="Orders navigation">
+      <AppLink
+        href="/orders"
+        className={`orders-dashboard-section-link${pathname === "/orders" ? " orders-dashboard-section-link-active" : ""}`}
+        aria-current={pathname === "/orders" ? "page" : undefined}
+      >
+        Orders
+      </AppLink>
+      <AppLink
+        href="/orders/analytics"
+        className={`orders-dashboard-section-link${pathname === "/orders/analytics" ? " orders-dashboard-section-link-active" : ""}`}
+        aria-current={pathname === "/orders/analytics" ? "page" : undefined}
+      >
+        Analytics
+      </AppLink>
+    </nav>
+  );
+}
+
+function OrdersPageFrame({
+  title,
+  description,
+  actions,
+  children,
+}: {
+  title: string;
+  description: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="landing-root orders-dashboard-root">
+      <div className="landing-container">
+        <section className="landing-stage orders-dashboard-stage">
+          <AppHeader />
+
+          <main className="orders-dashboard-main">
+            <section className="orders-dashboard-panel orders-dashboard-overview">
+              <OrdersSectionNav />
+              <div className="orders-dashboard-overview-header">
+                <div className="orders-dashboard-overview-copy">
+                  <h1>{title}</h1>
+                  <p>{description}</p>
+                </div>
+                {actions ? (
+                  <div className="orders-dashboard-overview-actions">{actions}</div>
+                ) : null}
+              </div>
+            </section>
+            {children}
+          </main>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export function OrdersPage() {
   const session = useStoredSession();
-  const [dateRange, setDateRange] = useState(() => getDefaultDashboardDateRange());
-  const [requestedDateRange, setRequestedDateRange] = useState<{
-    fromDate: string;
-    toDate: string;
-  } | null>(null);
-  const [analyticsLoadState, setAnalyticsLoadState] = useState<LoadState>("idle");
   const [ordersLoadState, setOrdersLoadState] = useState<LoadState>("loading");
-  const [analytics, setAnalytics] = useState<OrdersAnalyticsResponse | null>(null);
   const [orders, setOrders] = useState<OrderListResponse | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [ordersNotice, setOrdersNotice] = useState<string | null>(getInitialDeletedOrderNotice);
   const [orderPendingDelete, setOrderPendingDelete] = useState<OrderListItem | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const refreshAnalytics = useCallback(async (options?: { silent?: boolean }) => {
-    if (!session || !requestedDateRange) {
-      return;
-    }
-
-    if (!options?.silent) {
-      setAnalyticsLoadState("loading");
-      setAnalyticsError(null);
-    }
-
-    try {
-      const response = await fetchOrdersAnalytics(session, requestedDateRange);
-      setAnalytics(response);
-      setAnalyticsLoadState("ready");
-    } catch (error) {
-      setAnalyticsLoadState("error");
-      setAnalyticsError(
-        error instanceof Error && error.message === "analytics:422"
-          ? "Please enter a valid date range."
-          : "The analytics summary could not be loaded.",
-      );
-    }
-  }, [requestedDateRange, session]);
 
   const refreshOrders = useCallback(async (options?: { silent?: boolean }) => {
     if (!session) {
@@ -986,14 +1037,6 @@ export function OrdersPlaceholderPage() {
       setOrdersError("The recent orders list could not be loaded.");
     }
   }, [session]);
-
-  useEffect(() => {
-    if (!requestedDateRange) {
-      return;
-    }
-
-    void refreshAnalytics();
-  }, [refreshAnalytics, requestedDateRange]);
 
   useEffect(() => {
     if (!session) {
@@ -1020,6 +1063,151 @@ export function OrdersPlaceholderPage() {
       window.clearTimeout(timeoutId);
     };
   }, [ordersNotice]);
+
+  async function handleDeleteOrder() {
+    if (!session || !orderPendingDelete) {
+      return;
+    }
+
+    setDeletePending(true);
+    setDeleteError(null);
+
+    try {
+      await deleteOrder(session, orderPendingDelete.orderId);
+      const deletedOrderId = orderPendingDelete.orderId;
+      setOrders(current =>
+        current
+          ? {
+              ...current,
+              items: current.items.filter(order => order.orderId !== deletedOrderId),
+              page: {
+                ...current.page,
+                total: Math.max(current.page.total - 1, 0),
+              },
+            }
+          : current,
+      );
+      setOrdersNotice(`Order ${deletedOrderId} deleted.`);
+      setOrderPendingDelete(null);
+      void refreshOrders({ silent: true });
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        setDeleteError("The order could not be deleted.");
+        setDeletePending(false);
+        return;
+      }
+
+      if (error.message.startsWith("order-delete:404:")) {
+        setDeleteError("This order no longer exists.");
+        setOrderPendingDelete(null);
+        setOrdersNotice("This order no longer exists.");
+        void refreshOrders({ silent: true });
+      } else if (
+        error.message.startsWith("order-delete:401:") ||
+        error.message.startsWith("order-delete:403:")
+      ) {
+        setDeleteError("You do not have permission to delete this order.");
+      } else {
+        setDeleteError("The order could not be deleted.");
+      }
+    } finally {
+      setDeletePending(false);
+    }
+  }
+
+  return (
+    <>
+      <OrdersPageFrame
+        title="Orders."
+        description="Track recent orders, edit drafts, and remove work you no longer need."
+        actions={
+          <AppLink href="/orders/create" className="landing-button landing-button-primary">
+            Create draft order
+          </AppLink>
+        }
+      >
+        {ordersNotice ? (
+          <section
+            className="orders-dashboard-banner orders-dashboard-banner-success"
+            role="status"
+          >
+            {ordersNotice}
+          </section>
+        ) : null}
+
+        <RecentOrdersTable
+          orders={orders}
+          loadState={ordersLoadState}
+          errorMessage={ordersError}
+          onRequestDelete={order => {
+            setDeleteError(null);
+            setOrderPendingDelete(order);
+          }}
+        />
+      </OrdersPageFrame>
+
+      <ConfirmDialog
+        open={orderPendingDelete !== null}
+        title="Delete order?"
+        description="This will permanently remove the draft order."
+        confirmLabel="Delete order"
+        loading={deletePending}
+        errorMessage={deleteError}
+        onClose={() => {
+          if (deletePending) {
+            return;
+          }
+          setDeleteError(null);
+          setOrderPendingDelete(null);
+        }}
+        onConfirm={() => void handleDeleteOrder()}
+      >
+        Order ID: {orderPendingDelete?.orderId ?? ""}
+      </ConfirmDialog>
+    </>
+  );
+}
+
+export function OrdersAnalyticsPage() {
+  const session = useStoredSession();
+  const [dateRange, setDateRange] = useState(() => getDefaultDashboardDateRange());
+  const [requestedDateRange, setRequestedDateRange] = useState<{
+    fromDate: string;
+    toDate: string;
+  } | null>(null);
+  const [analyticsLoadState, setAnalyticsLoadState] = useState<LoadState>("idle");
+  const [analytics, setAnalytics] = useState<OrdersAnalyticsResponse | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  const refreshAnalytics = useCallback(async () => {
+    if (!session || !requestedDateRange) {
+      return;
+    }
+
+    setAnalyticsLoadState("loading");
+    setAnalyticsError(null);
+
+    try {
+      const response = await fetchOrdersAnalytics(session, requestedDateRange);
+      setAnalytics(response);
+      setAnalyticsLoadState("ready");
+    } catch (error) {
+      setAnalyticsLoadState("error");
+      setAnalyticsError(
+        error instanceof Error && error.message === "analytics:422"
+          ? "Please enter a valid date range."
+          : "The analytics summary could not be loaded.",
+      );
+    }
+  }, [requestedDateRange, session]);
+
+  useEffect(() => {
+    if (!requestedDateRange) {
+      return;
+    }
+
+    void refreshAnalytics();
+  }, [refreshAnalytics, requestedDateRange]);
 
   const summaryTiles = useMemo(() => getSummaryTiles(analytics), [analytics]);
   const metricCards = useMemo(() => buildMetricCards(analytics), [analytics]);
@@ -1053,335 +1241,229 @@ export function OrdersPlaceholderPage() {
     setRequestedDateRange({ ...dateRange });
   }
 
-  async function handleDeleteOrder() {
-    if (!session || !orderPendingDelete) {
-      return;
-    }
-
-    setDeletePending(true);
-    setDeleteError(null);
-
-    try {
-      await deleteOrder(session, orderPendingDelete.orderId);
-      const deletedOrderId = orderPendingDelete.orderId;
-      setOrders(current =>
-        current
-          ? {
-              ...current,
-              items: current.items.filter(order => order.orderId !== deletedOrderId),
-              page: {
-                ...current.page,
-                total: Math.max(current.page.total - 1, 0),
-              },
-            }
-          : current,
-      );
-      setOrdersNotice(`Order ${deletedOrderId} deleted.`);
-      setOrderPendingDelete(null);
-      void refreshOrders({ silent: true });
-      if (requestedDateRange) {
-        void refreshAnalytics({ silent: true });
-      }
-    } catch (error) {
-      if (!(error instanceof Error)) {
-        setDeleteError("The order could not be deleted.");
-        setDeletePending(false);
-        return;
-      }
-
-      if (error.message.startsWith("order-delete:404:")) {
-        setDeleteError("This order no longer exists.");
-        setOrderPendingDelete(null);
-        setOrdersNotice("This order no longer exists.");
-        void refreshOrders({ silent: true });
-        if (requestedDateRange) {
-          void refreshAnalytics({ silent: true });
-        }
-      } else if (
-        error.message.startsWith("order-delete:401:") ||
-        error.message.startsWith("order-delete:403:")
-      ) {
-        setDeleteError("You do not have permission to delete this order.");
-      } else {
-        setDeleteError("The order could not be deleted.");
-      }
-    } finally {
-      setDeletePending(false);
-    }
-  }
-
   return (
-    <div className="landing-root orders-dashboard-root">
-      <div className="landing-container">
-        <section className="landing-stage orders-dashboard-stage">
-          <AppHeader />
-
-          <main className="orders-dashboard-main">
-            <section className="orders-dashboard-hero">
-              <section className="orders-dashboard-summary orders-dashboard-hero-copy">
-                <div>
-                  <h1>Orders and analytics.</h1>
-                </div>
-                <div
-                  className="orders-dashboard-summary-grid"
-                  data-columns={summaryTiles.length === 2 ? "2" : "3"}
-                >
-                  <div>
-                    <span className="orders-dashboard-kicker">{getHeadlineLabel(analytics)}</span>
-                    <strong className="orders-dashboard-summary-value">
-                      {analyticsLoadState === "loading" ? "Loading..." : getHeadlineValue(analytics)}
-                    </strong>
-                    {isNoOrdersResponse(analytics) ? (
-                      <p className="orders-dashboard-summary-note">
-                        Widen the range or create an order.
-                      </p>
-                    ) : null}
-                  </div>
-                  {summaryTiles.map(tile => (
-                    <div key={tile.label} className="orders-dashboard-summary-tile">
-                      <span className="orders-dashboard-kicker">{tile.label}</span>
-                      <strong className="orders-dashboard-summary-value">{tile.value}</strong>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <aside className="orders-dashboard-panel orders-dashboard-range-panel">
-                <div className="orders-dashboard-range-header">
-                  <div>
-                    <span className="orders-dashboard-kicker">Analytics range</span>
-                    <h2>{rangeLabel}</h2>
-                  </div>
-                  <ChartNoAxesColumn size={20} color="#a7d5ff" />
-                </div>
-                <form className="orders-dashboard-range-panel-form" onSubmit={handleAnalyticsSearch}>
-                  <div className="orders-dashboard-range-form">
-                    <label htmlFor="fromDate">
-                      From
-                      <input
-                        id="fromDate"
-                        type="date"
-                        value={isoToDateInputValue(dateRange.fromDate)}
-                        aria-invalid={analyticsError === "Please enter a valid date range."}
-                        aria-describedby={
-                          analyticsError === "Please enter a valid date range."
-                            ? "analytics-range-error"
-                            : undefined
-                        }
-                        onChange={event => handleDateRangeChange("fromDate", event.target.value)}
-                      />
-                    </label>
-                    <label htmlFor="toDate">
-                      To
-                      <input
-                        id="toDate"
-                        type="date"
-                        value={isoToDateInputValue(dateRange.toDate)}
-                        aria-invalid={analyticsError === "Please enter a valid date range."}
-                        aria-describedby={
-                          analyticsError === "Please enter a valid date range."
-                            ? "analytics-range-error"
-                            : undefined
-                        }
-                        onChange={event => handleDateRangeChange("toDate", event.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div className="orders-dashboard-range-actions">
-                    <button
-                      type="submit"
-                      className="landing-button landing-button-secondary"
-                    >
-                      Search
-                    </button>
-                    <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                      Create draft order
-                    </AppLink>
-                    <button
-                      type="button"
-                      className="landing-button landing-button-secondary landing-button-reset"
-                      onClick={() => {
-                        setDateRange(getDefaultDashboardDateRange());
-                        setRequestedDateRange(null);
-                        setAnalytics(null);
-                        setAnalyticsLoadState("idle");
-                        setAnalyticsError(null);
-                      }}
-                    >
-                      Reset range
-                    </button>
-                  </div>
-                  {analyticsError === "Please enter a valid date range." ? (
-                    <p
-                      id="analytics-range-error"
-                      className="orders-dashboard-range-error"
-                      role="alert"
-                    >
-                      {analyticsError}
-                    </p>
-                  ) : null}
-                </form>
-                {analyticsLoadState === "ready" &&
-                analytics &&
-                !isNoOrdersResponse(analytics) &&
-                analytics.role !== "buyer" ? (
-                  <RangeComparisonChart
-                    title={
-                      analytics.role === "buyer_and_seller"
-                        ? "Income vs Spend"
-                        : "Value comparison"
-                    }
-                    subtitle=""
-                    rows={comparisonBars}
-                  />
-                ) : null}
-              </aside>
-            </section>
-
-            {analyticsLoadState === "error" ? (
-              <section className="orders-dashboard-error" role="alert">
-                <h2>Analytics unavailable</h2>
-                <p>{analyticsError ?? "Could not load analytics."}</p>
-              </section>
-            ) : analyticsLoadState === "loading" ? (
-              <section className="orders-dashboard-panel">
-                <h2>Loading analytics</h2>
-                <p>Fetching data.</p>
-              </section>
-            ) : analyticsLoadState === "idle" ? (
-              <section className="orders-dashboard-panel">
-                <h2>Analytics ready</h2>
-                <p>Choose a range, then search.</p>
-              </section>
-            ) : analytics && isNoOrdersResponse(analytics) ? (
-              <section className="orders-dashboard-empty">
-                <h2>No orders in range</h2>
-                <p>Widen the range or create a draft order.</p>
-                <div className="orders-dashboard-range-actions">
-                  <AppLink href="/orders/create" className="landing-button landing-button-primary">
-                    Create draft order
-                  </AppLink>
-                </div>
-              </section>
-            ) : analytics ? (
-              <>
-                <section className="orders-dashboard-chart-band">
-                  {analytics.role === "buyer" ? (
-                    <ComparisonChart
-                      title="Buyer value comparison"
-                      subtitle=""
-                      rows={comparisonBars}
-                      primary
-                    />
-                  ) : (
-                    <>
-                      <StatusSplitChart analytics={analytics} />
-                      <StatusShareChart analytics={analytics} />
-                    </>
-                  )}
-                  <div className="orders-dashboard-chart-stack">
-                    <CompositionChart
-                      title={
-                        analytics.role === "buyer"
-                          ? "Purchase composition"
-                          : analytics.role === "buyer_and_seller"
-                            ? "Order composition"
-                            : "Seller composition"
-                      }
-                      subtitle={
-                        analytics.role === "buyer"
-                          ? ""
-                          : ""
-                      }
-                      rows={compositionBars}
-                    />
-                  </div>
-                </section>
-
-                <section className="orders-dashboard-grid">
-                  <div className="orders-dashboard-left">
-                    <div className="orders-dashboard-metrics">
-                      {metricCards.map(card => (
-                        <article key={card.label} className="orders-dashboard-metric">
-                          <span>{card.label}</span>
-                          <strong>{card.value}</strong>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="orders-dashboard-right">
-                    <section className="orders-dashboard-panel">
-                      <div className="orders-dashboard-table-header">
-                        <div>
-                          <h2>Details</h2>
-                          <p>
-                            {analytics.role === "buyer_and_seller"
-                              ? "Buyer + seller."
-                              : `${analytics.role} view.`}
-                          </p>
-                        </div>
-                        <Package2 size={20} color="#a7d5ff" />
-                      </div>
-                      <RoleDetails analytics={analytics} />
-                    </section>
-                  </div>
-                </section>
-
-                {analytics.role === "buyer_and_seller" ? (
-                  <section className="orders-dashboard-grid">
-                    <AnalyticsGroup
-                      title="Seller analytics"
-                      analytics={(analytics as CombinedAnalyticsResponse).sellerAnalytics}
-                      kind="seller"
-                    />
-                    <AnalyticsGroup
-                      title="Buyer analytics"
-                      analytics={(analytics as CombinedAnalyticsResponse).buyerAnalytics}
-                      kind="buyer"
-                    />
-                  </section>
-                ) : null}
-              </>
-            ) : null}
-
-            {ordersNotice ? (
-              <section className="orders-dashboard-banner orders-dashboard-banner-success" role="status">
-                {ordersNotice}
-              </section>
-            ) : null}
-
-            <RecentOrdersTable
-              orders={orders}
-              loadState={ordersLoadState}
-              errorMessage={ordersError}
-              onRequestDelete={order => {
-                setDeleteError(null);
-                setOrderPendingDelete(order);
-              }}
-            />
-          </main>
+    <OrdersPageFrame
+      title="Analytics."
+      description="Inspect order performance across a date range without mixing in list actions."
+    >
+      <section className="orders-dashboard-hero">
+        <section className="orders-dashboard-summary orders-dashboard-hero-copy">
+          <div>
+            <h1>Order analytics.</h1>
+          </div>
+          <div
+            className="orders-dashboard-summary-grid"
+            data-columns={summaryTiles.length === 2 ? "2" : "3"}
+          >
+            <div>
+              <span className="orders-dashboard-kicker">{getHeadlineLabel(analytics)}</span>
+              <strong className="orders-dashboard-summary-value">
+                {analyticsLoadState === "loading" ? "Loading..." : getHeadlineValue(analytics)}
+              </strong>
+              {isNoOrdersResponse(analytics) ? (
+                <p className="orders-dashboard-summary-note">
+                  Widen the range or create an order.
+                </p>
+              ) : null}
+            </div>
+            {summaryTiles.map(tile => (
+              <div key={tile.label} className="orders-dashboard-summary-tile">
+                <span className="orders-dashboard-kicker">{tile.label}</span>
+                <strong className="orders-dashboard-summary-value">{tile.value}</strong>
+              </div>
+            ))}
+          </div>
         </section>
-      </div>
 
-      <ConfirmDialog
-        open={orderPendingDelete !== null}
-        title="Delete order?"
-        description="This will permanently remove the draft order."
-        confirmLabel="Delete order"
-        loading={deletePending}
-        errorMessage={deleteError}
-        onClose={() => {
-          if (deletePending) {
-            return;
-          }
-          setDeleteError(null);
-          setOrderPendingDelete(null);
-        }}
-        onConfirm={() => void handleDeleteOrder()}
-      >
-        Order ID: {orderPendingDelete?.orderId ?? ""}
-      </ConfirmDialog>
-    </div>
+        <aside className="orders-dashboard-panel orders-dashboard-range-panel">
+          <div className="orders-dashboard-range-header">
+            <div>
+              <span className="orders-dashboard-kicker">Analytics range</span>
+              <h2>{rangeLabel}</h2>
+            </div>
+            <ChartNoAxesColumn size={20} color="#a7d5ff" />
+          </div>
+          <form className="orders-dashboard-range-panel-form" onSubmit={handleAnalyticsSearch}>
+            <div className="orders-dashboard-range-form">
+              <label htmlFor="fromDate">
+                From
+                <input
+                  id="fromDate"
+                  type="date"
+                  value={isoToDateInputValue(dateRange.fromDate)}
+                  aria-invalid={analyticsError === "Please enter a valid date range."}
+                  aria-describedby={
+                    analyticsError === "Please enter a valid date range."
+                      ? "analytics-range-error"
+                      : undefined
+                  }
+                  onChange={event => handleDateRangeChange("fromDate", event.target.value)}
+                />
+              </label>
+              <label htmlFor="toDate">
+                To
+                <input
+                  id="toDate"
+                  type="date"
+                  value={isoToDateInputValue(dateRange.toDate)}
+                  aria-invalid={analyticsError === "Please enter a valid date range."}
+                  aria-describedby={
+                    analyticsError === "Please enter a valid date range."
+                      ? "analytics-range-error"
+                      : undefined
+                  }
+                  onChange={event => handleDateRangeChange("toDate", event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="orders-dashboard-range-actions">
+              <button type="submit" className="landing-button landing-button-secondary">
+                Search
+              </button>
+              <AppLink href="/orders/create" className="landing-button landing-button-primary">
+                Create draft order
+              </AppLink>
+              <button
+                type="button"
+                className="landing-button landing-button-secondary landing-button-reset"
+                onClick={() => {
+                  setDateRange(getDefaultDashboardDateRange());
+                  setRequestedDateRange(null);
+                  setAnalytics(null);
+                  setAnalyticsLoadState("idle");
+                  setAnalyticsError(null);
+                }}
+              >
+                Reset range
+              </button>
+            </div>
+            {analyticsError === "Please enter a valid date range." ? (
+              <p id="analytics-range-error" className="orders-dashboard-range-error" role="alert">
+                {analyticsError}
+              </p>
+            ) : null}
+          </form>
+          {analyticsLoadState === "ready" &&
+          analytics &&
+          !isNoOrdersResponse(analytics) &&
+          analytics.role !== "buyer" ? (
+            <RangeComparisonChart
+              title={
+                analytics.role === "buyer_and_seller" ? "Income vs Spend" : "Value comparison"
+              }
+              subtitle=""
+              rows={comparisonBars}
+            />
+          ) : null}
+        </aside>
+      </section>
+
+      {analyticsLoadState === "error" ? (
+        <section className="orders-dashboard-error" role="alert">
+          <h2>Analytics unavailable</h2>
+          <p>{analyticsError ?? "Could not load analytics."}</p>
+        </section>
+      ) : analyticsLoadState === "loading" ? (
+        <section className="orders-dashboard-panel">
+          <h2>Loading analytics</h2>
+          <p>Fetching data.</p>
+        </section>
+      ) : analyticsLoadState === "idle" ? (
+        <section className="orders-dashboard-panel">
+          <h2>Analytics ready</h2>
+          <p>Choose a range, then search.</p>
+        </section>
+      ) : analytics && isNoOrdersResponse(analytics) ? (
+        <section className="orders-dashboard-empty">
+          <h2>No orders in range</h2>
+          <p>Widen the range or create a draft order.</p>
+          <div className="orders-dashboard-range-actions">
+            <AppLink href="/orders/create" className="landing-button landing-button-primary">
+              Create draft order
+            </AppLink>
+          </div>
+        </section>
+      ) : analytics ? (
+        <>
+          <section className="orders-dashboard-chart-band">
+            {analytics.role === "buyer" ? (
+              <ComparisonChart
+                title="Buyer value comparison"
+                subtitle=""
+                rows={comparisonBars}
+                primary
+              />
+            ) : (
+              <>
+                <StatusSplitChart analytics={analytics} />
+                <StatusShareChart analytics={analytics} />
+              </>
+            )}
+            <div className="orders-dashboard-chart-stack">
+              <CompositionChart
+                title={
+                  analytics.role === "buyer"
+                    ? "Purchase composition"
+                    : analytics.role === "buyer_and_seller"
+                      ? "Order composition"
+                      : "Seller composition"
+                }
+                subtitle=""
+                rows={compositionBars}
+              />
+            </div>
+          </section>
+
+          <section className="orders-dashboard-grid">
+            <div className="orders-dashboard-left">
+              <div className="orders-dashboard-metrics">
+                {metricCards.map(card => (
+                  <article key={card.label} className="orders-dashboard-metric">
+                    <span>{card.label}</span>
+                    <strong>{card.value}</strong>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="orders-dashboard-right">
+              <section className="orders-dashboard-panel">
+                <div className="orders-dashboard-table-header">
+                  <div>
+                    <h2>Details</h2>
+                    <p>
+                      {analytics.role === "buyer_and_seller"
+                        ? "Buyer + seller."
+                        : `${analytics.role} view.`}
+                    </p>
+                  </div>
+                  <Package2 size={20} color="#a7d5ff" />
+                </div>
+                <RoleDetails analytics={analytics} />
+              </section>
+            </div>
+          </section>
+
+          {analytics.role === "buyer_and_seller" ? (
+            <section className="orders-dashboard-grid">
+              <AnalyticsGroup
+                title="Seller analytics"
+                analytics={(analytics as CombinedAnalyticsResponse).sellerAnalytics}
+                kind="seller"
+              />
+              <AnalyticsGroup
+                title="Buyer analytics"
+                analytics={(analytics as CombinedAnalyticsResponse).buyerAnalytics}
+                kind="buyer"
+              />
+            </section>
+          ) : null}
+        </>
+      ) : null}
+    </OrdersPageFrame>
   );
+}
+
+export function OrdersPlaceholderPage() {
+  return <OrdersPage />;
 }

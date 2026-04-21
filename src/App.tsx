@@ -6,7 +6,10 @@ import { InventoryPrototypePage } from "./pages/InventoryPrototypePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MarketplacePrototypePage } from "./pages/MarketplacePrototypePage";
 import { MarketplaceReviewPage } from "./pages/MarketplaceReviewPage";
-import { OrdersPlaceholderPage } from "./pages/OrdersPlaceholderPage";
+import {
+  OrdersAnalyticsPage,
+  OrdersPage,
+} from "./pages/OrdersPlaceholderPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VoiceOrderDemo } from "./VoiceOrderDemo";
 import { navigate } from "./components/AppLink";
@@ -23,7 +26,7 @@ function buildLoginRedirect(pathname: string, search: string): string {
 
 function getEditOrderId(pathname: string): string | null {
   const match = pathname.match(/^\/orders\/([^/]+)\/edit$/);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
 export function App() {
@@ -35,6 +38,7 @@ export function App() {
   const editOrderId = getEditOrderId(pathname);
   const isProtectedRoute =
     pathname === "/orders" ||
+    pathname === "/orders/analytics" ||
     pathname === "/orders/create" ||
     pathname === "/marketplace" ||
     pathname === "/marketplace/review" ||
@@ -71,7 +75,9 @@ export function App() {
     case "/register":
       return <RegisterPage />;
     case "/orders":
-      return <OrdersPlaceholderPage />;
+      return <OrdersPage />;
+    case "/orders/analytics":
+      return <OrdersAnalyticsPage />;
     case "/orders/create":
       return <VoiceOrderDemo />;
     case "/marketplace":

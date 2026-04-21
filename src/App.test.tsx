@@ -169,11 +169,70 @@ describe("App routing", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", {
-          name: /orders and analytics/i,
+      expect(screen.getByRole("heading", { name: /^orders\.$/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: /^analytics$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /recent orders/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /analytics ready/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the analytics page for /orders/analytics when a session exists", async () => {
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    window.history.replaceState({}, "", "/orders/analytics");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /^analytics\.$/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /analytics ready/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /recent orders/i })).not.toBeInTheDocument();
+  });
+
+  it("switches between orders and analytics from the page-level navigation", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    window.history.replaceState({}, "", "/orders");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          items: [],
+          page: { limit: 10, offset: 0, hasMore: false, total: 0 },
         }),
-      ).toBeInTheDocument();
+      }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /^orders\.$/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("link", { name: /^analytics$/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/orders/analytics");
+      expect(screen.getByRole("heading", { name: /^analytics\.$/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("link", { name: /^orders$/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/orders");
+      expect(screen.getByRole("heading", { name: /^orders\.$/i })).toBeInTheDocument();
     });
   });
 
@@ -343,7 +402,9 @@ describe("App routing", () => {
 
     render(<App />);
 
-    await user.click(screen.getAllByRole("link", { name: /browse marketplace/i })[0]);
+    const [marketplaceLink] = screen.getAllByRole("link", { name: /browse marketplace/i });
+    expect(marketplaceLink).toBeDefined();
+    await user.click(marketplaceLink!);
 
     await waitFor(() => {
       expect(window.location.pathname).toBe("/login");
@@ -356,7 +417,9 @@ describe("App routing", () => {
 
     render(<App />);
 
-    await user.click(screen.getAllByRole("link", { name: /manage inventory/i })[0]);
+    const [inventoryLink] = screen.getAllByRole("link", { name: /manage inventory/i });
+    expect(inventoryLink).toBeDefined();
+    await user.click(inventoryLink!);
 
     await waitFor(() => {
       expect(window.location.pathname).toBe("/login");
@@ -374,6 +437,17 @@ describe("App routing", () => {
     });
     expect(window.location.search).toBe("?next=%2Forders%2Fcreate");
     expect(screen.getByRole("heading", { name: /log back in with your email and password/i })).toBeInTheDocument();
+  });
+
+  it("redirects /orders/analytics to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/orders/analytics");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Forders%2Fanalytics");
   });
 
   it("redirects /orders/:orderId/edit to login with the original destination when no session exists", async () => {
