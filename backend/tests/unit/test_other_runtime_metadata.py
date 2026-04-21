@@ -57,3 +57,7 @@ def test_update_order_runtime_metadata_persists_generated_xml_with_party_ids(mon
         "seller@example.com",
         "<Order/>",
     )
+
+
+def test_resolve_xml_order_id_supports_legacy_public_ids():
+    assert other._resolve_xml_order_id("ord_legacy_42") == 42

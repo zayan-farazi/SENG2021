@@ -12,6 +12,7 @@ DEFAULT_ORDER_LIST_LIMIT = 20
 DEFAULT_ORDER_LIST_OFFSET = 0
 MAX_ORDER_LIST_LIMIT = 100
 MAX_CACHED_ORDERS = 256
+LEGACY_ORDER_ID_PREFIX = "ord_legacy_"
 
 
 class OrderPersistenceError(RuntimeError):
@@ -327,9 +328,18 @@ def persist_order_status_to_database(
 
 
 def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:
-    from app.other import findOrderByExternalId
+    from app.other import findOrderByExternalId, findOrderDetails, findOrders
 
     row = findOrderByExternalId(order_id)
+    if row is None:
+        legacy_db_order_id = _parse_legacy_order_id(order_id)
+        if legacy_db_order_id is not None:
+            rows = findOrders(orderId=legacy_db_order_id)
+            if rows:
+                row = dict(rows[0])
+                details = findOrderDetails(legacy_db_order_id)
+                row["details"] = details.data
+                row["count"] = details.count
     if row is None:
         return None
 
@@ -395,9 +405,7 @@ def _record_from_database_row(order_id: str, row: dict[str, Any]) -> dict[str, A
 
 
 def _order_summary_from_database_row(row: dict[str, Any]) -> dict[str, Any]:
-    order_id = row.get("order_id")
-    if not isinstance(order_id, str) or not order_id:
-        raise OrderPersistenceError("Order row is missing order_id.")
+    order_id = _resolve_public_order_id(row)
 
     buyer_email = _first_non_empty(row.get("buyer_id"), row.get("buyeremail"))
     seller_email = _first_non_empty(row.get("seller_id"), row.get("selleremail"))
@@ -413,6 +421,29 @@ def _order_summary_from_database_row(row: dict[str, Any]) -> dict[str, Any]:
         "sellerName": _first_non_empty(row.get("sellername"), _resolve_party_name(seller_email)),
         "issueDate": _coerce_date_string(row.get("issuedate")),
     }
+
+
+def _resolve_public_order_id(row: dict[str, Any]) -> str:
+    order_id = row.get("order_id")
+    if isinstance(order_id, str) and order_id:
+        return order_id
+
+    db_order_id = row.get("id")
+    if db_order_id is None:
+        raise OrderPersistenceError("Order row is missing both order_id and id.")
+
+    return f"{LEGACY_ORDER_ID_PREFIX}{db_order_id}"
+
+
+def _parse_legacy_order_id(order_id: str) -> int | None:
+    if not isinstance(order_id, str) or not order_id.startswith(LEGACY_ORDER_ID_PREFIX):
+        return None
+
+    suffix = order_id.removeprefix(LEGACY_ORDER_ID_PREFIX)
+    if not suffix.isdigit():
+        return None
+
+    return int(suffix)
 
 
 def _build_delivery_payload(row: dict[str, Any]) -> dict[str, Any] | None:

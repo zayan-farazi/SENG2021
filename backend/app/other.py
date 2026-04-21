@@ -450,6 +450,12 @@ def updateOrderRuntimeMetadata(
 def _resolve_xml_order_id(order_id: str | int):
     if isinstance(order_id, int):
         return order_id
+    if (
+        isinstance(order_id, str)
+        and order_id.startswith("ord_legacy_")
+        and order_id.removeprefix("ord_legacy_").isdigit()
+    ):
+        return int(order_id.removeprefix("ord_legacy_"))
     if isinstance(order_id, str) and order_id.startswith("ord_"):
         order_rows = findOrders(externalOrderId=order_id)
         order_row = order_rows[0] if order_rows else None
