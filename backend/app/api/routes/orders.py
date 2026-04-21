@@ -40,6 +40,12 @@ from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
 from app.services.despatch import create_despatch_from_order_xml
+from app.services.marketplace_assistant import (
+    MarketplaceAssistantCartLine,
+    MarketplaceAssistantFilterState,
+    MarketplaceAssistantProduct,
+    interpret_marketplace_command,
+)
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -345,6 +351,104 @@ async def order_draft_session(websocket: WebSocket):
         logger.info("Draft session disconnected")
 
 
+@router.websocket("/v1/marketplace/assistant/ws")
+async def marketplace_assistant_session(websocket: WebSocket):
+    await websocket.accept()
+    state: dict[str, Any] = {
+        "products": [],
+        "categories": [],
+        "filters": MarketplaceAssistantFilterState(),
+        "cart_lines": [],
+        "transcript_log": [],
+        "current_partial": "",
+    }
+    await websocket.send_json(
+        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}}
+    )
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict):
+                await _send_error(
+                    websocket, "invalid_message", "WebSocket messages must be JSON objects."
+                )
+                continue
+
+            event_type = message.get("type")
+            payload = message.get("payload") or {}
+            if not isinstance(payload, dict):
+                await _send_error(
+                    websocket, "invalid_payload", "Event payloads must be JSON objects."
+                )
+                continue
+
+            if event_type == "session.start":
+                await _handle_marketplace_assistant_context(websocket, state, payload)
+            elif event_type == "context.patch":
+                await _handle_marketplace_assistant_context(websocket, state, payload)
+            elif event_type == "transcript.partial":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Partial transcript text must be a string.",
+                    )
+                    continue
+
+                state["current_partial"] = text.strip()
+                await websocket.send_json(
+                    {
+                        "type": "transcript.echo",
+                        "payload": {"kind": "partial", "text": state["current_partial"]},
+                    }
+                )
+            elif event_type == "transcript.final":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Final transcript text must be a string.",
+                    )
+                    continue
+
+                cleaned = text.strip()
+                state["current_partial"] = ""
+                state["transcript_log"].append(cleaned)
+                await websocket.send_json(
+                    {"type": "transcript.echo", "payload": {"kind": "final", "text": cleaned}}
+                )
+
+                interpretation = await interpret_marketplace_command(
+                    transcript=cleaned,
+                    products=state["products"],
+                    categories=state["categories"],
+                    filters=state["filters"],
+                    cart_lines=state["cart_lines"],
+                    transcript_log=state["transcript_log"],
+                )
+                await websocket.send_json(
+                    {
+                        "type": "assistant.command",
+                        "payload": {
+                            "command": interpretation.command.model_dump(mode="json")
+                            if interpretation.command
+                            else None,
+                            "message": interpretation.unresolved_reason
+                            or interpretation.warning_message,
+                        },
+                    }
+                )
+            else:
+                await _send_error(
+                    websocket, "unknown_event", f"Unsupported event type: {event_type}"
+                )
+    except WebSocketDisconnect:
+        logger.info("Marketplace assistant session disconnected")
+
+
 async def _handle_session_start(
     websocket: WebSocket,
     state: DraftSessionState,
@@ -368,6 +472,58 @@ async def _handle_session_start(
         return
 
     await _send_draft_update(websocket, state, applied_changes)
+
+
+async def _handle_marketplace_assistant_context(
+    websocket: WebSocket,
+    state: dict[str, Any],
+    payload: dict[str, Any],
+):
+    raw_products = payload.get("products")
+    raw_categories = payload.get("categories")
+    raw_filters = payload.get("filters")
+    raw_cart_lines = payload.get("cartLines")
+
+    try:
+        if raw_products is not None:
+            if not isinstance(raw_products, list):
+                raise ValueError("Products payload must be an array.")
+            state["products"] = [
+                MarketplaceAssistantProduct.model_validate(product) for product in raw_products
+            ]
+
+        if raw_categories is not None:
+            if not isinstance(raw_categories, list) or not all(
+                isinstance(category, str) for category in raw_categories
+            ):
+                raise ValueError("Categories payload must be a string array.")
+            state["categories"] = raw_categories
+
+        if raw_filters is not None:
+            if not isinstance(raw_filters, dict):
+                raise ValueError("Filters payload must be an object.")
+            state["filters"] = MarketplaceAssistantFilterState.model_validate(raw_filters)
+
+        if raw_cart_lines is not None:
+            if not isinstance(raw_cart_lines, list):
+                raise ValueError("Cart lines payload must be an array.")
+            state["cart_lines"] = [
+                MarketplaceAssistantCartLine.model_validate(line) for line in raw_cart_lines
+            ]
+    except (ValidationError, ValueError) as exc:
+        await _send_error(websocket, "invalid_context", str(exc))
+        return
+
+    await websocket.send_json(
+        {
+            "type": "context.updated",
+            "payload": {
+                "productCount": len(state["products"]),
+                "categoryCount": len(state["categories"]),
+                "cartLineCount": len(state["cart_lines"]),
+            },
+        }
+    )
 
 
 async def _handle_partial_transcript(

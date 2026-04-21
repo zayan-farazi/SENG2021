@@ -1001,4 +1001,93 @@ describe("VoiceOrderDemo", () => {
       );
     });
   });
+
+  it("routes risky document voice commands through confirmation before executing", async () => {
+    setStoredSession({
+      partyId: "seller-party",
+      partyName: "Digital Book Supply",
+      contactEmail: "seller@example.com",
+      credential: "super-secure-password",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_docs_voice",
+            status: "SUBMITTED",
+            createdAt: "2026-03-07T00:00:00Z",
+            updatedAt: "2026-03-08T00:00:00Z",
+            payload: {
+              buyerEmail: "buyer@example.com",
+              buyerName: "Acme Books",
+              sellerEmail: "seller@example.com",
+              sellerName: "Digital Book Supply",
+              currency: "AUD",
+              issueDate: "2026-03-07",
+              notes: null,
+              delivery: null,
+              lines: [
+                {
+                  productName: "Oranges",
+                  quantity: 2,
+                  unitCode: "EA",
+                  unitPrice: "12.50",
+                },
+              ],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => "<LockedOrder />",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_docs_voice",
+            invoice: {
+              invoice_id: "INV-VOICE",
+              status: "draft",
+              issue_date: "2026-03-07",
+              currency: "AUD",
+            },
+          }),
+        }),
+    );
+
+    render(<VoiceOrderDemo orderId="ord_docs_voice" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /documents/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    const recognition = MockSpeechRecognition.instances.at(-1);
+    if (!recognition) {
+      throw new Error("Speech recognition instance was not created.");
+    }
+
+    act(() => {
+      recognition.onresult?.({
+        results: [[{ transcript: "generate invoice" }]],
+      });
+      recognition.onend?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/generate the invoice for this locked order/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(screen.getByRole("alert")).getByRole("button", { name: /^generate invoice$/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("INV-VOICE")).toBeInTheDocument();
+    });
+  });
 });

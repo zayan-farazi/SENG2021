@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act } from "react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setStoredSession } from "../session";
 import { MarketplacePrototypePage } from "./MarketplacePrototypePage";
 import { MarketplaceCheckoutSuccessPage } from "./MarketplaceCheckoutSuccessPage";
@@ -12,7 +13,114 @@ import {
   writeStoredMarketplaceCart,
 } from "./marketplacePrototypeData";
 
+class MockWebSocket extends EventTarget {
+  static instances: MockWebSocket[] = [];
+  static OPEN = 1;
+  static CLOSED = 3;
+
+  url: string;
+  readyState = 0;
+  sentMessages: string[] = [];
+
+  constructor(url: string) {
+    super();
+    this.url = url;
+    MockWebSocket.instances.push(this);
+  }
+
+  send(message: string) {
+    this.sentMessages.push(message);
+  }
+
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.dispatchEvent(new Event("close"));
+  }
+
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.dispatchEvent(new Event("open"));
+  }
+
+  emitMessage(data: unknown) {
+    this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(data) }));
+  }
+}
+
+class MockSpeechRecognition {
+  static instances: MockSpeechRecognition[] = [];
+
+  continuous = false;
+  interimResults = false;
+  lang = "";
+  onstart: (() => void) | null = null;
+  onresult: ((event: any) => void) | null = null;
+  onerror: ((event: any) => void) | null = null;
+  onend: (() => void) | null = null;
+
+  constructor() {
+    MockSpeechRecognition.instances.push(this);
+  }
+
+  start = vi.fn(() => {
+    this.onstart?.();
+  });
+
+  stop = vi.fn(() => {
+    this.onend?.();
+  });
+}
+
+function installSpeechRecognition() {
+  Object.defineProperty(window, "SpeechRecognition", {
+    configurable: true,
+    writable: true,
+    value: MockSpeechRecognition,
+  });
+  Object.defineProperty(globalThis, "SpeechRecognition", {
+    configurable: true,
+    writable: true,
+    value: MockSpeechRecognition,
+  });
+  delete (window as any).webkitSpeechRecognition;
+}
+
+function emitTranscript(text: string) {
+  const recognition = MockSpeechRecognition.instances.at(-1);
+  if (!recognition) {
+    throw new Error("No speech recognition instance was created.");
+  }
+
+  act(() => {
+    recognition.onresult?.({
+      resultIndex: 0,
+      results: [{ isFinal: true, 0: { transcript: text } }],
+    });
+    recognition.onend?.();
+  });
+}
+
+function openAssistantSocket() {
+  const socket = MockWebSocket.instances.at(-1);
+  if (!socket) {
+    throw new Error("No marketplace assistant websocket was created.");
+  }
+
+  act(() => {
+    socket.open();
+  });
+
+  return socket;
+}
+
 describe("MarketplacePrototypePage", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    MockSpeechRecognition.instances = [];
+    installSpeechRecognition();
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+  });
+
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
@@ -78,9 +186,64 @@ describe("MarketplacePrototypePage", () => {
 
     expect(window.location.pathname).toBe("/marketplace/review");
   });
+
+  it("applies marketplace voice search commands through the assistant dock", async () => {
+    const user = userEvent.setup();
+
+    render(<MarketplacePrototypePage />);
+    const socket = openAssistantSocket();
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("search candle");
+    act(() => {
+      socket.emitMessage({
+        type: "assistant.command",
+        payload: {
+          command: { kind: "search", query: "candle" },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("searchbox", { name: /search products or sellers/i })).toHaveValue(
+        "candle",
+      );
+    });
+    expect(screen.getByText(/updated search to candle/i)).toBeInTheDocument();
+  });
+
+  it("adds marketplace items via voice commands", async () => {
+    const user = userEvent.setup();
+
+    render(<MarketplacePrototypePage />);
+    const socket = openAssistantSocket();
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("add two ceramic mugs");
+    act(() => {
+      socket.emitMessage({
+        type: "assistant.command",
+        payload: {
+          command: {
+            kind: "change_quantity",
+            productId: "market-ceramic-mug",
+            quantityDelta: 2,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 items selected/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/added 2 handmade ceramic mug to the cart/i)).toBeInTheDocument();
+  });
 });
 
 describe("MarketplaceReviewPage", () => {
+  beforeEach(() => {
+    MockSpeechRecognition.instances = [];
+    installSpeechRecognition();
+  });
+
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
@@ -192,6 +355,145 @@ describe("MarketplaceReviewPage", () => {
     expect(window.sessionStorage.getItem("lockedout.marketplace-cart")).toBeNull();
     expect(screen.getByText("Harbour Studio")).toBeInTheDocument();
     expect(screen.getByText("Lineform Press")).toBeInTheDocument();
+  });
+
+  it("applies checkout field updates from voice transcript conversion", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "market-ceramic-mug",
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          unitCode: "EA",
+          subtotal: 68,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Buyer Co",
+            sellerEmail: "orders@harbourstudio.example",
+            sellerName: "Harbour Studio",
+            currency: "AUD",
+            issueDate: "2026-04-21",
+            notes: "Leave at loading dock",
+            delivery: {
+              street: "123 Harbour Street",
+              city: "Sydney",
+              state: "NSW",
+              postcode: "2000",
+              country: "AU",
+              requestedDate: "2026-05-03",
+            },
+            lines: [
+              {
+                productName: "Handmade ceramic mug",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: "34.00",
+              },
+            ],
+          },
+          valid: true,
+          issues: [],
+          source: "transcript",
+        }),
+      }),
+    );
+
+    render(<MarketplaceReviewPage />);
+
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("deliver to 123 Harbour Street next Saturday and add note leave at loading dock");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/street/i)).toHaveValue("123 Harbour Street");
+    });
+    expect(screen.getByLabelText(/notes/i)).toHaveValue("Leave at loading dock");
+  });
+
+  it("confirms and places checkout orders through voice commands", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "market-ceramic-mug",
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          unitCode: "EA",
+          subtotal: 68,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_voice_1",
+            status: "DRAFT",
+            createdAt: "2026-04-21T00:00:00Z",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_voice_1",
+            status: "SUBMITTED",
+            updatedAt: "2026-04-21T00:01:00Z",
+          }),
+        }),
+    );
+
+    render(<MarketplaceReviewPage />);
+
+    await user.type(screen.getByLabelText(/street/i), "123 Harbour Street");
+    await user.type(screen.getByLabelText(/^city$/i), "Sydney");
+    await user.type(screen.getByLabelText(/^state$/i), "NSW");
+    await user.type(screen.getByLabelText(/postcode/i), "2000");
+    await user.clear(screen.getByLabelText(/country/i));
+    await user.type(screen.getByLabelText(/country/i), "AU");
+
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("place order");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /place order/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getAllByRole("button", { name: /^place order$/i })[1]!);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/orders/ord_voice_1/edit");
+    });
   });
 
   it("renders the placed-order summary page from stored checkout data", () => {

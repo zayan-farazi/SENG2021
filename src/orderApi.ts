@@ -27,6 +27,13 @@ export type OrderSubmitResult = {
   updatedAt: string;
 };
 
+export type OrderConversionResult = {
+  payload: OrderRequestPayload | null;
+  valid: boolean;
+  issues: string[];
+  source: "transcript";
+};
+
 export type OrderDespatch = {
   adviceId: string | null;
   xml: string;
@@ -182,6 +189,31 @@ export async function submitOrder(
   }
 
   return (await response.json()) as OrderSubmitResult;
+}
+
+export async function convertTranscriptToOrderPayload(
+  session: StoredSession,
+  transcript: string,
+  currentPayload: OrderRequestPayload | null,
+): Promise<OrderConversionResult> {
+  const response = await fetch(`${getBackendHttpUrl()}/v1/orders/convert/transcript`, {
+    method: "POST",
+    headers: {
+      ...buildAuthenticatedHeaders(session),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      transcript,
+      currentPayload,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response);
+    throw new Error(`order-convert:${response.status}:${detail}`);
+  }
+
+  return (await response.json()) as OrderConversionResult;
 }
 
 export async function fetchOrderUblXml(session: StoredSession, orderId: string): Promise<string> {

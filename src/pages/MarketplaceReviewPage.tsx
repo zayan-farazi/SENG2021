@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { AppLink, navigate } from "../components/AppLink";
-import { createOrder, submitOrder } from "../orderApi";
+import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
+import { convertTranscriptToOrderPayload, createOrder, submitOrder } from "../orderApi";
 import { useStoredSession } from "../session";
 import {
   calculateCartTotal,
@@ -13,11 +14,24 @@ import {
   type MarketplaceSellerOrderGroup,
   writeStoredMarketplaceCheckoutSuccess,
 } from "./marketplacePrototypeData";
+import {
+  buildCheckoutAssistantPayload,
+  parseCheckoutVoiceCommand,
+  summarizeCheckoutFieldMutations,
+  type AssistantActionResult,
+} from "../voiceAssistant";
 import "./marketplace-prototype.css";
 
 type CheckoutFailure = {
   seller: string;
   message: string;
+};
+
+type PlaceOrdersResult = {
+  success: boolean;
+  createdOrders: MarketplacePlacedOrder[];
+  failures: CheckoutFailure[];
+  errorMessage: string | null;
 };
 
 function formatPrice(value: number): string {
@@ -129,6 +143,42 @@ export function MarketplaceReviewPage() {
     }
   }, [storedSession?.partyName]);
 
+  const applyCheckoutPayload = (payload: ReturnType<typeof buildCheckoutAssistantPayload>) => {
+    const nextState = {
+      buyerName: payload.buyerName,
+      street: payload.delivery?.street ?? "",
+      city: payload.delivery?.city ?? "",
+      state: payload.delivery?.state ?? "",
+      postcode: payload.delivery?.postcode ?? "",
+      country: payload.delivery?.country ?? "",
+      requestedDate: payload.delivery?.requestedDate ?? "",
+      notes: payload.notes ?? "",
+    };
+
+    const previousState = {
+      buyerName,
+      street,
+      city,
+      state,
+      postcode,
+      country,
+      requestedDate,
+      notes,
+    };
+    const summaries = summarizeCheckoutFieldMutations(previousState, nextState);
+
+    setBuyerName(nextState.buyerName);
+    setStreet(nextState.street);
+    setCity(nextState.city);
+    setState(nextState.state);
+    setPostcode(nextState.postcode);
+    setCountry(nextState.country);
+    setRequestedDate(nextState.requestedDate);
+    setNotes(nextState.notes);
+
+    return summaries;
+  };
+
   const validateForm = () => {
     const missingFields: string[] = [];
     if (!storedSession?.contactEmail) {
@@ -158,21 +208,24 @@ export function MarketplaceReviewPage() {
     return missingFields;
   };
 
-  const placeOrders = async () => {
+  const placeOrders = async (): Promise<PlaceOrdersResult> => {
     if (!storedSession) {
-      setCheckoutError("Sign in again before placing the order.");
-      return;
+      const message = "Sign in again before placing the order.";
+      setCheckoutError(message);
+      return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
 
     if (groupedOrders.length === 0) {
-      setCheckoutError("Add products in the marketplace before placing an order.");
-      return;
+      const message = "Add products in the marketplace before placing an order.";
+      setCheckoutError(message);
+      return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
 
     const missingFields = validateForm();
     if (missingFields.length > 0) {
-      setCheckoutError(`Complete the required checkout fields: ${missingFields.join(", ")}.`);
-      return;
+      const message = `Complete the required checkout fields: ${missingFields.join(", ")}.`;
+      setCheckoutError(message);
+      return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
 
     setSubmitting(true);
@@ -225,14 +278,19 @@ export function MarketplaceReviewPage() {
       setCheckoutError("Some seller orders could not be placed. The cart has been left intact.");
       setCheckoutFailures(failures);
       setPartialOrders(createdOrders);
-      return;
+      return {
+        success: false,
+        createdOrders,
+        failures,
+        errorMessage: "Some seller orders could not be placed. The cart has been left intact.",
+      };
     }
 
     clearStoredMarketplaceCart();
 
     if (createdOrders.length === 1) {
       navigate(`/orders/${createdOrders[0]!.orderId}/edit`);
-      return;
+      return { success: true, createdOrders, failures: [], errorMessage: null };
     }
 
     writeStoredMarketplaceCheckoutSuccess({
@@ -240,6 +298,143 @@ export function MarketplaceReviewPage() {
       orders: createdOrders,
     });
     navigate("/marketplace/success");
+    return { success: true, createdOrders, failures: [], errorMessage: null };
+  };
+
+  const handleCheckoutVoiceTranscript = async (
+    transcript: string,
+  ): Promise<AssistantActionResult> => {
+    const checkoutCommand = parseCheckoutVoiceCommand(transcript);
+    if (checkoutCommand?.kind === "submit_checkout") {
+      return {
+        kind: "confirm",
+        message:
+          groupedOrders.length > 1
+            ? `Place ${groupedOrders.length} seller orders now?`
+            : "Place this order now?",
+        confirmLabel: groupedOrders.length > 1 ? "Place orders" : "Place order",
+        execute: async () => {
+          const result = await placeOrders();
+          if (!result.success) {
+            const failureSummary =
+              result.failures.length > 0
+                ? ` ${result.failures.map(failure => `${failure.seller}: ${failure.message}`).join(" ")}`
+                : "";
+            return {
+              kind: "rejected",
+              message:
+                result.errorMessage ??
+                `The checkout assistant could not place the order.${failureSummary}`.trim(),
+            };
+          }
+
+          return {
+            kind: "applied",
+            message:
+              result.createdOrders.length > 1
+                ? `Placed ${result.createdOrders.length} seller orders.`
+                : "Placed the order.",
+          };
+        },
+      };
+    }
+
+    if (!storedSession) {
+      return {
+        kind: "rejected",
+        message: "Sign in again before using checkout voice actions.",
+      };
+    }
+
+    const primaryGroup = groupedOrders[0];
+    if (!primaryGroup) {
+      return {
+        kind: "rejected",
+        message: "Add items to the cart before using checkout voice actions.",
+      };
+    }
+
+    const currentPayload = buildCheckoutAssistantPayload({
+      buyerEmail: storedSession.contactEmail,
+      buyerName,
+      sellerEmail: primaryGroup.sellerEmail,
+      sellerName: primaryGroup.seller,
+      street,
+      city,
+      state,
+      postcode,
+      country,
+      requestedDate,
+      notes,
+      issueDate,
+      currency,
+      lines: primaryGroup.lines.map(line => ({
+        productName: line.name,
+        quantity: line.quantity,
+        unitCode: line.unitCode,
+        unitPrice: line.unitPrice.toFixed(2),
+      })),
+    });
+
+    try {
+      const result = await convertTranscriptToOrderPayload(storedSession, transcript, currentPayload);
+      if (!result.payload) {
+        return {
+          kind: "rejected",
+          message:
+            result.issues[0] ??
+            "The assistant could not derive checkout changes from that transcript.",
+        };
+      }
+
+      const nextPayload = buildCheckoutAssistantPayload({
+        buyerEmail: storedSession.contactEmail,
+        buyerName: result.payload.buyerName,
+        sellerEmail: primaryGroup.sellerEmail,
+        sellerName: primaryGroup.seller,
+        street: result.payload.delivery?.street ?? "",
+        city: result.payload.delivery?.city ?? "",
+        state: result.payload.delivery?.state ?? "",
+        postcode: result.payload.delivery?.postcode ?? "",
+        country: result.payload.delivery?.country ?? "",
+        requestedDate: result.payload.delivery?.requestedDate ?? "",
+        notes: result.payload.notes ?? "",
+        issueDate,
+        currency,
+        lines: primaryGroup.lines.map(line => ({
+          productName: line.name,
+          quantity: line.quantity,
+          unitCode: line.unitCode,
+          unitPrice: line.unitPrice.toFixed(2),
+        })),
+      });
+
+      const summaries = applyCheckoutPayload(nextPayload);
+      if (summaries.length === 0) {
+        return {
+          kind: "rejected",
+          message: "No checkout fields changed from that transcript.",
+        };
+      }
+
+      return {
+        kind: "applied",
+        message: summaries.join(" "),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("order-convert:")) {
+        const detail = error.message.slice(error.message.lastIndexOf(":") + 1).trim();
+        return {
+          kind: "rejected",
+          message: detail || "The checkout assistant could not apply that transcript.",
+        };
+      }
+
+      return {
+        kind: "rejected",
+        message: "The checkout assistant could not apply that transcript.",
+      };
+    }
   };
 
   return (
@@ -260,6 +455,13 @@ export function MarketplaceReviewPage() {
                   <span className="marketplace-count-chip">{formatPrice(total)} total</span>
                 </div>
               </div>
+
+              <VoiceAssistantDock
+                context="checkout"
+                hint="Try “deliver to 123 Harbour Street next Tuesday” or “add note leave at loading dock”."
+                disabledReason={cart.lines.length === 0 ? "Add items before using checkout voice actions." : null}
+                onTranscript={handleCheckoutVoiceTranscript}
+              />
 
               {cart.lines.length === 0 ? (
                 <div className="marketplace-empty-state">

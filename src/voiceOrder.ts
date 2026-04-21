@@ -214,6 +214,10 @@ export function getBackendWebSocketUrl(): string {
   return getBackendHttpUrl().replace(/^http/, "ws") + "/v1/order/draft/ws";
 }
 
+export function getMarketplaceAssistantWebSocketUrl(): string {
+  return getBackendHttpUrl().replace(/^http/, "ws") + "/v1/marketplace/assistant/ws";
+}
+
 export function normalizeDraftState(state: DraftState): DraftState {
   return {
     ...state,

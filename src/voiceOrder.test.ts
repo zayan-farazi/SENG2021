@@ -8,17 +8,25 @@ describe("voiceOrder URLs", () => {
 
   it("falls back to the browser location when process is unavailable", async () => {
     vi.stubEnv("BUN_PUBLIC_BACKEND_URL", "");
-    const { getBackendHttpUrl, getBackendWebSocketUrl } = await import("./voiceOrder");
+    const { getBackendHttpUrl, getBackendWebSocketUrl, getMarketplaceAssistantWebSocketUrl } =
+      await import("./voiceOrder");
 
     expect(getBackendHttpUrl()).toBe("http://localhost:8000");
     expect(getBackendWebSocketUrl()).toBe("ws://localhost:8000/v1/order/draft/ws");
+    expect(getMarketplaceAssistantWebSocketUrl()).toBe(
+      "ws://localhost:8000/v1/marketplace/assistant/ws",
+    );
   });
 
   it("prefers the configured backend URL and trims a trailing slash", async () => {
     vi.stubEnv("BUN_PUBLIC_BACKEND_URL", "https://orders.example.test/");
-    const { getBackendHttpUrl, getBackendWebSocketUrl } = await import("./voiceOrder");
+    const { getBackendHttpUrl, getBackendWebSocketUrl, getMarketplaceAssistantWebSocketUrl } =
+      await import("./voiceOrder");
 
     expect(getBackendHttpUrl()).toBe("https://orders.example.test");
     expect(getBackendWebSocketUrl()).toBe("wss://orders.example.test/v1/order/draft/ws");
+    expect(getMarketplaceAssistantWebSocketUrl()).toBe(
+      "wss://orders.example.test/v1/marketplace/assistant/ws",
+    );
   });
 });

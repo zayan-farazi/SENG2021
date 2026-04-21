@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Minus, Plus, Search, ShoppingBag } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
+import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
 import { navigate } from "../components/AppLink";
+import { getMarketplaceAssistantWebSocketUrl } from "../voiceOrder";
 import {
   calculateCartTotal,
   marketplaceCategories,
@@ -13,7 +15,26 @@ import {
   type MarketplaceFilterState,
   type MarketplaceProduct,
 } from "./marketplacePrototypeData";
+import { parseMarketplaceVoiceCommand, type AssistantActionResult } from "../voiceAssistant";
 import "./marketplace-prototype.css";
+
+type MarketplaceAssistantCommand =
+  | { kind: "search"; query: string }
+  | { kind: "clear_search" }
+  | { kind: "set_category"; category: string }
+  | { kind: "set_in_stock"; value: boolean }
+  | { kind: "change_quantity"; productId: string; quantityDelta: number }
+  | { kind: "remove_product"; productId: string };
+
+type MarketplaceAssistantServerEnvelope = {
+  type: string;
+  payload?: {
+    kind?: "partial" | "final";
+    text?: string;
+    command?: MarketplaceAssistantCommand | null;
+    message?: string | null;
+  };
+};
 
 const defaultFilters: MarketplaceFilterState = {
   query: "",
@@ -119,10 +140,24 @@ function MarketplaceProductCard({
 export function MarketplacePrototypePage() {
   const [filters, setFilters] = useState<MarketplaceFilterState>(defaultFilters);
   const [cart, setCart] = useState<MarketplaceCartState>(() => readStoredMarketplaceCart());
+  const [assistantLiveTranscript, setAssistantLiveTranscript] = useState<string | null>(null);
+  const assistantSocketRef = useRef<WebSocket | null>(null);
+  const assistantResultResolverRef = useRef<((result: AssistantActionResult) => void) | null>(null);
+  const cartRef = useRef(cart);
+  const filtersRef = useRef(filters);
+  const marketplaceAssistantWebSocketUrl = getMarketplaceAssistantWebSocketUrl();
 
   useEffect(() => {
     writeStoredMarketplaceCart(cart);
   }, [cart]);
+
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
 
   const filteredProducts = useMemo(() => {
     return marketplaceProducts.filter(product => {
@@ -165,6 +200,261 @@ export function MarketplacePrototypePage() {
         lines: current.lines.map(line => (line.productId === product.id ? nextLine : line)),
       };
     });
+  };
+
+  const applyMarketplaceCommand = (command: MarketplaceAssistantCommand): AssistantActionResult => {
+    if (command.kind === "search") {
+      setFilters(current => ({ ...current, query: command.query }));
+      return {
+        kind: "applied",
+        message: `Updated search to ${command.query}.`,
+      };
+    }
+
+    if (command.kind === "clear_search") {
+      setFilters(current => ({ ...current, query: "" }));
+      return {
+        kind: "applied",
+        message: "Cleared the marketplace search.",
+      };
+    }
+
+    if (command.kind === "set_category") {
+      setFilters(current => ({ ...current, category: command.category }));
+      return {
+        kind: "applied",
+        message:
+          command.category === "All"
+            ? "Showing all categories."
+            : `Filtered the marketplace to ${command.category}.`,
+      };
+    }
+
+    if (command.kind === "set_in_stock") {
+      setFilters(current => ({ ...current, inStockOnly: command.value }));
+      return {
+        kind: "applied",
+        message: command.value ? "Enabled in-stock-only filtering." : "Showing all stock states.",
+      };
+    }
+
+    const product = marketplaceProducts.find(candidate => candidate.id === command.productId);
+    if (!product) {
+      return {
+        kind: "rejected",
+        message: "That product is not available in the current catalogue.",
+      };
+    }
+
+    const currentQuantity =
+      cartRef.current.lines.find(line => line.productId === product.id)?.quantity ?? 0;
+
+    if (command.kind === "remove_product") {
+      if (currentQuantity === 0) {
+        return {
+          kind: "rejected",
+          message: `${product.name} is not currently in the cart.`,
+        };
+      }
+
+      handleChangeQuantity(product, -currentQuantity);
+      return {
+        kind: "applied",
+        message: `Removed ${product.name} from the cart.`,
+      };
+    }
+
+    const nextQuantity = Math.max(0, Math.min(product.stock, currentQuantity + command.quantityDelta));
+    if (nextQuantity === currentQuantity) {
+      return {
+        kind: "rejected",
+        message:
+          command.quantityDelta > 0
+            ? `${product.name} is already at the available stock limit.`
+            : `${product.name} is not currently in the cart.`,
+      };
+    }
+
+    handleChangeQuantity(product, command.quantityDelta);
+    return {
+      kind: "applied",
+      message:
+        command.quantityDelta > 0
+          ? `Added ${nextQuantity - currentQuantity} ${product.name} to the cart.`
+          : `Removed ${currentQuantity - nextQuantity} ${product.name} from the cart.`,
+    };
+  };
+
+  const startMarketplaceAssistantRequest = (transcript: string) => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return null;
+    }
+
+    return new Promise<AssistantActionResult>(resolve => {
+      const timeoutId = window.setTimeout(() => {
+        if (assistantResultResolverRef.current) {
+          assistantResultResolverRef.current = null;
+          resolve({
+            kind: "rejected",
+            message: "The marketplace assistant timed out.",
+          });
+        }
+      }, 12000);
+
+      assistantResultResolverRef.current = resolve;
+      socket.send(JSON.stringify({ type: "transcript.final", payload: { text: transcript } }));
+
+      assistantResultResolverRef.current = result => {
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      };
+    });
+  };
+
+  useEffect(() => {
+    const socket = new WebSocket(marketplaceAssistantWebSocketUrl);
+    assistantSocketRef.current = socket;
+
+    const sendContext = (type: "session.start" | "context.patch") => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type,
+          payload: {
+            products: marketplaceProducts.map(product => ({
+              id: product.id,
+              name: product.name,
+              seller: product.seller,
+              category: product.category,
+              stock: product.stock,
+            })),
+            categories: marketplaceCategories,
+            filters: filtersRef.current,
+            cartLines: cartRef.current.lines.map(line => ({
+              productId: line.productId,
+              name: line.name,
+              quantity: line.quantity,
+            })),
+          },
+        }),
+      );
+    };
+
+    const handleOpen = () => {
+      sendContext("session.start");
+    };
+
+    const handleMessage = (event: MessageEvent<string>) => {
+      const envelope = JSON.parse(event.data) as MarketplaceAssistantServerEnvelope;
+      if (envelope.type === "transcript.echo") {
+        if (envelope.payload?.kind === "partial") {
+          setAssistantLiveTranscript(envelope.payload.text ?? null);
+        }
+        if (envelope.payload?.kind === "final") {
+          setAssistantLiveTranscript(null);
+        }
+        return;
+      }
+
+      if (envelope.type === "assistant.command") {
+        const resolver = assistantResultResolverRef.current;
+        assistantResultResolverRef.current = null;
+        const result = envelope.payload?.command
+          ? applyMarketplaceCommand(envelope.payload.command)
+          : {
+              kind: "rejected" as const,
+              message: envelope.payload?.message ?? "I could not map that to a marketplace action.",
+            };
+        resolver?.(result);
+        return;
+      }
+
+      if (envelope.type === "error") {
+        const resolver = assistantResultResolverRef.current;
+        assistantResultResolverRef.current = null;
+        resolver?.({
+          kind: "rejected",
+          message: envelope.payload?.message ?? "The marketplace assistant could not respond.",
+        });
+      }
+    };
+
+    const handleClose = () => {
+      setAssistantLiveTranscript(null);
+      const resolver = assistantResultResolverRef.current;
+      assistantResultResolverRef.current = null;
+      resolver?.({
+        kind: "rejected",
+        message: "The marketplace assistant disconnected.",
+      });
+    };
+
+    socket.addEventListener("open", handleOpen);
+    socket.addEventListener("message", handleMessage);
+    socket.addEventListener("close", handleClose);
+
+    return () => {
+      socket.removeEventListener("open", handleOpen);
+      socket.removeEventListener("message", handleMessage);
+      socket.removeEventListener("close", handleClose);
+      assistantSocketRef.current = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    };
+  }, [marketplaceAssistantWebSocketUrl]);
+
+  useEffect(() => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "context.patch",
+        payload: {
+          filters,
+          cartLines: cart.lines.map(line => ({
+            productId: line.productId,
+            name: line.name,
+            quantity: line.quantity,
+          })),
+        },
+      }),
+    );
+  }, [cart, filters]);
+
+  const handleVoiceTranscript = async (transcript: string): Promise<AssistantActionResult> => {
+    setAssistantLiveTranscript(null);
+    const streamedResult = await startMarketplaceAssistantRequest(transcript);
+    if (streamedResult) {
+      return streamedResult;
+    }
+
+    const command = parseMarketplaceVoiceCommand(transcript, marketplaceProducts, marketplaceCategories);
+
+    if (!command) {
+      return {
+        kind: "rejected",
+        message: "I could not map that to a marketplace action.",
+      };
+    }
+    return applyMarketplaceCommand(command);
+  };
+
+  const handleVoicePartialTranscript = (transcript: string) => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setAssistantLiveTranscript(transcript);
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "transcript.partial", payload: { text: transcript } }));
   };
 
   const openReview = () => {
@@ -234,6 +524,15 @@ export function MarketplacePrototypePage() {
                 </label>
               </div>
             </header>
+
+            <VoiceAssistantDock
+              context="marketplace"
+              hint="Try “search candles”, “show fashion only”, or “add two ceramic mugs”."
+              liveTranscript={assistantLiveTranscript}
+              streaming
+              onPartialTranscript={handleVoicePartialTranscript}
+              onTranscript={handleVoiceTranscript}
+            />
 
             <div className="marketplace-content">
               <section className="marketplace-products-shell" aria-labelledby="marketplace-products-title">

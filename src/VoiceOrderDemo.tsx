@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppLink, navigate } from "./components/AppLink";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { VoiceAssistantDock } from "./components/VoiceAssistantDock";
 import {
   draftToOrderRequest,
   emptyDelivery,
@@ -38,6 +39,7 @@ import {
 } from "./orderApi";
 import "./create-order.css";
 import { useStoredSession } from "./session";
+import { parseLockedOrderVoiceCommand, type AssistantActionResult } from "./voiceAssistant";
 
 type ServerEnvelope = {
   type: string;
@@ -692,9 +694,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     pushDiagnostic("info", "Seeded the websocket draft with the stored order.");
   }, [connectionStatus, editLoadState, initialDraftSnapshot, isEditMode, orderId]);
 
-  const fetchExistingDespatch = async () => {
+  const fetchExistingDespatch = async (): Promise<boolean> => {
     if (!storedSession || !lockedOrderId) {
-      return;
+      return false;
     }
 
     setDespatchBusy("fetch");
@@ -704,6 +706,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       const xml = await fetchOrderDespatchXml(storedSession, lockedOrderId);
       setDespatchState(current => ({ ...current, xml }));
       pushDiagnostic("info", `Fetched despatch XML for ${lockedOrderId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -712,14 +715,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setDespatchError(message);
       pushDiagnostic("error", `Despatch fetch failed: ${message}`);
+      return false;
     } finally {
       setDespatchBusy(null);
     }
   };
 
-  const createDespatchDocument = async () => {
+  const createDespatchDocument = async (): Promise<boolean> => {
     if (!storedSession || !lockedOrderId) {
-      return;
+      return false;
     }
 
     setDespatchBusy("generate");
@@ -732,6 +736,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         xml: result.despatch.xml,
       });
       pushDiagnostic("info", `Generated despatch advice for ${lockedOrderId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -740,14 +745,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setDespatchError(message);
       pushDiagnostic("error", `Despatch generation failed: ${message}`);
+      return false;
     } finally {
       setDespatchBusy(null);
     }
   };
 
-  const refreshInvoiceRecord = async (nextInvoiceId = invoiceId) => {
+  const refreshInvoiceRecord = async (nextInvoiceId = invoiceId): Promise<boolean> => {
     if (!storedSession || !lockedOrderId || !nextInvoiceId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("fetch");
@@ -757,6 +763,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       const invoice = await fetchInvoice(storedSession, nextInvoiceId);
       syncInvoiceRecord(invoice, lockedOrderId);
       pushDiagnostic("info", `Fetched invoice ${nextInvoiceId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -765,14 +772,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice fetch failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
   };
 
-  const createInvoiceDocument = async () => {
+  const createInvoiceDocument = async (): Promise<boolean> => {
     if (!storedSession || !lockedOrderId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("generate");
@@ -783,6 +791,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       syncInvoiceRecord(result.invoice, lockedOrderId);
       setInvoiceXml(null);
       pushDiagnostic("info", `Generated invoice for ${lockedOrderId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -791,14 +800,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice generation failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
   };
 
-  const loadInvoiceXml = async () => {
+  const loadInvoiceXml = async (): Promise<boolean> => {
     if (!storedSession || !invoiceId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("xml");
@@ -808,18 +818,20 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       const xml = await fetchInvoiceUblXml(storedSession, invoiceId);
       setInvoiceXml(xml);
       pushDiagnostic("info", `Fetched invoice XML for ${invoiceId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(error, "invoice-ubl:", "Unable to load the invoice XML.");
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice XML fetch failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
   };
 
-  const downloadInvoicePdfFile = async () => {
+  const downloadInvoicePdfFile = async (): Promise<boolean> => {
     if (!storedSession || !invoiceId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("pdf");
@@ -829,6 +841,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       const pdfBlob = await fetchInvoicePdf(storedSession, invoiceId);
       downloadDocumentBlob(`${invoiceId}.pdf`, pdfBlob);
       pushDiagnostic("info", `Downloaded invoice PDF for ${invoiceId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -837,14 +850,18 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice PDF download failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
   };
 
-  const submitInvoiceStatusUpdate = async () => {
+  const submitInvoiceStatusUpdate = async (
+    statusOverride?: string,
+    paymentDateOverride?: string,
+  ): Promise<boolean> => {
     if (!storedSession || !invoiceId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("status");
@@ -852,11 +869,12 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
     try {
       await transitionInvoiceStatus(storedSession, invoiceId, {
-        status: invoiceStatusDraft,
-        payment_date: invoicePaymentDateDraft.trim() || null,
+        status: statusOverride ?? invoiceStatusDraft,
+        payment_date: (paymentDateOverride ?? invoicePaymentDateDraft).trim() || null,
       });
       await refreshInvoiceRecord(invoiceId);
       pushDiagnostic("info", `Updated invoice status for ${invoiceId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -865,6 +883,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice status update failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
@@ -904,9 +923,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     }
   };
 
-  const removeInvoiceDocument = async () => {
+  const removeInvoiceDocument = async (): Promise<boolean> => {
     if (!storedSession || !invoiceId || !lockedOrderId) {
-      return;
+      return false;
     }
 
     setInvoiceBusy("delete");
@@ -917,6 +936,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       syncInvoiceRecord(null, lockedOrderId);
       setInvoiceXml(null);
       pushDiagnostic("info", `Deleted invoice ${invoiceId}.`);
+      return true;
     } catch (error) {
       const message = describeApiError(
         error,
@@ -925,9 +945,115 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       );
       setInvoiceError(message);
       pushDiagnostic("error", `Invoice delete failed: ${message}`);
+      return false;
     } finally {
       setInvoiceBusy(null);
     }
+  };
+
+  const handleLockedOrderVoiceTranscript = async (
+    transcript: string,
+  ): Promise<AssistantActionResult> => {
+    const command = parseLockedOrderVoiceCommand(transcript);
+
+    if (!command) {
+      return {
+        kind: "rejected",
+        message: "I could not map that to a document action.",
+      };
+    }
+
+    if (command.kind === "fetch_despatch") {
+      const success = await fetchExistingDespatch();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Loaded the despatch XML." : "Unable to load the despatch XML.",
+      };
+    }
+
+    if (command.kind === "refresh_invoice") {
+      const success = await refreshInvoiceRecord();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Refreshed the invoice details." : "Unable to refresh the invoice details.",
+      };
+    }
+
+    if (command.kind === "fetch_invoice_xml") {
+      const success = await loadInvoiceXml();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Loaded the invoice XML." : "Unable to load the invoice XML.",
+      };
+    }
+
+    if (command.kind === "download_invoice_pdf") {
+      const success = await downloadInvoicePdfFile();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Downloaded the invoice PDF." : "Unable to download the invoice PDF.",
+      };
+    }
+
+    if (command.kind === "generate_despatch") {
+      return {
+        kind: "confirm",
+        message: "Generate the despatch advice for this locked order?",
+        confirmLabel: "Generate despatch",
+        execute: async () => {
+          const success = await createDespatchDocument();
+          return {
+            kind: success ? "applied" : "rejected",
+            message: success ? "Generated the despatch advice." : "Unable to generate the despatch advice.",
+          };
+        },
+      };
+    }
+
+    if (command.kind === "generate_invoice") {
+      return {
+        kind: "confirm",
+        message: "Generate the invoice for this locked order?",
+        confirmLabel: "Generate invoice",
+        execute: async () => {
+          const success = await createInvoiceDocument();
+          return {
+            kind: success ? "applied" : "rejected",
+            message: success ? "Generated the invoice." : "Unable to generate the invoice.",
+          };
+        },
+      };
+    }
+
+    if (command.kind === "set_invoice_status") {
+      return {
+        kind: "confirm",
+        message: `Set the invoice status to ${command.status}?`,
+        confirmLabel: "Update status",
+        execute: async () => {
+          const success = await submitInvoiceStatusUpdate(command.status);
+          return {
+            kind: success ? "applied" : "rejected",
+            message: success
+              ? `Updated the invoice status to ${command.status}.`
+              : "Unable to update the invoice status.",
+          };
+        },
+      };
+    }
+
+    return {
+      kind: "confirm",
+      message: "Delete the invoice for this order?",
+      confirmLabel: "Delete invoice",
+      execute: async () => {
+        const success = await removeInvoiceDocument();
+        return {
+          kind: success ? "applied" : "rejected",
+          message: success ? "Deleted the invoice." : "Unable to delete the invoice.",
+        };
+      },
+    };
   };
 
   const patchDraft = (nextDraft: OrderDraft, syncMode: "debounced" | "immediate" = "debounced") => {
@@ -1479,6 +1605,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                           <p>Generate and manage despatch and invoice artifacts for this locked order.</p>
                         </div>
                       </header>
+
+                      <VoiceAssistantDock
+                        context="locked_order"
+                        hint="Try “load despatch XML”, “generate invoice”, or “mark invoice paid”."
+                        disabledReason={
+                          !lockedOrderId ? "Load a locked order before using document voice actions." : null
+                        }
+                        onTranscript={handleLockedOrderVoiceTranscript}
+                      />
 
                       {documentClipboardMessage ? (
                         <div className="create-page-banner">{documentClipboardMessage}</div>

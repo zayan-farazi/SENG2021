@@ -1,0 +1,137 @@
+.voice-assistant-dock {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(105, 85, 56, 0.12);
+  background: rgba(255, 253, 248, 0.9);
+  box-shadow: 0 12px 24px rgba(92, 71, 47, 0.06);
+}
+
+.voice-assistant-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.voice-assistant-eyebrow {
+  margin: 0 0 4px;
+  color: #7b6d5f;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.voice-assistant-header h2 {
+  margin: 0;
+  color: #1f1a16;
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+
+.voice-assistant-actions,
+.voice-assistant-confirmation-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.voice-assistant-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(105, 85, 56, 0.12);
+  background: #fffdf8;
+  color: #1f1a16;
+  font: inherit;
+  cursor: pointer;
+}
+
+.voice-assistant-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-assistant-button-primary {
+  background: #1f1a16;
+  color: #fff7eb;
+  border-color: transparent;
+}
+
+.voice-assistant-hint {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: #6b6155;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.voice-assistant-live {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(105, 85, 56, 0.1);
+  background: #f5efe5;
+  color: #4f473d;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.voice-assistant-confirmation {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(160, 128, 73, 0.18);
+  background: #fbf3df;
+  color: #4e402e;
+}
+
+.voice-assistant-log {
+  display: grid;
+  gap: 8px;
+}
+
+.voice-assistant-empty,
+.voice-assistant-log-entry {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.voice-assistant-empty {
+  border: 1px dashed rgba(105, 85, 56, 0.18);
+  background: #fbf7ef;
+  color: #7b6d5f;
+}
+
+.voice-assistant-log-entry {
+  border: 1px solid rgba(105, 85, 56, 0.08);
+}
+
+.voice-assistant-log-heard {
+  background: #f8f3ea;
+  color: #5a5045;
+}
+
+.voice-assistant-log-success {
+  background: #eef7ef;
+  color: #2f5b3b;
+}
+
+.voice-assistant-log-warning {
+  background: #fff2ed;
+  color: #744338;
+}
