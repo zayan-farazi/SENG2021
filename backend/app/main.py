@@ -270,6 +270,10 @@ app = FastAPI(
             ),
         },
         {
+            "name": "Catalogue and Inventory",
+            "descriprion": ("Product addition, retrieval, update and deletion endpoints."),
+        },
+        {
             "name": "Health",
             "description": "Operational health and readiness endpoints.",
         },

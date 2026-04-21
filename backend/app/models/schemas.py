@@ -93,7 +93,7 @@ PRODUCT_CREATE_RESPONSE_EXAMPLE = {
     "price": 5,
     "unit": "EA",
     "description": "Delicious red apples",
-    #"image_url": ""
+    # "image_url": ""
 }
 
 ORDER_FETCH_XML_EXAMPLE = """<?xml version="1.0" encoding="utf-8"?>
@@ -242,7 +242,7 @@ PRODUCT_LIST_RESPONSE_EXAMPLE = {
             "unit": "EA",
             "description": "Delicious red apples",
             "release_date": "2026-03-20",
-            #"image_url": ""
+            "image_url": "https://zfkanfxuznozqpqfxbly.supabase.co/storage/v1/object/public/products/default.webp",
         }
     ],
     "page": {
@@ -1043,6 +1043,7 @@ ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE = {
     "source": "transcript",
 }
 
+
 class LineItem(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -1128,6 +1129,7 @@ class OrderDraft(BaseModel):
             return None
         return value.strip().lower()
 
+
 class ProductRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -1140,11 +1142,12 @@ class ProductRequest(BaseModel):
     price: float = Field(..., ge=0)
     unit: str = Field(default="EA", min_length=1)
     description: str | None = Field(default=None, min_length=1)
-    category: str = Field(..., default="Other", min_length=1)
+    category: str = Field(..., min_length=1)
     is_visible: bool = Field(default=True)
-    release_date: date | None = Field(..., default=None) 
+    release_date: date | None = Field(default=None)
     show_soldout: bool = Field(default=True)
     available_units: float = Field(..., ge=0)
+
 
 class HealthResponse(BaseModel):
     model_config = ConfigDict(
@@ -1257,6 +1260,37 @@ class PartyUserFetchResponse(BaseModel):
     partyId: str
     partyName: str
     contactEmail: str
+
+
+class ProductCreateResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": PRODUCT_CREATE_RESPONSE_EXAMPLE})
+    name: str
+    price: int | float
+    unit: str
+    units_available: int | float
+    description: str | None
+    image_url: str
+
+
+class ProductListResponseItem(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": PRODUCT_LIST_RESPONSE_EXAMPLE["items"]})
+    name: str
+    price: int | float
+    unit: str
+    description: str | None
+    release_date: date | None
+    available_units: int | float
+    is_visible: bool
+    image_url: str
+
+
+class ProductListResponsePage(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": PRODUCT_LIST_RESPONSE_EXAMPLE["page"]})
+
+    limit: int | None
+    offset: int | None
+    hasMore: bool
+    total: int
 
 
 class TranscriptConversionRequest(BaseModel):
@@ -1499,15 +1533,3 @@ class RequestValidationErrorResponse(BaseModel):
 
     message: str
     errors: list[ValidationFieldError]
-
-class InventoryCreateResponse(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": PRODUCT_CREATE_RESPONSE_EXAMPLE,
-        }
-    )
-    name: str
-    price: float
-    unit: str
-    description: str
-    #image_url: str

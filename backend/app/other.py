@@ -445,28 +445,39 @@ def addProduct(
         "image_url": image_url,
     }
 
-    if release_date:
+    # only allow custom / null release dates when product is not visible
+    if is_visible:
+        query["release_date"] = datetime.now().isoformat
+    elif release_date:
         query["release_date"] = (release_date.isoformat(),)
 
     get_supabase_client().table("products").upsert(query).execute()
 
 
-def getCatalogue(partyemail: str) -> list[dir]:
-    return getProducts(partyemail, False)
+def getCatalogue(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
+    return getProducts(partyemail, False, limit, offset)
 
 
-def getInventory(partyemail: str) -> list[dir]:
-    return getProducts(partyemail, True)
+def getInventory(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
+    return getProducts(partyemail, True, limit, offset)
 
 
-def getProducts(partyemail: str, showUnreleased: bool) -> list[dir]:
+def getProducts(
+    partyemail: str, showUnreleased: bool, limit: int | None, offset: int | None
+) -> list[dir]:
     updateAvailability(partyemail)
     query = get_supabase_client().table("products").select("*").eq("party_id", partyemail)
 
-    if not showUnreleased:
+    if showUnreleased:
         query = query.eq("is_visible", True)
 
-    return query.execute().data
+    if offset and limit:
+        query = query.range(offset - 1, offset + limit + 1)
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    return query.execute()
 
 
 def updateAvailability(partyemail: str) -> None:
@@ -480,6 +491,7 @@ def updateAvailability(partyemail: str) -> None:
 
 
 def findProducts(
+    prod_id=None,
     partyemail=None,
     name=None,
     priceExact=None,
@@ -494,6 +506,8 @@ def findProducts(
     updateAvailability("*")
     query = get_supabase_client().table("products").select("*", count="exact")
 
+    if prod_id:
+        query = query.eq("prod_id", prod_id)
     if partyemail:
         query = query.eq("party_id", partyemail)
     if is_visible is not None:
@@ -534,6 +548,13 @@ def updateProduct(
 
     if is_visible is not None:
         query["is_visible"] = is_visible
+        # if user manually makes a product visible, set release date to now
+        if is_visible:
+            query["release_date"] = datetime.now().isoformat()
+        # if user makes a product invisible, change release date to given or null
+        # to avoid making product visible in next update products in case now > scheduled_date
+        else:
+            query["release_date"] = release_date if release_date else None
     if show_soldout is not None:
         query["show_soldout"] = show_soldout
     if name:
@@ -558,7 +579,3 @@ def deleteProduct(prod_id: int):
     get_supabase_client().table("products").update({"deleted": True}).eq(
         "prod_id", prod_id
     ).execute()
-
-
-def fetchProductBin(partyemail):
-    return get_supabase_client().table("products").select("*").eq("party_id", partyemail).execute

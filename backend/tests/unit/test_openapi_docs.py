@@ -130,7 +130,7 @@ def test_user_fetch_docs_reflect_mixed_bearer_auth():
 def test_http_endpoints_include_summaries_and_tags():
     schema = _openapi()
 
-    assert [tag["name"] for tag in schema["tags"]] == ["Parties", "Orders", "Health"]
+    assert [tag["name"] for tag in schema["tags"]] == ["Parties", "Orders", "Catalogue and Inventory", "Health"]
     assert schema["paths"]["/v1/health"]["get"]["summary"] == "Health check"
     assert schema["paths"]["/v1/health"]["get"]["tags"] == ["Health"]
     assert schema["paths"]["/v1/parties/register"]["post"]["summary"] == (
