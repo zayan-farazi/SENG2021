@@ -11,10 +11,10 @@ from app.other import (
     addProduct,
     deleteProduct,
     findProducts,
-    getPublicProducts,
     get_supabase_client,
     getCatalogue,
     getInventory,
+    getPublicProducts,
     updateProduct,
 )
 

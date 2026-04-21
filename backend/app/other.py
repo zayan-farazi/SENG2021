@@ -160,9 +160,10 @@ def saveOrder(
         try:
             response = get_supabase_client().table("orders").upsert(legacy_query).execute()
             if ublXml is not None:
+                persisted_order_id = response.data[0]["id"] if response.data else orderId
                 saveXml(
                     "order_gen_xml",
-                    externalOrderId,
+                    persisted_order_id,
                     buyeremail,
                     selleremail,
                     ublXml,
@@ -437,21 +438,81 @@ def updateOrderRuntimeMetadata(
             buyer_id = order_row.get("buyer_id") or order_row.get("buyeremail")
             seller_id = order_row.get("seller_id") or order_row.get("selleremail")
             if not buyer_id or not seller_id:
-                raise RuntimeError("Missing buyer/seller email when persisting generated order XML.")
-            saveXml("order_gen_xml", externalOrderId, buyer_id, seller_id, ublXml)
+                raise RuntimeError(
+                    "Missing buyer/seller email when persisting generated order XML."
+                )
+            saveXml("order_gen_xml", orderId, buyer_id, seller_id, ublXml)
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
+def _resolve_xml_order_id(order_id: str | int):
+    if isinstance(order_id, int):
+        return order_id
+    if isinstance(order_id, str) and order_id.startswith("ord_"):
+        order_rows = findOrders(externalOrderId=order_id)
+        order_row = order_rows[0] if order_rows else None
+        if order_row is not None:
+            return order_row.get("id", order_id)
+    return order_id
+
+
+def _candidate_xml_tables(table_name: str) -> tuple[str, ...]:
+    if table_name == "dispatch_xml":
+        return ("dispatch_xml", "dispatched_xml")
+    if table_name == "dispatched_xml":
+        return ("dispatched_xml", "dispatch_xml")
+    return (table_name,)
+
+
+def _persist_xml_row(table_name: str, query: dict[str, Any]) -> None:
+    last_exc: Exception | None = None
+    for candidate in _candidate_xml_tables(table_name):
+        try:
+            get_supabase_client().table(candidate).upsert(query).execute()
+            return
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+
+
 def saveXml(table_name: str, orderId: str, buyer_id: str, seller_id: str, ublXml: str) -> None:
-    query = {"order_id": orderId, "seller_id": seller_id, "buyer_id": buyer_id, "xml": ublXml}
-    get_supabase_client().table(table_name).upsert(query).execute()
+    resolved_order_id = _resolve_xml_order_id(orderId)
+    query = {
+        "order_id": resolved_order_id,
+        "seller_id": seller_id,
+        "buyer_id": buyer_id,
+        "xml": ublXml,
+    }
+    try:
+        _persist_xml_row(table_name, query)
+    except Exception:
+        legacy_query = dict(query)
+        legacy_query.pop("xml", None)
+        legacy_query["ublxml"] = ublXml
+        _persist_xml_row(table_name, legacy_query)
 
 
 def getXml(table_name: str, orderId: str):
-    result = get_supabase_client().table(table_name).select("*").eq("order_id", orderId).execute()
-    return result.data if result.data else []
+    resolved_order_id = _resolve_xml_order_id(orderId)
+    last_exc: Exception | None = None
+    for candidate in _candidate_xml_tables(table_name):
+        try:
+            result = (
+                get_supabase_client()
+                .table(candidate)
+                .select("*")
+                .eq("order_id", resolved_order_id)
+                .execute()
+            )
+            return result.data if result.data else []
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+    return []
 
 
 # deletes all order lines related to a query

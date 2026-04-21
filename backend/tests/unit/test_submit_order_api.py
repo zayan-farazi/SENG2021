@@ -156,9 +156,9 @@ def test_submit_order_returns_409_when_order_is_already_locked(client, monkeypat
     monkeypatch.setattr(
         order_store,
         "load_order_record_from_database",
-        lambda requested_order_id: deepcopy(original_record)
-        if requested_order_id == order_id
-        else None,
+        lambda requested_order_id: (
+            deepcopy(original_record) if requested_order_id == order_id else None
+        ),
     )
 
     submit_response = client.post(

@@ -20,7 +20,7 @@ from app.models.schemas import (
 )
 from app.other import close_supabase_client
 
-SUPABASE_URL="https://zfkanfxuznozqpqfxbly.supabase.co"
+SUPABASE_URL = "https://zfkanfxuznozqpqfxbly.supabase.co"
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:3000",
     "http://localhost:5173",
@@ -470,5 +470,7 @@ def custom_swagger_ui():
 
 @app.middleware("http")
 async def metrics_middleware(request, call_next):
+    if not hasattr(request.app.state, "request_count"):
+        request.app.state.request_count = 0
     request.app.state.request_count += 1
     return await call_next(request)

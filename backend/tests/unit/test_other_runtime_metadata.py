@@ -52,7 +52,7 @@ def test_update_order_runtime_metadata_persists_generated_xml_with_party_ids(mon
 
     assert captured["args"] == (
         "order_gen_xml",
-        "ext-123",
+        42,
         "buyer@example.com",
         "seller@example.com",
         "<Order/>",
