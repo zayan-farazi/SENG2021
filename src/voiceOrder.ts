@@ -9,6 +9,7 @@ export type TranscriptAnnotation = {
 };
 
 export type DraftLineItem = {
+  productId?: number | null;
   productName: string | null;
   quantity: number | null;
   unitCode: string | null;
@@ -46,6 +47,7 @@ export type OrderRequestPayload = {
   notes: string | null;
   delivery: DraftDelivery | null;
   lines: {
+    productId?: number | null;
     productName: string;
     quantity: number;
     unitCode: string | null;
@@ -167,6 +169,7 @@ export function draftToOrderRequest(draft: OrderDraft): OrderRequestPayload | nu
     }
 
     return {
+      productId: line.productId ?? null,
       productName: line.productName.trim(),
       quantity: line.quantity ?? 0,
       unitCode: line.unitCode?.trim().toUpperCase() || "EA",
@@ -212,6 +215,10 @@ export function getBackendHttpUrl(): string {
 
 export function getBackendWebSocketUrl(): string {
   return getBackendHttpUrl().replace(/^http/, "ws") + "/v1/order/draft/ws";
+}
+
+export function getMarketplaceAssistantWebSocketUrl(): string {
+  return getBackendHttpUrl().replace(/^http/, "ws") + "/v1/marketplace/assistant/ws";
 }
 
 export function normalizeDraftState(state: DraftState): DraftState {

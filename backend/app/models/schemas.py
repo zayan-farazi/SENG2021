@@ -83,17 +83,26 @@ PRODUCT_REQUEST_EXAMPLE = {
     "price": 5,
     "unit": "EA",
     "description": "Delicious red apples.",
+    "category": "Groceries and Consumables",
     "release_date": "2026-09-20",
     "is_visible": False,
     "show_soldout": True,
+    "available_units": 12,
 }
 
 PRODUCT_CREATE_RESPONSE_EXAMPLE = {
+    "prod_id": 101,
+    "party_id": "orders@buyerco.example",
     "name": "Apples",
     "price": 5,
     "unit": "EA",
     "description": "Delicious red apples",
-    # "image_url": ""
+    "category": "Groceries and Consumables",
+    "release_date": "2026-03-20",
+    "available_units": 12,
+    "is_visible": True,
+    "show_soldout": True,
+    "image_url": "https://zfkanfxuznozqpqfxbly.supabase.co/storage/v1/object/public/products/default.webp",
 }
 
 ORDER_FETCH_XML_EXAMPLE = """<?xml version="1.0" encoding="utf-8"?>
@@ -237,11 +246,17 @@ ORDER_LIST_FINAL_PAGE_RESPONSE_EXAMPLE = {
 PRODUCT_LIST_RESPONSE_EXAMPLE = {
     "items": [
         {
+            "prod_id": 101,
+            "party_id": "orders@buyerco.example",
             "name": "Apples",
             "price": 5,
             "unit": "EA",
             "description": "Delicious red apples",
+            "category": "Groceries and Consumables",
             "release_date": "2026-03-20",
+            "available_units": 12,
+            "is_visible": True,
+            "show_soldout": True,
             "image_url": "https://zfkanfxuznozqpqfxbly.supabase.co/storage/v1/object/public/products/default.webp",
         }
     ],
@@ -612,7 +627,7 @@ REQUEST_VALIDATION_ROUTE_DOCS = {
         "description": "The analytics request is missing one or both required date-range query parameters.",
         "examples": ANALYTICS_VALIDATION_ERROR_EXAMPLES,
     },
-    ("/v1/inventory/add", "post"): {
+    ("/v2/inventory/add", "post"): {
         "description": "The add inventory item payload is missing required fields or contains invalid item values.",
         "examples": PRODUCT_CREATE_ERROR_EXAMPLES,
     },
@@ -1051,6 +1066,7 @@ class LineItem(BaseModel):
         }
     )
 
+    productId: int | None = Field(default=None, ge=1)
     productName: str = Field(..., min_length=1)
     quantity: int = Field(..., gt=0)
     unitCode: str | None = Field(default="EA", min_length=1)
@@ -1096,6 +1112,7 @@ class OrderRequest(BaseModel):
 
 
 class DraftLineItem(BaseModel):
+    productId: int | None = Field(default=None, ge=1)
     productName: str | None = Field(default=None, min_length=1)
     quantity: int | None = Field(default=None, gt=0)
     unitCode: str | None = Field(default="EA", min_length=1)
@@ -1138,7 +1155,7 @@ class ProductRequest(BaseModel):
     )
 
     party_id: str = Field(..., min_length=3)
-    name: str = Field(..., max_length=2)
+    name: str = Field(..., min_length=2, max_length=120)
     price: float = Field(..., ge=0)
     unit: str = Field(default="EA", min_length=1)
     description: str | None = Field(default=None, min_length=1)
@@ -1147,6 +1164,34 @@ class ProductRequest(BaseModel):
     release_date: date | None = Field(default=None)
     show_soldout: bool = Field(default=True)
     available_units: float = Field(..., ge=0)
+
+
+class ProductUpdateRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Updated Apples",
+                "price": 6.5,
+                "unit": "EA",
+                "description": "Updated product description.",
+                "category": "Groceries and Consumables",
+                "is_visible": True,
+                "release_date": "2026-09-21",
+                "show_soldout": True,
+                "available_units": 10,
+            }
+        }
+    )
+
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    price: float | None = Field(default=None, ge=0)
+    unit: str | None = Field(default=None, min_length=1)
+    description: str | None = Field(default=None, min_length=1)
+    category: str | None = Field(default=None, min_length=1)
+    is_visible: bool | None = None
+    release_date: date | None = None
+    show_soldout: bool | None = None
+    available_units: float | None = Field(default=None, ge=0)
 
 
 class HealthResponse(BaseModel):
@@ -1268,23 +1313,33 @@ class ProductCreateResponse(BaseModel):
             "example": PRODUCT_CREATE_RESPONSE_EXAMPLE,
         }
     )
+    prod_id: int | None = None
+    party_id: str
     name: str
     price: int | float
     unit: str
-    units_available: int | float
     description: str | None
+    category: str
+    release_date: date | None
+    available_units: int | float
+    is_visible: bool
+    show_soldout: bool
     image_url: str
 
 
 class ProductListResponseItem(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": PRODUCT_LIST_RESPONSE_EXAMPLE["items"]})
+    prod_id: int | None = None
+    party_id: str
     name: str
     price: int | float
     unit: str
     description: str | None
+    category: str
     release_date: date | None
     available_units: int | float
     is_visible: bool
+    show_soldout: bool
     image_url: str
 
 
@@ -1295,6 +1350,13 @@ class ProductListResponsePage(BaseModel):
     offset: int | None
     hasMore: bool
     total: int
+
+
+class ProductListResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": PRODUCT_LIST_RESPONSE_EXAMPLE})
+
+    items: list[ProductListResponseItem]
+    page: ProductListResponsePage
 
 
 class TranscriptConversionRequest(BaseModel):

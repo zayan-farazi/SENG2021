@@ -111,6 +111,12 @@
   padding: 0 0 20px;
 }
 
+.create-page-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .create-page-action-bar .landing-button {
   cursor: pointer;
 }
@@ -304,6 +310,10 @@
 .create-page-root textarea {
   min-height: 110px;
   resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .create-page-root input:focus,
@@ -385,6 +395,11 @@
   margin-bottom: 18px;
   padding-top: 0;
   border-top: 0;
+}
+
+.create-page-subsection .create-page-banner,
+.create-page-subsection-compact .create-page-banner {
+  margin-bottom: 14px;
 }
 
 .create-page-workspace-readonly {

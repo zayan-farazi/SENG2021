@@ -45,6 +45,15 @@ def _uses_legacy_order_party_columns(exc: Exception) -> bool:
     return "buyer_id" in message or "seller_id" in message
 
 
+def _orderdetails_missing_product_id_column(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "orderdetails" in message and "productid" in message
+
+
+def _products_missing_category_column(exc: Exception) -> bool:
+    return "products" in str(exc) and "category" in str(exc)
+
+
 def _normalize_order_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if not row:
         return None
@@ -128,7 +137,7 @@ def saveOrder(
     if updatedAt is not None:
         query["updatedat"] = updatedAt
     if ublXml is not None:
-        query["ublXml"] = ublXml
+        query["ublxml"] = ublXml
 
     # TODO remove if conditions when people have changeed their functions
 
@@ -151,7 +160,14 @@ def saveOrder(
         try:
             response = get_supabase_client().table("orders").upsert(legacy_query).execute()
             if ublXml is not None:
-                saveOrder("order_gen_xml", response.data[0]["id"], ublXml)
+                persisted_order_id = response.data[0]["id"] if response.data else orderId
+                saveXml(
+                    "order_gen_xml",
+                    persisted_order_id,
+                    buyeremail,
+                    selleremail,
+                    ublXml,
+                )
         except Exception as legacy_exc:
             raise RuntimeError(f"Failed to save order: {legacy_exc}") from legacy_exc
 
@@ -163,7 +179,7 @@ def saveOrder(
 
 # saves a single line of order details, does not return anything
 # NEEDS ORDER ID TO ATTATCH TO
-def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
+def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice, productId=None):
     if orderId is None:
         raise ValueError("Failed to parse order details: orderId can't be empty")
 
@@ -173,12 +189,22 @@ def saveOrderDetails(orderId, productName, unitCode, quantity, unitPrice):
         "unitcode": unitCode,
         "quantity": float(quantity),
     }
+    if productId is not None:
+        query["productid"] = int(productId)
     if unitPrice is not None:
         query["unitprice"] = float(unitPrice)
 
     try:
         get_supabase_client().table("orderdetails").upsert(query).execute()
     except Exception as e:
+        if productId is not None and _orderdetails_missing_product_id_column(e):
+            legacy_query = dict(query)
+            legacy_query.pop("productid", None)
+            try:
+                get_supabase_client().table("orderdetails").upsert(legacy_query).execute()
+                return
+            except Exception as legacy_exc:
+                raise RuntimeError(f"Failed to save order details: {legacy_exc}") from legacy_exc
         raise RuntimeError(f"Failed to save order details: {e}") from e
 
 
@@ -284,13 +310,24 @@ def findOrderByExternalId(externalOrderId):
 
 # looks for order detail list through order id
 def findOrderDetails(orderId):
-    return (
+    query = (
         get_supabase_client()
         .table("orderdetails")
-        .select("productname", "unitcode", "quantity", "unitprice", count="exact")
+        .select("productid,productname,unitcode,quantity,unitprice", count="exact")
         .eq("orderid", orderId)
-        .execute()
     )
+    try:
+        return query.execute()
+    except Exception as e:
+        if not _orderdetails_missing_product_id_column(e):
+            raise
+        return (
+            get_supabase_client()
+            .table("orderdetails")
+            .select("productname,unitcode,quantity,unitprice", count="exact")
+            .eq("orderid", orderId)
+            .execute()
+        )
 
 
 def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, list[dict]]:
@@ -298,13 +335,24 @@ def findOrderDetailsByOrderIds(orderIds: list[int | str]) -> dict[int | str, lis
     if not normalized_ids:
         return {}
 
-    response = (
+    query = (
         get_supabase_client()
         .table("orderdetails")
-        .select("orderid,productname,unitcode,quantity,unitprice")
+        .select("orderid,productid,productname,unitcode,quantity,unitprice")
         .in_("orderid", normalized_ids)
-        .execute()
     )
+    try:
+        response = query.execute()
+    except Exception as e:
+        if not _orderdetails_missing_product_id_column(e):
+            raise
+        response = (
+            get_supabase_client()
+            .table("orderdetails")
+            .select("orderid,productname,unitcode,quantity,unitprice")
+            .in_("orderid", normalized_ids)
+            .execute()
+        )
 
     grouped: dict[int | str, list[dict]] = {order_id: [] for order_id in normalized_ids}
     for row in response.data or []:
@@ -365,7 +413,7 @@ def deleteParty(partyId):
 
 
 def updateOrderRuntimeMetadata(
-    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None
+    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None, status=None
 ):
     query = {}
     if externalOrderId is not None:
@@ -376,27 +424,95 @@ def updateOrderRuntimeMetadata(
         query["updatedat"] = updatedAt
         query["lastchanged"] = updatedAt
     if ublXml is not None:
-        query["ublXml"] = ublXml
+        query["ublxml"] = ublXml
+    if status is not None:
+        query["status"] = status
     if not query:
         return None
 
     try:
         response = get_supabase_client().table("orders").update(query).eq("id", orderId).execute()
         if ublXml is not None:
-            saveXml("order_gen_xml", externalOrderId, ublXml)
+            order_rows = findOrders(orderId=orderId)
+            order_row = order_rows[0] if order_rows else {}
+            buyer_id = order_row.get("buyer_id") or order_row.get("buyeremail")
+            seller_id = order_row.get("seller_id") or order_row.get("selleremail")
+            if not buyer_id or not seller_id:
+                raise RuntimeError(
+                    "Missing buyer/seller email when persisting generated order XML."
+                )
+            saveXml("order_gen_xml", orderId, buyer_id, seller_id, ublXml)
         return response.data[0] if response.data else None
     except Exception as e:
         raise RuntimeError(f"Failed to update order runtime metadata: {e}") from e
 
 
+def _resolve_xml_order_id(order_id: str | int):
+    if isinstance(order_id, int):
+        return order_id
+    if isinstance(order_id, str) and order_id.startswith("ord_"):
+        order_rows = findOrders(externalOrderId=order_id)
+        order_row = order_rows[0] if order_rows else None
+        if order_row is not None:
+            return order_row.get("id", order_id)
+    return order_id
+
+
+def _candidate_xml_tables(table_name: str) -> tuple[str, ...]:
+    if table_name == "dispatch_xml":
+        return ("dispatch_xml", "dispatched_xml")
+    if table_name == "dispatched_xml":
+        return ("dispatched_xml", "dispatch_xml")
+    return (table_name,)
+
+
+def _persist_xml_row(table_name: str, query: dict[str, Any]) -> None:
+    last_exc: Exception | None = None
+    for candidate in _candidate_xml_tables(table_name):
+        try:
+            get_supabase_client().table(candidate).upsert(query).execute()
+            return
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+
+
 def saveXml(table_name: str, orderId: str, buyer_id: str, seller_id: str, ublXml: str) -> None:
-    query = {"order_id": orderId, "seller_id": seller_id, "buyer_id": buyer_id, "xml": ublXml}
-    get_supabase_client().table(table_name).upsert(query).execute()
+    resolved_order_id = _resolve_xml_order_id(orderId)
+    query = {
+        "order_id": resolved_order_id,
+        "seller_id": seller_id,
+        "buyer_id": buyer_id,
+        "xml": ublXml,
+    }
+    try:
+        _persist_xml_row(table_name, query)
+    except Exception:
+        legacy_query = dict(query)
+        legacy_query.pop("xml", None)
+        legacy_query["ublxml"] = ublXml
+        _persist_xml_row(table_name, legacy_query)
 
 
 def getXml(table_name: str, orderId: str):
-    result = get_supabase_client().table(table_name).select("*").eq("order_id", orderId).execute()
-    return result.data if result.data else []
+    resolved_order_id = _resolve_xml_order_id(orderId)
+    last_exc: Exception | None = None
+    for candidate in _candidate_xml_tables(table_name):
+        try:
+            result = (
+                get_supabase_client()
+                .table(candidate)
+                .select("*")
+                .eq("order_id", resolved_order_id)
+                .execute()
+            )
+            return result.data if result.data else []
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+    return []
 
 
 # deletes all order lines related to a query
@@ -438,13 +554,14 @@ def addProduct(
     name: str,
     price: float | int,
     description: str,
+    category: str,
     available_units: float | int,
     is_visible: bool,
     show_soldout: bool,
     unit="EA",
     release_date: datetime | None = None,
     image_url=None,
-) -> int:
+) -> dict[str, Any]:
 
     query = {
         "party_id": partyemail,
@@ -452,6 +569,7 @@ def addProduct(
         "price": price,
         "unit": unit,
         "description": description,
+        "category": category,
         "is_visible": is_visible,
         "show_soldout": show_soldout,
         "available_units": available_units,
@@ -460,11 +578,20 @@ def addProduct(
 
     # only allow custom / null release dates when product is not visible
     if is_visible:
-        query["release_date"] = datetime.now().isoformat
+        query["release_date"] = datetime.now().isoformat()
     elif release_date:
-        query["release_date"] = (release_date.isoformat(),)
+        query["release_date"] = release_date.isoformat()
 
-    get_supabase_client().table("products").upsert(query).execute()
+    try:
+        response = get_supabase_client().table("products").insert(query).execute()
+    except Exception as e:
+        if not _products_missing_category_column(e):
+            raise
+
+        legacy_query = dict(query)
+        legacy_query.pop("category", None)
+        response = get_supabase_client().table("products").insert(legacy_query).execute()
+    return response.data[0] if response.data else query
 
 
 def getCatalogue(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
@@ -475,19 +602,37 @@ def getInventory(partyemail: str, limit: int | None, offset: int | None) -> list
     return getProducts(partyemail, True, limit, offset)
 
 
+def getPublicProducts(limit: int | None, offset: int | None) -> list[dir]:
+    updateAvailability("*")
+    query = (
+        get_supabase_client().table("products").select("*", count="exact").eq("is_visible", True)
+    )
+
+    if offset is not None and limit is not None:
+        query = query.range(offset, offset + limit - 1)
+    elif limit is not None:
+        query = query.limit(limit)
+
+    return query.execute()
+
+
 def getProducts(
     partyemail: str, showUnreleased: bool, limit: int | None, offset: int | None
 ) -> list[dir]:
     updateAvailability(partyemail)
-    query = get_supabase_client().table("products").select("*").eq("party_id", partyemail)
+    query = (
+        get_supabase_client()
+        .table("products")
+        .select("*", count="exact")
+        .eq("party_id", partyemail)
+    )
 
-    if showUnreleased:
+    if not showUnreleased:
         query = query.eq("is_visible", True)
 
-    if offset and limit:
-        query = query.range(offset - 1, offset + limit + 1)
-
-    if limit is not None:
+    if offset is not None and limit is not None:
+        query = query.range(offset, offset + limit - 1)
+    elif limit is not None:
         query = query.limit(limit)
 
     return query.execute()
@@ -495,12 +640,15 @@ def getProducts(
 
 def updateAvailability(partyemail: str) -> None:
     now = datetime.now().isoformat()
-    query = get_supabase_client().table("products")
-    query.update({"is_visible": True}).eq("party_id", partyemail).lte("release_date", now).execute()
+    query = get_supabase_client().table("products").update({"is_visible": True})
+    if partyemail != "*":
+        query = query.eq("party_id", partyemail)
+    query.lte("release_date", now).execute()
 
-    query.update({"is_visible": False}).eq("party_id", partyemail).eq("show_soldout", False).lte(
-        "available_units", 0
-    ).execute()
+    soldout_query = get_supabase_client().table("products").update({"is_visible": False})
+    if partyemail != "*":
+        soldout_query = soldout_query.eq("party_id", partyemail)
+    soldout_query.eq("show_soldout", False).lte("available_units", 0).execute()
 
 
 def findProducts(
@@ -511,6 +659,7 @@ def findProducts(
     priceLowerBound=None,
     priceUpperBound=None,
     unit=None,
+    category=None,
     available_units=None,
     is_visible=None,
     show_soldout=None,
@@ -519,7 +668,7 @@ def findProducts(
     updateAvailability("*")
     query = get_supabase_client().table("products").select("*", count="exact")
 
-    if prod_id:
+    if prod_id is not None:
         query = query.eq("prod_id", prod_id)
     if partyemail:
         query = query.eq("party_id", partyemail)
@@ -529,15 +678,17 @@ def findProducts(
         query = query.eq("show_soldout", show_soldout)
     if name:
         query = query.ilike("name", f"%{name}%")
-    if priceExact:
+    if priceExact is not None:
         query = query.eq("price", priceExact)
-    if priceLowerBound:
+    if priceLowerBound is not None:
         query = query.gte("price", priceLowerBound)
-    if priceUpperBound:
+    if priceUpperBound is not None:
         query = query.lte("price", priceUpperBound)
     if unit:
         query = query.eq("unit", unit)
-    if available_units:
+    if category is not None:
+        query = query.eq("category", category)
+    if available_units is not None:
         query = query.gte("available_units", available_units)
     if description:
         query = query.ilike("description", f"%{description}%")
@@ -551,6 +702,7 @@ def updateProduct(
     price=None,
     unit=None,
     description=None,
+    category=None,
     available_units=None,
     is_visible=None,
     show_soldout=None,
@@ -570,25 +722,35 @@ def updateProduct(
             query["release_date"] = release_date if release_date else None
     if show_soldout is not None:
         query["show_soldout"] = show_soldout
-    if name:
+    if name is not None:
         query["name"] = name
-    if price:
+    if price is not None:
         query["price"] = price
-    if unit:
+    if unit is not None:
         query["unit"] = unit
-    if available_units:
+    if category is not None:
+        query["category"] = category
+    if available_units is not None:
         query["available_units"] = available_units
-    if description:
+    if description is not None:
         query["description"] = description
-    if release_date:
-        query["release_date"] = release_date
-    if image_url:
+    if release_date is not None:
+        query["release_date"] = release_date.isoformat()
+    if image_url is not None:
         query["image_url"] = image_url
 
-    get_supabase_client().table("products").update(query).eq("prod_id", prod_id).execute()
+    try:
+        get_supabase_client().table("products").update(query).eq("prod_id", prod_id).execute()
+    except Exception as e:
+        if not _products_missing_category_column(e):
+            raise
+
+        legacy_query = dict(query)
+        legacy_query.pop("category", None)
+        get_supabase_client().table("products").update(legacy_query).eq(
+            "prod_id", prod_id
+        ).execute()
 
 
 def deleteProduct(prod_id: int):
-    get_supabase_client().table("products").update({"deleted": True}).eq(
-        "prod_id", prod_id
-    ).execute()
+    get_supabase_client().table("products").delete().eq("prod_id", prod_id).execute()

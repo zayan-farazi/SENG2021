@@ -15,6 +15,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from pydantic import ValidationError
+from uvicorn.protocols.utils import ClientDisconnected
 
 from app.models.schemas import (
     ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE,
@@ -40,6 +41,12 @@ from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
 from app.services.despatch import create_despatch_from_order_xml
+from app.services.marketplace_assistant import (
+    MarketplaceAssistantCartLine,
+    MarketplaceAssistantFilterState,
+    MarketplaceAssistantProduct,
+    interpret_marketplace_command,
+)
 from app.services.order_draft import (
     DraftSessionState,
     append_partial_transcript,
@@ -138,8 +145,8 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
         "Create a new draft order as either the buyer or the seller. "
         f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Include the caller's registered email as either "
         "`buyerEmail` or `sellerEmail` in the request body. New orders are created in `DRAFT` "
-        "status and remain editable in the current MVP until a future submit/finalize step is "
-        "introduced."
+        "status and remain editable until they are submitted through "
+        "`POST /v1/order/{order_id}/submit`."
     ),
     responses={
         201: {
@@ -345,6 +352,117 @@ async def order_draft_session(websocket: WebSocket):
         logger.info("Draft session disconnected")
 
 
+@router.websocket("/v1/marketplace/assistant/ws")
+async def marketplace_assistant_session(websocket: WebSocket):
+    await websocket.accept()
+    state: dict[str, Any] = {
+        "products": [],
+        "categories": [],
+        "filters": MarketplaceAssistantFilterState(),
+        "cart_lines": [],
+        "transcript_log": [],
+        "current_partial": "",
+    }
+    ready_sent = await _safe_websocket_send_json(
+        websocket,
+        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}},
+    )
+    if not ready_sent:
+        logger.info("Marketplace assistant session disconnected before ready state was delivered")
+        return
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict):
+                await _send_error(
+                    websocket, "invalid_message", "WebSocket messages must be JSON objects."
+                )
+                continue
+
+            event_type = message.get("type")
+            payload = message.get("payload") or {}
+            if not isinstance(payload, dict):
+                await _send_error(
+                    websocket, "invalid_payload", "Event payloads must be JSON objects."
+                )
+                continue
+
+            if event_type == "session.start":
+                await _handle_marketplace_assistant_context(websocket, state, payload)
+            elif event_type == "context.patch":
+                await _handle_marketplace_assistant_context(websocket, state, payload)
+            elif event_type == "transcript.partial":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Partial transcript text must be a string.",
+                    )
+                    continue
+
+                state["current_partial"] = text.strip()
+                if not await _safe_websocket_send_json(
+                    websocket,
+                    {
+                        "type": "transcript.echo",
+                        "payload": {"kind": "partial", "text": state["current_partial"]},
+                    },
+                ):
+                    return
+            elif event_type == "transcript.final":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Final transcript text must be a string.",
+                    )
+                    continue
+
+                cleaned = text.strip()
+                state["current_partial"] = ""
+                state["transcript_log"].append(cleaned)
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "transcript.echo",
+                        "payload": {"kind": "final", "text": cleaned},
+                    },
+                ):
+                    return
+
+                interpretation = await interpret_marketplace_command(
+                    transcript=cleaned,
+                    products=state["products"],
+                    categories=state["categories"],
+                    filters=state["filters"],
+                    cart_lines=state["cart_lines"],
+                    transcript_log=state["transcript_log"],
+                )
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "assistant.command",
+                        "payload": {
+                            "command": interpretation.command.model_dump(mode="json")
+                            if interpretation.command
+                            else None,
+                            "message": interpretation.unresolved_reason
+                            or interpretation.warning_message,
+                        },
+                    },
+                ):
+                    return
+            else:
+                await _send_error(
+                    websocket, "unknown_event", f"Unsupported event type: {event_type}"
+                )
+    except WebSocketDisconnect:
+        logger.info("Marketplace assistant session disconnected")
+
+
 async def _handle_session_start(
     websocket: WebSocket,
     state: DraftSessionState,
@@ -368,6 +486,59 @@ async def _handle_session_start(
         return
 
     await _send_draft_update(websocket, state, applied_changes)
+
+
+async def _handle_marketplace_assistant_context(
+    websocket: WebSocket,
+    state: dict[str, Any],
+    payload: dict[str, Any],
+):
+    raw_products = payload.get("products")
+    raw_categories = payload.get("categories")
+    raw_filters = payload.get("filters")
+    raw_cart_lines = payload.get("cartLines")
+
+    try:
+        if raw_products is not None:
+            if not isinstance(raw_products, list):
+                raise ValueError("Products payload must be an array.")
+            state["products"] = [
+                MarketplaceAssistantProduct.model_validate(product) for product in raw_products
+            ]
+
+        if raw_categories is not None:
+            if not isinstance(raw_categories, list) or not all(
+                isinstance(category, str) for category in raw_categories
+            ):
+                raise ValueError("Categories payload must be a string array.")
+            state["categories"] = raw_categories
+
+        if raw_filters is not None:
+            if not isinstance(raw_filters, dict):
+                raise ValueError("Filters payload must be an object.")
+            state["filters"] = MarketplaceAssistantFilterState.model_validate(raw_filters)
+
+        if raw_cart_lines is not None:
+            if not isinstance(raw_cart_lines, list):
+                raise ValueError("Cart lines payload must be an array.")
+            state["cart_lines"] = [
+                MarketplaceAssistantCartLine.model_validate(line) for line in raw_cart_lines
+            ]
+    except (ValidationError, ValueError) as exc:
+        await _send_error(websocket, "invalid_context", str(exc))
+        return
+
+    await _safe_websocket_send_json(
+        websocket,
+        {
+            "type": "context.updated",
+            "payload": {
+                "productCount": len(state["products"]),
+                "categoryCount": len(state["categories"]),
+                "cartLineCount": len(state["cart_lines"]),
+            },
+        },
+    )
 
 
 async def _handle_partial_transcript(
@@ -532,7 +703,15 @@ async def _send_error(
     payload = {"code": code, "message": message}
     if details is not None:
         payload["details"] = details
-    await websocket.send_json({"type": "error", "payload": payload})
+    await _safe_websocket_send_json(websocket, {"type": "error", "payload": payload})
+
+
+async def _safe_websocket_send_json(websocket: WebSocket, message: dict[str, Any]) -> bool:
+    try:
+        await websocket.send_json(message)
+        return True
+    except (WebSocketDisconnect, ClientDisconnected):
+        return False
 
 
 @router.get(
@@ -725,6 +904,70 @@ def update_order(
     except OrderPersistenceError as exc:
         logger.exception("Order update persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
+
+    return {
+        "orderId": record["orderId"],
+        "status": record["status"],
+        "updatedAt": record["updatedAt"],
+    }
+
+
+@router.post(
+    "/v1/order/{order_id}/submit",
+    response_model=OrderUpdateResponse,
+    summary="Submit an order (authenticated)",
+    description=(
+        "Transition an existing order from `DRAFT` to `SUBMITTED`, which locks the order against "
+        "further draft edits and enables downstream document generation. "
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Only the buyer or seller on the order may submit it."
+    ),
+    responses={
+        200: {
+            "description": "Order submitted successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "orderId": "ord_abc123def456",
+                        "status": "SUBMITTED",
+                        "updatedAt": "2026-03-14T11:00:00Z",
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        409: {
+            "description": "The order is already locked or cannot be submitted in its current state.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Order cannot be submitted in status 'SUBMITTED'."}
+                }
+            },
+        },
+        500: {
+            "description": "The order status could not be persisted.",
+            "content": {"application/json": {"example": {"detail": "Unable to submit order."}}},
+        },
+    },
+)
+def submit_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+    existing = order_store.get_order_record(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = existing.get("payload", {})
+    _assert_order_access(current_party_email, payload)
+
+    try:
+        record = order_store.submit_order_record(order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Not Found") from exc
+    except OrderConflictLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OrderPersistenceError as exc:
+        logger.exception("Order submit persistence verification failed")
+        raise HTTPException(status_code=500, detail="Unable to submit order.") from exc
 
     return {
         "orderId": record["orderId"],

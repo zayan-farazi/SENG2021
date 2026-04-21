@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from app.services.product_store import (
     ProductNotFoundError,
     create_product_record,
+    get_public_marketplace_products,
 )
 
 # 1. Use real values for Pydantic models to avoid ValidationErrors
@@ -12,11 +14,12 @@ MOCK_PARTY = "test@example.com"
 
 
 class MockReq:
+    party_id = MOCK_PARTY
     name = "Apple"
     price = 10.0
     description = "Fresh"
+    category = "Groceries and Consumables"
     available_units = 5
-    units_available = 5  # Matches your ProductCreateResponse call
     is_visible = True
     show_soldout = True
     unit = "kg"
@@ -42,9 +45,44 @@ class TestCreateProduct:
     def test_create_product_success(self, mock_db_calls):
         mock_find, mock_add, _ = mock_db_calls
         mock_find.return_value = None
+        mock_add.return_value = {
+            "prod_id": 1,
+            "party_id": MOCK_PARTY,
+            "name": "Apple",
+            "price": 10.0,
+            "unit": "kg",
+            "description": "Fresh",
+            "category": "Groceries and Consumables",
+            "release_date": "2023-01-01",
+            "available_units": 5,
+            "is_visible": True,
+            "show_soldout": True,
+            "image_url": "http://image.com",
+        }
 
         result = create_product_record(MOCK_PROD_REQ, MOCK_PARTY, "http://image.com")
         assert result.name == "Apple"
+
+    def test_create_product_normalizes_legacy_response_shape(self, mock_db_calls):
+        mock_find, mock_add, _ = mock_db_calls
+        mock_find.return_value = None
+        mock_add.return_value = {
+            "prod_id": 2,
+            "party_id": MOCK_PARTY,
+            "name": "Legacy Apple",
+            "price": 10.0,
+            "unit": "kg",
+            "description": "Fresh",
+            "release_date": "2023-01-01",
+            "available_units": 5,
+            "is_visible": True,
+            "show_soldout": True,
+            "image_url": None,
+        }
+
+        result = create_product_record(MOCK_PROD_REQ, MOCK_PARTY, "http://image.com")
+        assert result.category == "Others"
+        assert result.image_url
 
 
 """
@@ -80,7 +118,7 @@ class TestUpdateProduct:
         with pytest.raises(ProductNotFoundError):
             from app.services.product_store import update_product_record
 
-            update_product_record(MOCK_PROD_REQ, 999, MOCK_PARTY)
+            asyncio.run(update_product_record(MOCK_PROD_REQ, 999, MOCK_PARTY))
 
 
 class TestCatalogue:
@@ -90,15 +128,18 @@ class TestCatalogue:
             # 3. Add MISSING FIELDS required by ProductListResponseItem
             mock_response.data = [
                 {
-                    "id": 1,
+                    "prod_id": 1,
+                    "party_id": MOCK_PARTY,
                     "name": "P1",
                     "price": 10,
                     "unit": "pc",
                     "available_units": 1,
                     "description": "d",
+                    "category": "Groceries and Consumables",
                     "image_url": "u",
                     "release_date": "2023-01-01",
                     "is_visible": True,
+                    "show_soldout": True,
                 }
             ]
             mock_response.count = 100
@@ -107,4 +148,55 @@ class TestCatalogue:
             from app.services.product_store import get_user_catalogue
 
             result = get_user_catalogue(MOCK_PARTY, limit=10, offset=0)
-            assert len(result["items"]) == 1
+            assert len(result.items) == 1
+
+    def test_get_public_marketplace_products_structure(self):
+        with patch("app.services.product_store.getPublicProducts") as mock_get:
+            mock_response = MagicMock()
+            mock_response.data = [
+                {
+                    "prod_id": 1,
+                    "party_id": MOCK_PARTY,
+                    "name": "P1",
+                    "price": 10,
+                    "unit": "pc",
+                    "available_units": 1,
+                    "description": "d",
+                    "category": "Groceries and Consumables",
+                    "image_url": "u",
+                    "release_date": "2023-01-01",
+                    "is_visible": True,
+                    "show_soldout": True,
+                }
+            ]
+            mock_response.count = 1
+            mock_get.return_value = mock_response
+
+            result = get_public_marketplace_products(limit=10, offset=0)
+            assert len(result.items) == 1
+            assert result.items[0].name == "P1"
+
+    def test_get_public_marketplace_products_normalizes_legacy_rows(self):
+        with patch("app.services.product_store.getPublicProducts") as mock_get:
+            mock_response = MagicMock()
+            mock_response.data = [
+                {
+                    "prod_id": 2,
+                    "party_id": MOCK_PARTY,
+                    "name": "Legacy Product",
+                    "price": 15,
+                    "unit": "pc",
+                    "available_units": 2,
+                    "description": "legacy",
+                    "release_date": "2023-01-01",
+                    "is_visible": True,
+                    "show_soldout": True,
+                    "image_url": None,
+                }
+            ]
+            mock_response.count = 1
+            mock_get.return_value = mock_response
+
+            result = get_public_marketplace_products(limit=10, offset=0)
+            assert result.items[0].category == "Others"
+            assert result.items[0].image_url
