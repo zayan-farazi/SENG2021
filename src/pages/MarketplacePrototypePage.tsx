@@ -24,6 +24,7 @@ type MarketplaceAssistantCommand =
   | { kind: "clear_search" }
   | { kind: "set_category"; category: string }
   | { kind: "set_in_stock"; value: boolean }
+  | { kind: "go_to_checkout" }
   | { kind: "change_quantity"; productId: string; quantityDelta: number }
   | { kind: "remove_product"; productId: string };
 
@@ -307,6 +308,21 @@ export function MarketplacePrototypePage() {
       return {
         kind: "applied",
         message: command.value ? "Enabled in-stock-only filtering." : "Showing all stock states.",
+      };
+    }
+
+    if (command.kind === "go_to_checkout") {
+      if (cartRef.current.lines.length === 0) {
+        return {
+          kind: "rejected",
+          message: "Add items to the cart before going to checkout.",
+        };
+      }
+
+      navigate("/marketplace/review");
+      return {
+        kind: "applied",
+        message: "Opened checkout.",
       };
     }
 
@@ -607,7 +623,7 @@ export function MarketplacePrototypePage() {
 
             <VoiceAssistantDock
               context="marketplace"
-              hint="Try “search candles”, “show fashion only”, or “add two ceramic mugs”."
+              hint="Try “search candles”, “add two ceramic mugs”, or “go to checkout”."
               liveTranscript={assistantLiveTranscript}
               streaming
               onPartialTranscript={handleVoicePartialTranscript}

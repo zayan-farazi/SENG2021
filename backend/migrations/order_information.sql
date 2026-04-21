@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS orders (
     deliverycountry TEXT,
     issuedate TEXT,
     lastchanged TEXT,
-    status VARCHAR(8),
+    status TEXT,
     notes TEXT,
     currency TEXT,
     order_id TEXT UNIQUE,

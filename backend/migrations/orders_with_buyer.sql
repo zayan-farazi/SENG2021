@@ -1,7 +1,10 @@
-CREATE VIEW orders_with_buyer AS
-SELECT 
+DROP VIEW IF EXISTS public.orders_with_buyer;
+
+CREATE VIEW public.orders_with_buyer AS
+SELECT
     o.*,
-    p.contact_email AS "buyeremail",
-    p.party_name    AS "buyername"
-FROM orders o
-LEFT JOIN parties p ON p.contact_email = o.buyer_email;
+    p.contact_email AS buyeremail_view,
+    p.party_name AS buyername_view
+FROM public.orders o
+LEFT JOIN public.parties p
+    ON p.contact_email = COALESCE(o.buyer_id, o.buyeremail);

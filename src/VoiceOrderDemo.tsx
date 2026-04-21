@@ -13,6 +13,7 @@ import {
   getBackendWebSocketUrl,
   isDraftReadyForCommit,
   normalizeDraftState,
+  getDocumentsAssistantWebSocketUrl,
   type DraftLineItem,
   type DraftState,
   type OrderDraft,
@@ -56,10 +57,20 @@ type DiagnosticEntry = {
   level: DiagnosticLevel;
   text: string;
 };
+type LockedOrderAssistantServerEnvelope = {
+  type: string;
+  payload?: {
+    kind?: "partial" | "final";
+    text?: string;
+    command?: ReturnType<typeof parseLockedOrderVoiceCommand> | null;
+    message?: string | null;
+  };
+};
 
 type VoiceOrderDemoProps = {
   orderId?: string;
 };
+type LockedOrderAssistantCommand = NonNullable<ReturnType<typeof parseLockedOrderVoiceCommand>>;
 
 type EditableOrderMeta = {
   orderId: string;
@@ -178,6 +189,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const [invoiceUpdateDraft, setInvoiceUpdateDraft] = useState("{}");
   const [invoiceStatusDraft, setInvoiceStatusDraft] = useState("sent");
   const [invoicePaymentDateDraft, setInvoicePaymentDateDraft] = useState("");
+  const [documentsAssistantLiveTranscript, setDocumentsAssistantLiveTranscript] = useState<
+    string | null
+  >(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -190,7 +204,17 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const seededDraftOrderIdRef = useRef<string | null>(null);
   const pendingDraftSyncTimerRef = useRef<number | null>(null);
   const pendingDraftSyncRef = useRef<OrderDraft | null>(null);
+  const documentsAssistantSocketRef = useRef<WebSocket | null>(null);
+  const documentsAssistantResultResolverRef = useRef<
+    ((result: AssistantActionResult) => void) | null
+  >(null);
+  const lockedOrderIdRef = useRef<string | null>(null);
+  const hasDespatchRef = useRef(false);
+  const hasInvoiceRef = useRef(false);
+  const invoiceStatusRef = useRef<string | null>(null);
+  const viewerIsSellerRef = useRef(false);
   const websocketUrl = getBackendWebSocketUrl();
+  const documentsAssistantWebSocketUrl = getDocumentsAssistantWebSocketUrl();
   const backendHttpUrl = getBackendHttpUrl();
   const storedSession = useStoredSession();
 
@@ -951,50 +975,15 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     }
   };
 
-  const handleLockedOrderVoiceTranscript = async (
-    transcript: string,
-  ): Promise<AssistantActionResult> => {
-    const command = parseLockedOrderVoiceCommand(transcript);
-
-    if (!command) {
-      return {
-        kind: "rejected",
-        message: "I could not map that to a document action.",
-      };
-    }
-
-    if (command.kind === "fetch_despatch") {
-      const success = await fetchExistingDespatch();
-      return {
-        kind: success ? "applied" : "rejected",
-        message: success ? "Loaded the despatch XML." : "Unable to load the despatch XML.",
-      };
-    }
-
-    if (command.kind === "refresh_invoice") {
-      const success = await refreshInvoiceRecord();
-      return {
-        kind: success ? "applied" : "rejected",
-        message: success ? "Refreshed the invoice details." : "Unable to refresh the invoice details.",
-      };
-    }
-
-    if (command.kind === "fetch_invoice_xml") {
-      const success = await loadInvoiceXml();
-      return {
-        kind: success ? "applied" : "rejected",
-        message: success ? "Loaded the invoice XML." : "Unable to load the invoice XML.",
-      };
-    }
-
-    if (command.kind === "download_invoice_pdf") {
-      const success = await downloadInvoicePdfFile();
-      return {
-        kind: success ? "applied" : "rejected",
-        message: success ? "Downloaded the invoice PDF." : "Unable to download the invoice PDF.",
-      };
-    }
-
+  const buildLockedOrderVoiceConfirmation = (
+    command: Exclude<
+      LockedOrderAssistantCommand,
+      { kind: "fetch_despatch" }
+      | { kind: "refresh_invoice" }
+      | { kind: "fetch_invoice_xml" }
+      | { kind: "download_invoice_pdf" }
+    >,
+  ): AssistantActionResult => {
     if (command.kind === "generate_despatch") {
       return {
         kind: "confirm",
@@ -1004,7 +993,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
           const success = await createDespatchDocument();
           return {
             kind: success ? "applied" : "rejected",
-            message: success ? "Generated the despatch advice." : "Unable to generate the despatch advice.",
+            message: success
+              ? "Generated the despatch advice."
+              : "Unable to generate the despatch advice.",
           };
         },
       };
@@ -1031,7 +1022,10 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         message: `Set the invoice status to ${command.status}?`,
         confirmLabel: "Update status",
         execute: async () => {
-          const success = await submitInvoiceStatusUpdate(command.status);
+          const success = await submitInvoiceStatusUpdate(
+            command.status,
+            command.paymentDate ?? undefined,
+          );
           return {
             kind: success ? "applied" : "rejected",
             message: success
@@ -1054,6 +1048,233 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         };
       },
     };
+  };
+
+  const executeLockedOrderVoiceCommand = async (
+    command: LockedOrderAssistantCommand,
+  ): Promise<AssistantActionResult> => {
+    if (command.kind === "fetch_despatch") {
+      const success = await fetchExistingDespatch();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Loaded the despatch XML." : "Unable to load the despatch XML.",
+      };
+    }
+
+    if (command.kind === "refresh_invoice") {
+      const success = await refreshInvoiceRecord();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success
+          ? "Refreshed the invoice details."
+          : "Unable to refresh the invoice details.",
+      };
+    }
+
+    if (command.kind === "fetch_invoice_xml") {
+      const success = await loadInvoiceXml();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Loaded the invoice XML." : "Unable to load the invoice XML.",
+      };
+    }
+
+    if (command.kind === "download_invoice_pdf") {
+      const success = await downloadInvoicePdfFile();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Downloaded the invoice PDF." : "Unable to download the invoice PDF.",
+      };
+    }
+
+    return buildLockedOrderVoiceConfirmation(command);
+  };
+
+  const startLockedOrderAssistantRequest = (transcript: string) => {
+    const socket = documentsAssistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return null;
+    }
+
+    return new Promise<AssistantActionResult>(resolve => {
+      const timeoutId = window.setTimeout(() => {
+        if (documentsAssistantResultResolverRef.current) {
+          documentsAssistantResultResolverRef.current = null;
+          resolve({
+            kind: "rejected",
+            message: "The documents assistant timed out.",
+          });
+        }
+      }, 12000);
+
+      documentsAssistantResultResolverRef.current = resolve;
+      socket.send(JSON.stringify({ type: "transcript.final", payload: { text: transcript } }));
+
+      documentsAssistantResultResolverRef.current = result => {
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      };
+    });
+  };
+
+  useEffect(() => {
+    lockedOrderIdRef.current = lockedOrderId;
+    hasDespatchRef.current = Boolean(despatchState.adviceId || despatchState.xml);
+    hasInvoiceRef.current = Boolean(invoiceId);
+    invoiceStatusRef.current =
+      typeof invoiceRecord?.status === "string" && invoiceRecord.status.trim()
+        ? invoiceRecord.status.trim()
+        : null;
+    viewerIsSellerRef.current = viewerIsSeller;
+  }, [despatchState.adviceId, despatchState.xml, invoiceId, invoiceRecord?.status, lockedOrderId, viewerIsSeller]);
+
+  useEffect(() => {
+    const socket = new WebSocket(documentsAssistantWebSocketUrl);
+    documentsAssistantSocketRef.current = socket;
+
+    const sendContext = (type: "session.start" | "context.patch") => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type,
+          payload: {
+            orderId: lockedOrderIdRef.current,
+            hasDespatch: hasDespatchRef.current,
+            hasInvoice: hasInvoiceRef.current,
+            invoiceStatus: invoiceStatusRef.current,
+            viewerIsSeller: viewerIsSellerRef.current,
+          },
+        }),
+      );
+    };
+
+    const handleOpen = () => {
+      sendContext("session.start");
+    };
+
+    const handleMessage = async (event: MessageEvent<string>) => {
+      const envelope = JSON.parse(event.data) as LockedOrderAssistantServerEnvelope;
+      if (envelope.type === "transcript.echo") {
+        if (envelope.payload?.kind === "partial") {
+          setDocumentsAssistantLiveTranscript(envelope.payload.text ?? null);
+        }
+        if (envelope.payload?.kind === "final") {
+          setDocumentsAssistantLiveTranscript(null);
+        }
+        return;
+      }
+
+      if (envelope.type === "assistant.command") {
+        const resolver = documentsAssistantResultResolverRef.current;
+        documentsAssistantResultResolverRef.current = null;
+        const command = envelope.payload?.command;
+        const result = command
+          ? await executeLockedOrderVoiceCommand(command)
+          : {
+              kind: "rejected" as const,
+              message: envelope.payload?.message ?? "I could not map that to a document action.",
+            };
+        resolver?.(result);
+        return;
+      }
+
+      if (envelope.type === "error") {
+        const resolver = documentsAssistantResultResolverRef.current;
+        documentsAssistantResultResolverRef.current = null;
+        resolver?.({
+          kind: "rejected",
+          message: envelope.payload?.message ?? "The documents assistant could not respond.",
+        });
+      }
+    };
+
+    const handleClose = () => {
+      setDocumentsAssistantLiveTranscript(null);
+      const resolver = documentsAssistantResultResolverRef.current;
+      documentsAssistantResultResolverRef.current = null;
+      resolver?.({
+        kind: "rejected",
+        message: "The documents assistant disconnected.",
+      });
+    };
+
+    socket.addEventListener("open", handleOpen);
+    socket.addEventListener("message", handleMessage);
+    socket.addEventListener("close", handleClose);
+
+    return () => {
+      socket.removeEventListener("open", handleOpen);
+      socket.removeEventListener("message", handleMessage);
+      socket.removeEventListener("close", handleClose);
+      documentsAssistantSocketRef.current = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    };
+  }, [documentsAssistantWebSocketUrl]);
+
+  useEffect(() => {
+    const socket = documentsAssistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "context.patch",
+        payload: {
+          orderId: lockedOrderIdRef.current,
+          hasDespatch: hasDespatchRef.current,
+          hasInvoice: hasInvoiceRef.current,
+          invoiceStatus: invoiceStatusRef.current,
+          viewerIsSeller: viewerIsSellerRef.current,
+        },
+      }),
+    );
+  }, [despatchState.adviceId, despatchState.xml, invoiceId, invoiceRecord?.status, lockedOrderId, viewerIsSeller]);
+
+  const handleLockedOrderVoiceTranscript = async (
+    transcript: string,
+  ): Promise<AssistantActionResult> => {
+    setDocumentsAssistantLiveTranscript(null);
+    const streamedResult = await startLockedOrderAssistantRequest(transcript);
+    if (streamedResult) {
+      if (streamedResult.kind === "confirm" && streamedResult.message.startsWith("Internal error:")) {
+        return {
+          kind: "rejected",
+          message: "The documents assistant could not complete that command.",
+        };
+      }
+      if (streamedResult.kind === "confirm") {
+        return streamedResult;
+      }
+      if (streamedResult.kind === "applied" || streamedResult.kind === "rejected") {
+        return streamedResult;
+      }
+    }
+
+    const command = parseLockedOrderVoiceCommand(transcript);
+    if (!command) {
+      return {
+        kind: "rejected",
+        message: "I could not map that to a document action.",
+      };
+    }
+
+    return executeLockedOrderVoiceCommand(command);
+  };
+
+  const handleLockedOrderVoicePartialTranscript = (transcript: string) => {
+    const socket = documentsAssistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setDocumentsAssistantLiveTranscript(transcript);
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "transcript.partial", payload: { text: transcript } }));
   };
 
   const patchDraft = (nextDraft: OrderDraft, syncMode: "debounced" | "immediate" = "debounced") => {
@@ -1309,6 +1530,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const introStatusNote = editableOrderMeta
     ? `Order ${editableOrderMeta.orderId} · ${editableOrderMeta.status}`
     : null;
+  const isLockedView = isEditMode && editLoadState === "locked";
 
   return (
     <div className="landing-root create-page-root">
@@ -1316,11 +1538,11 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
         <section className="landing-stage create-page-stage">
           <AppHeader />
 
-          <main className="create-page-main">
+          <main className={`create-page-main${isLockedView ? " create-page-main-locked" : ""}`}>
             <section className="create-page-intro" aria-labelledby="create-page-title">
               <div className="create-page-intro-copy">
                 <h1 id="create-page-title">{pageTitle}</h1>
-                <p>{pageDescription}</p>
+                {!isLockedView ? <p>{pageDescription}</p> : null}
               </div>
               <div className="create-page-runtime">
                 <div className="create-page-runtime-state">
@@ -1457,7 +1679,6 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                       <header className="create-page-panel-header">
                         <div>
                           <h2>Order details</h2>
-                          <p>Read-only order fields for the locked order.</p>
                         </div>
                       </header>
 
@@ -1571,7 +1792,6 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                       <header className="create-page-panel-header">
                         <div>
                           <h2>Order XML</h2>
-                          <p>Stored UBL XML for this locked order.</p>
                         </div>
                       </header>
                       <div className="create-page-result-grid">
@@ -1602,18 +1822,22 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                       <header className="create-page-panel-header">
                         <div>
                           <h2>Documents</h2>
-                          <p>Generate and manage despatch and invoice artifacts for this locked order.</p>
                         </div>
                       </header>
 
-                      <VoiceAssistantDock
-                        context="locked_order"
-                        hint="Try “load despatch XML”, “generate invoice”, or “mark invoice paid”."
-                        disabledReason={
-                          !lockedOrderId ? "Load a locked order before using document voice actions." : null
-                        }
-                        onTranscript={handleLockedOrderVoiceTranscript}
-                      />
+                      <div className="create-page-documents-assistant">
+                        <VoiceAssistantDock
+                          context="locked_order"
+                          hint="Try “load despatch XML”, “generate invoice”, or “mark invoice paid”."
+                          disabledReason={
+                            !lockedOrderId ? "Load a locked order before using document voice actions." : null
+                          }
+                          liveTranscript={documentsAssistantLiveTranscript}
+                          streaming
+                          onPartialTranscript={handleLockedOrderVoicePartialTranscript}
+                          onTranscript={handleLockedOrderVoiceTranscript}
+                        />
+                      </div>
 
                       {documentClipboardMessage ? (
                         <div className="create-page-banner">{documentClipboardMessage}</div>
@@ -1623,9 +1847,6 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                         <div className="create-page-subsection-header">
                           <div>
                             <h3>Despatch</h3>
-                            <p className="create-page-empty-copy">
-                              Seller-only generation. Buyers can view the XML once it exists.
-                            </p>
                           </div>
                           <div className="create-page-inline-actions">
                             <button
@@ -1726,9 +1947,6 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                         <div className="create-page-subsection-header">
                           <div>
                             <h3>Invoice</h3>
-                            <p className="create-page-empty-copy">
-                              Generate an invoice, then manage status, payload updates, XML, and PDF.
-                            </p>
                           </div>
                           <div className="create-page-inline-actions">
                             <button

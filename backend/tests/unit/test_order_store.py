@@ -443,6 +443,30 @@ def test_list_orders_for_party_uses_order_id_as_tie_breaker(monkeypatch):
     assert [item["orderId"] for item in page["items"]] == ["ord_b", "ord_a"]
 
 
+def test_list_orders_for_party_falls_back_to_legacy_public_id_when_order_id_is_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        order_store,
+        "_fetch_order_rows_for_party",
+        lambda email: [
+            {
+                "id": 42,
+                "status": "SUBMITTED",
+                "createdat": "2026-03-12T10:00:00Z",
+                "updatedat": "2026-03-14T10:00:00Z",
+                "buyername": "Buyer Co",
+                "sellername": "Seller Co",
+                "issuedate": "2026-03-12",
+            },
+        ],
+    )
+
+    page = order_store.list_orders_for_party("buyer@example.com", limit=10, offset=0)
+
+    assert [item["orderId"] for item in page["items"]] == ["ord_legacy_42"]
+
+
 def test_list_orders_for_party_applies_offset_after_sorting(monkeypatch):
     monkeypatch.setattr(
         order_store,
@@ -482,3 +506,41 @@ def test_list_orders_for_party_applies_offset_after_sorting(monkeypatch):
 
     assert [item["orderId"] for item in page["items"]] == ["ord_2", "ord_1"]
     assert page["page"] == {"limit": 2, "offset": 1, "hasMore": False, "total": 3}
+
+
+def test_load_order_record_from_database_supports_legacy_public_ids(monkeypatch):
+    monkeypatch.setattr(other, "findOrderByExternalId", lambda order_id: None)
+    monkeypatch.setattr(
+        other,
+        "findOrders",
+        lambda **kwargs: (
+            [
+                {
+                    "id": 42,
+                    "status": "SUBMITTED",
+                    "buyeremail": "buyer@example.com",
+                    "buyername": "Buyer Co",
+                    "selleremail": "seller@example.com",
+                    "sellername": "Seller Co",
+                    "currency": "AUD",
+                    "notes": "Legacy order",
+                    "issuedate": "2026-03-12",
+                    "ublxml": "<Order />",
+                }
+            ]
+            if kwargs.get("orderId") == 42
+            else []
+        ),
+    )
+
+    class DetailsResponse:
+        data = []
+        count = 0
+
+    monkeypatch.setattr(other, "findOrderDetails", lambda order_id: DetailsResponse())
+
+    record = order_store.load_order_record_from_database("ord_legacy_42")
+
+    assert record is not None
+    assert record["orderId"] == "ord_legacy_42"
+    assert record["dbOrderId"] == "42"

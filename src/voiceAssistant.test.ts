@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { marketplaceCategories, marketplaceProducts } from "./pages/marketplacePrototypeData";
 import {
+  parseInventoryVoiceCommand,
   parseLockedOrderVoiceCommand,
   parseMarketplaceVoiceCommand,
   summarizeCheckoutFieldMutations,
@@ -32,6 +33,56 @@ describe("voiceAssistant helpers", () => {
     expect(command).toEqual({
       kind: "set_category",
       category: "Fashion",
+    });
+  });
+
+  it("parses marketplace checkout navigation commands", () => {
+    const command = parseMarketplaceVoiceCommand(
+      "go to checkout",
+      marketplaceProducts,
+      marketplaceCategories,
+    );
+
+    expect(command).toEqual({
+      kind: "go_to_checkout",
+    });
+  });
+
+  it("parses inventory create commands", () => {
+    const command = parseInventoryVoiceCommand(
+      "create a product called linen tote priced at 31 with 8 in stock in Fashion",
+      [
+        { id: "1", name: "Ceramic mug" },
+        { id: "2", name: "Weekend tote bag" },
+      ],
+      ["Fashion", "Handcrafted", "Others"],
+    );
+
+    expect(command).toEqual({
+      kind: "create_product",
+      name: "linen tote",
+      price: 31,
+      stock: 8,
+      category: "Fashion",
+      unitCode: "EA",
+      isVisible: true,
+    });
+  });
+
+  it("parses inventory delete commands", () => {
+    const command = parseInventoryVoiceCommand(
+      "delete ceramic mug",
+      [
+        { id: "1", name: "Ceramic mug" },
+        { id: "2", name: "Weekend tote bag" },
+      ],
+      ["Fashion", "Handcrafted", "Others"],
+    );
+
+    expect(command).toEqual({
+      kind: "delete_product",
+      productId: "1",
+      productName: "Ceramic mug",
     });
   });
 

@@ -190,7 +190,9 @@ export function VoiceAssistantDock({
       ? "Marketplace assistant"
       : context === "checkout"
         ? "Checkout assistant"
-        : "Documents assistant";
+        : context === "inventory"
+          ? "Inventory assistant"
+          : "Documents assistant";
 
   return (
     <section className="voice-assistant-dock" aria-label={`${contextLabel} voice controls`}>
