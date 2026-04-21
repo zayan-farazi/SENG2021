@@ -277,6 +277,10 @@ app = FastAPI(
             "name": "Health",
             "description": "Operational health and readiness endpoints.",
         },
+        {
+            "name": "Invoices",
+            "description": "Invoice integration endpoints backed by the LastMinutePush invoice API.",
+        },
     ],
 )
 app.add_middleware(
