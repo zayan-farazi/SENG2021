@@ -531,7 +531,9 @@ def getInventory(partyemail: str, limit: int | None, offset: int | None) -> list
 
 def getPublicProducts(limit: int | None, offset: int | None) -> list[dir]:
     updateAvailability("*")
-    query = get_supabase_client().table("products").select("*", count="exact").eq("is_visible", True)
+    query = (
+        get_supabase_client().table("products").select("*", count="exact").eq("is_visible", True)
+    )
 
     if offset is not None and limit is not None:
         query = query.range(offset, offset + limit - 1)
@@ -545,7 +547,12 @@ def getProducts(
     partyemail: str, showUnreleased: bool, limit: int | None, offset: int | None
 ) -> list[dir]:
     updateAvailability(partyemail)
-    query = get_supabase_client().table("products").select("*", count="exact").eq("party_id", partyemail)
+    query = (
+        get_supabase_client()
+        .table("products")
+        .select("*", count="exact")
+        .eq("party_id", partyemail)
+    )
 
     if not showUnreleased:
         query = query.eq("is_visible", True)
@@ -667,7 +674,9 @@ def updateProduct(
 
         legacy_query = dict(query)
         legacy_query.pop("category", None)
-        get_supabase_client().table("products").update(legacy_query).eq("prod_id", prod_id).execute()
+        get_supabase_client().table("products").update(legacy_query).eq(
+            "prod_id", prod_id
+        ).execute()
 
 
 def deleteProduct(prod_id: int):
