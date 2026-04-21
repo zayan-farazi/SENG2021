@@ -62,6 +62,7 @@ function getBadgeClassName(badge: MarketplaceProduct["badge"]): string {
 function buildCartLine(product: MarketplaceProduct, quantity: number): MarketplaceCartLine {
   return {
     productId: product.id,
+    productRecordId: product.productRecordId,
     name: product.name,
     seller: product.seller,
     sellerEmail: product.sellerEmail,

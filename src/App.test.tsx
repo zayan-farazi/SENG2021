@@ -508,7 +508,8 @@ describe("App routing", () => {
     writeStoredMarketplaceCart({
       lines: [
         {
-          productId: "market-ceramic-mug",
+          productId: "product-101",
+          productRecordId: 101,
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
           sellerEmail: "orders@harbourstudio.example",

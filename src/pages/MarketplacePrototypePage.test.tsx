@@ -369,7 +369,8 @@ describe("MarketplaceReviewPage", () => {
     writeStoredMarketplaceCart({
       lines: [
         {
-          productId: "market-ceramic-mug",
+          productId: "product-101",
+          productRecordId: 101,
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
           sellerEmail: "orders@harbourstudio.example",
@@ -401,7 +402,8 @@ describe("MarketplaceReviewPage", () => {
     writeStoredMarketplaceCart({
       lines: [
         {
-          productId: "market-ceramic-mug",
+          productId: "product-101",
+          productRecordId: 101,
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
           sellerEmail: "orders@harbourstudio.example",
@@ -412,7 +414,8 @@ describe("MarketplaceReviewPage", () => {
           subtotal: 68,
         },
         {
-          productId: "market-art-print",
+          productId: "product-105",
+          productRecordId: 105,
           name: "Abstract wall print",
           seller: "Lineform Press",
           sellerEmail: "studio@lineformpress.example",
@@ -475,7 +478,8 @@ describe("MarketplaceReviewPage", () => {
     writeStoredMarketplaceCart({
       lines: [
         {
-          productId: "market-ceramic-mug",
+          productId: "product-101",
+          productRecordId: 101,
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
           sellerEmail: "orders@harbourstudio.example",
@@ -546,7 +550,8 @@ describe("MarketplaceReviewPage", () => {
     writeStoredMarketplaceCart({
       lines: [
         {
-          productId: "market-ceramic-mug",
+          productId: "product-101",
+          productRecordId: 101,
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
           sellerEmail: "orders@harbourstudio.example",

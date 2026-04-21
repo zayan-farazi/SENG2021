@@ -1066,6 +1066,7 @@ class LineItem(BaseModel):
         }
     )
 
+    productId: int | None = Field(default=None, ge=1)
     productName: str = Field(..., min_length=1)
     quantity: int = Field(..., gt=0)
     unitCode: str | None = Field(default="EA", min_length=1)
@@ -1111,6 +1112,7 @@ class OrderRequest(BaseModel):
 
 
 class DraftLineItem(BaseModel):
+    productId: int | None = Field(default=None, ge=1)
     productName: str | None = Field(default=None, min_length=1)
     quantity: int | None = Field(default=None, gt=0)
     unitCode: str | None = Field(default="EA", min_length=1)

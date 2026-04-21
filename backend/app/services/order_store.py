@@ -158,6 +158,7 @@ def persist_order_to_database(req: OrderRequest) -> Any:
                 line.unitCode or "EA",
                 line.quantity,
                 float(line.unitPrice) if line.unitPrice is not None else None,
+                line.productId,
             )
 
         orders = findOrders(orderId=db_order_id)
@@ -274,6 +275,7 @@ def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> Non
                 line.unitCode or "EA",
                 line.quantity,
                 float(line.unitPrice) if line.unitPrice is not None else None,
+                line.productId,
             )
 
         orders = findOrders(orderId=db_order_id)
@@ -436,6 +438,7 @@ def _build_lines_payload(details: Any) -> list[dict[str, Any]]:
         if not isinstance(detail, dict):
             continue
         line = {
+            "productId": detail.get("productid"),
             "productName": detail.get("productname"),
             "quantity": _coerce_quantity(detail.get("quantity")),
             "unitCode": detail.get("unitcode"),

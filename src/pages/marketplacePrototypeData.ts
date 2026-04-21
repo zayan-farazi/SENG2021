@@ -4,6 +4,7 @@ import type { ProductRecord } from "../productApi";
 
 export type MarketplaceProduct = {
   id: string;
+  productRecordId: number | null;
   name: string;
   price: number;
   seller: string;
@@ -24,6 +25,7 @@ export type MarketplaceFilterState = {
 
 export type MarketplaceCartLine = {
   productId: string;
+  productRecordId: number | null;
   name: string;
   seller: string;
   sellerEmail: string;
@@ -65,6 +67,7 @@ export const MARKETPLACE_CHECKOUT_SUCCESS_STORAGE_KEY = "lockedout.marketplace-c
 export const marketplaceProducts: MarketplaceProduct[] = [
   {
     id: "market-ceramic-mug",
+    productRecordId: 101,
     name: "Handmade ceramic mug",
     price: 34,
     seller: "Harbour Studio",
@@ -78,6 +81,7 @@ export const marketplaceProducts: MarketplaceProduct[] = [
   },
   {
     id: "market-denim-jacket",
+    productRecordId: 102,
     name: "Vintage denim jacket",
     price: 62,
     seller: "North Lane Vintage",
@@ -91,6 +95,7 @@ export const marketplaceProducts: MarketplaceProduct[] = [
   },
   {
     id: "market-soy-candle",
+    productRecordId: 103,
     name: "Natural soy candle set",
     price: 28,
     seller: "Soft Light Co",
@@ -104,6 +109,7 @@ export const marketplaceProducts: MarketplaceProduct[] = [
   },
   {
     id: "market-gift-box",
+    productRecordId: 104,
     name: "Self-care gift box",
     price: 48,
     seller: "Bloom Assembly",
@@ -116,6 +122,7 @@ export const marketplaceProducts: MarketplaceProduct[] = [
   },
   {
     id: "market-art-print",
+    productRecordId: 105,
     name: "Abstract wall print",
     price: 46,
     seller: "Lineform Press",
@@ -129,6 +136,7 @@ export const marketplaceProducts: MarketplaceProduct[] = [
   },
   {
     id: "market-market-tote",
+    productRecordId: 106,
     name: "Weekend tote bag",
     price: 31,
     seller: "Field Notes Goods",
@@ -216,6 +224,7 @@ export function deriveMarketplaceCategories(products: MarketplaceProduct[]): str
 export function productRecordToMarketplaceProduct(record: ProductRecord): MarketplaceProduct {
   return {
     id: `product-${record.prod_id ?? `${record.party_id}-${record.name}`}`,
+    productRecordId: record.prod_id,
     name: record.name,
     price: record.price,
     seller: formatSellerLabel(record.party_id),

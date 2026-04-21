@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_URL = (
     "https://zfkanfxuznozqpqfxbly.supabase.co/storage/v1/object/public/products/default.webp"
 )
+DEFAULT_CATEGORY = "Others"
 
 NOT_FOUND_RESPONSE = {
     "description": "The requested inventory item was not found.",
@@ -182,6 +183,13 @@ def roll_back_prod_changes(prod_id, record):
     )
 
 
+def _normalize_product_row(row: dict | None) -> dict:
+    normalized = dict(row or {})
+    normalized["category"] = normalized.get("category") or DEFAULT_CATEGORY
+    normalized["image_url"] = normalized.get("image_url") or DEFAULT_IMAGE_URL
+    return normalized
+
+
 def get_user_catalogue(party_id: str, limit: int | None, offset: int | None) -> ProductListResponse:
     try:
         response = getCatalogue(party_id, limit, offset)
@@ -190,7 +198,7 @@ def get_user_catalogue(party_id: str, limit: int | None, offset: int | None) -> 
 
         resolved_offset = offset or 0
         return ProductListResponse(
-            items=[ProductListResponseItem(**item) for item in data],
+            items=[ProductListResponseItem(**_normalize_product_row(item)) for item in data],
             page={
                 "limit": limit,
                 "offset": offset,
@@ -213,7 +221,7 @@ def get_user_inventory(
 
         resolved_offset = offset or 0
         return ProductListResponse(
-            items=[ProductListResponseItem(**item) for item in data],
+            items=[ProductListResponseItem(**_normalize_product_row(item)) for item in data],
             page={
                 "limit": limit,
                 "offset": offset,
@@ -236,7 +244,7 @@ def get_public_marketplace_products(
 
         resolved_offset = offset or 0
         return ProductListResponse(
-            items=[ProductListResponseItem(**item) for item in data],
+            items=[ProductListResponseItem(**_normalize_product_row(item)) for item in data],
             page={
                 "limit": limit,
                 "offset": offset,
@@ -273,7 +281,7 @@ def delete_product_record(prod_id: int, curr_party: str):
 
 
 def _build_product_response(record: dict) -> ProductCreateResponse:
-    normalized = dict(record)
+    normalized = _normalize_product_row(record)
     if "prod_description" in normalized and "description" not in normalized:
         normalized["description"] = normalized.pop("prod_description")
     if "imageUrl" in normalized and "image_url" not in normalized:

@@ -336,7 +336,7 @@ def test_persist_order_update_to_database_passes_issue_date_and_delivery_state(m
         captured_order_kwargs.update(kwargs)
         return kwargs.get("orderId", 1)
 
-    def fake_save_order_details(orderId, productName, unitCode, quantity, unitPrice):
+    def fake_save_order_details(orderId, productName, unitCode, quantity, unitPrice, productId=None):
         saved_detail_prices.append(unitPrice)
 
     monkeypatch.setattr(other, "saveOrder", fake_save_order)

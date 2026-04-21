@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+from uvicorn.protocols.utils import ClientDisconnected
 
 from app.api.routes import orders
 from app.main import app
@@ -124,7 +127,13 @@ def test_final_transcript_updates_draft_state_from_hosted_parser(monkeypatch):
     assert update["payload"]["state"]["draft"]["buyerName"] == "James"
     assert update["payload"]["state"]["draft"]["sellerName"] == "Grocery Store"
     assert update["payload"]["state"]["draft"]["lines"] == [
-        {"productName": "oranges", "quantity": 4, "unitCode": "EA", "unitPrice": "4.00"}
+        {
+            "productId": None,
+            "productName": "oranges",
+            "quantity": 4,
+            "unitCode": "EA",
+            "unitPrice": "4.00",
+        }
     ]
 
 
@@ -379,3 +388,33 @@ def test_reset_clears_session_state():
     assert update["payload"]["state"]["transcriptLog"] == []
     assert update["payload"]["state"]["warnings"] == []
     assert update["payload"]["state"]["unresolved"] == []
+
+
+def test_safe_websocket_send_json_returns_false_on_websocket_disconnect():
+    class DisconnectingWebSocket:
+        async def send_json(self, payload):  # noqa: ARG002
+            raise WebSocketDisconnect(code=1006)
+
+    delivered = asyncio.run(
+        orders._safe_websocket_send_json(
+            DisconnectingWebSocket(),
+            {"type": "session.ready", "payload": {}},
+        )
+    )
+
+    assert delivered is False
+
+
+def test_safe_websocket_send_json_returns_false_on_client_disconnected():
+    class DisconnectingWebSocket:
+        async def send_json(self, payload):  # noqa: ARG002
+            raise ClientDisconnected()
+
+    delivered = asyncio.run(
+        orders._safe_websocket_send_json(
+            DisconnectingWebSocket(),
+            {"type": "assistant.command", "payload": {}},
+        )
+    )
+
+    assert delivered is False

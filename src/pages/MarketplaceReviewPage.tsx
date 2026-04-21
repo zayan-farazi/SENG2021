@@ -106,6 +106,7 @@ function buildGroupedOrderPayload(
       requestedDate: form.requestedDate.trim(),
     },
     lines: group.lines.map(line => ({
+      productId: line.productRecordId,
       productName: line.name,
       quantity: line.quantity,
       unitCode: line.unitCode,
@@ -369,6 +370,7 @@ export function MarketplaceReviewPage() {
       issueDate,
       currency,
       lines: primaryGroup.lines.map(line => ({
+        productId: line.productRecordId,
         productName: line.name,
         quantity: line.quantity,
         unitCode: line.unitCode,
@@ -402,6 +404,7 @@ export function MarketplaceReviewPage() {
         issueDate,
         currency,
         lines: primaryGroup.lines.map(line => ({
+          productId: line.productRecordId,
           productName: line.name,
           quantity: line.quantity,
           unitCode: line.unitCode,

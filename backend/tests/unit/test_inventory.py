@@ -63,6 +63,27 @@ class TestCreateProduct:
         result = create_product_record(MOCK_PROD_REQ, MOCK_PARTY, "http://image.com")
         assert result.name == "Apple"
 
+    def test_create_product_normalizes_legacy_response_shape(self, mock_db_calls):
+        mock_find, mock_add, _ = mock_db_calls
+        mock_find.return_value = None
+        mock_add.return_value = {
+            "prod_id": 2,
+            "party_id": MOCK_PARTY,
+            "name": "Legacy Apple",
+            "price": 10.0,
+            "unit": "kg",
+            "description": "Fresh",
+            "release_date": "2023-01-01",
+            "available_units": 5,
+            "is_visible": True,
+            "show_soldout": True,
+            "image_url": None,
+        }
+
+        result = create_product_record(MOCK_PROD_REQ, MOCK_PARTY, "http://image.com")
+        assert result.category == "Others"
+        assert result.image_url
+
 
 """
 class TestImageUpload:
@@ -154,3 +175,28 @@ class TestCatalogue:
             result = get_public_marketplace_products(limit=10, offset=0)
             assert len(result.items) == 1
             assert result.items[0].name == "P1"
+
+    def test_get_public_marketplace_products_normalizes_legacy_rows(self):
+        with patch("app.services.product_store.getPublicProducts") as mock_get:
+            mock_response = MagicMock()
+            mock_response.data = [
+                {
+                    "prod_id": 2,
+                    "party_id": MOCK_PARTY,
+                    "name": "Legacy Product",
+                    "price": 15,
+                    "unit": "pc",
+                    "available_units": 2,
+                    "description": "legacy",
+                    "release_date": "2023-01-01",
+                    "is_visible": True,
+                    "show_soldout": True,
+                    "image_url": None,
+                }
+            ]
+            mock_response.count = 1
+            mock_get.return_value = mock_response
+
+            result = get_public_marketplace_products(limit=10, offset=0)
+            assert result.items[0].category == "Others"
+            assert result.items[0].image_url

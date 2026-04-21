@@ -149,7 +149,7 @@ async def add_Inventory_Item(
     issues = validate_product(req)
     if issues:
         raise HTTPException(status_code=400, detail=issues)
-    image_url = get_image_url(image, current_party_email, name)
+    image_url = await get_image_url(image, current_party_email, name)
     try:
         record = create_product_record(req, current_party_email, image_url=image_url)
     except ProductPersistenceError as exc:
@@ -306,8 +306,13 @@ async def get_private_inventory(
     summary="Delete product",
     description="Deletes product from user inventory",
     responses={
-        404: "Product not found.",
-        200: {"content": {"application/json": {"message": "Product successfully deleted"}}},
+        404: {"description": "Product not found."},
+        200: {
+            "description": "Product successfully deleted.",
+            "content": {
+                "application/json": {"example": {"message": "Product successfully deleted"}}
+            },
+        },
     },
 )
 async def delete_product(prod_id: int, curr_party: str = Depends(get_current_party_email)):

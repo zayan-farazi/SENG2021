@@ -15,6 +15,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from pydantic import ValidationError
+from uvicorn.protocols.utils import ClientDisconnected
 
 from app.models.schemas import (
     ORDER_CONVERSION_RESPONSE_INCOMPLETE_EXAMPLE,
@@ -362,9 +363,13 @@ async def marketplace_assistant_session(websocket: WebSocket):
         "transcript_log": [],
         "current_partial": "",
     }
-    await websocket.send_json(
-        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}}
+    ready_sent = await _safe_websocket_send_json(
+        websocket,
+        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}},
     )
+    if not ready_sent:
+        logger.info("Marketplace assistant session disconnected before ready state was delivered")
+        return
 
     try:
         while True:
@@ -398,12 +403,14 @@ async def marketplace_assistant_session(websocket: WebSocket):
                     continue
 
                 state["current_partial"] = text.strip()
-                await websocket.send_json(
+                if not await _safe_websocket_send_json(
+                    websocket,
                     {
                         "type": "transcript.echo",
                         "payload": {"kind": "partial", "text": state["current_partial"]},
-                    }
-                )
+                    },
+                ):
+                    return
             elif event_type == "transcript.final":
                 text = payload.get("text")
                 if not isinstance(text, str):
@@ -417,9 +424,14 @@ async def marketplace_assistant_session(websocket: WebSocket):
                 cleaned = text.strip()
                 state["current_partial"] = ""
                 state["transcript_log"].append(cleaned)
-                await websocket.send_json(
-                    {"type": "transcript.echo", "payload": {"kind": "final", "text": cleaned}}
-                )
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "transcript.echo",
+                        "payload": {"kind": "final", "text": cleaned},
+                    },
+                ):
+                    return
 
                 interpretation = await interpret_marketplace_command(
                     transcript=cleaned,
@@ -429,8 +441,9 @@ async def marketplace_assistant_session(websocket: WebSocket):
                     cart_lines=state["cart_lines"],
                     transcript_log=state["transcript_log"],
                 )
-                await websocket.send_json(
-                    {
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
                         "type": "assistant.command",
                         "payload": {
                             "command": interpretation.command.model_dump(mode="json")
@@ -439,8 +452,9 @@ async def marketplace_assistant_session(websocket: WebSocket):
                             "message": interpretation.unresolved_reason
                             or interpretation.warning_message,
                         },
-                    }
-                )
+                    },
+                ):
+                    return
             else:
                 await _send_error(
                     websocket, "unknown_event", f"Unsupported event type: {event_type}"
@@ -514,7 +528,8 @@ async def _handle_marketplace_assistant_context(
         await _send_error(websocket, "invalid_context", str(exc))
         return
 
-    await websocket.send_json(
+    await _safe_websocket_send_json(
+        websocket,
         {
             "type": "context.updated",
             "payload": {
@@ -522,7 +537,7 @@ async def _handle_marketplace_assistant_context(
                 "categoryCount": len(state["categories"]),
                 "cartLineCount": len(state["cart_lines"]),
             },
-        }
+        },
     )
 
 
@@ -688,7 +703,15 @@ async def _send_error(
     payload = {"code": code, "message": message}
     if details is not None:
         payload["details"] = details
-    await websocket.send_json({"type": "error", "payload": payload})
+    await _safe_websocket_send_json(websocket, {"type": "error", "payload": payload})
+
+
+async def _safe_websocket_send_json(websocket: WebSocket, message: dict[str, Any]) -> bool:
+    try:
+        await websocket.send_json(message)
+        return True
+    except (WebSocketDisconnect, ClientDisconnected):
+        return False
 
 
 @router.get(
