@@ -633,6 +633,9 @@ def get_order_ubl(order_id: str, current_party_email: str = Depends(get_current_
     if order is None:
         raise HTTPException(status_code=404, detail="Not Found")
 
+    payload = order.get("payload", {})
+    _assert_order_access(current_party_email, payload)
+
     if not order.get("ublXml"):
         raise HTTPException(status_code=500, detail="Order XML missing.")
 
