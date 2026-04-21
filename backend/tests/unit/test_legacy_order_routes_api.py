@@ -95,7 +95,9 @@ def legacy_record(monkeypatch):
 
 
 def test_legacy_order_id_route_gets_order(client, legacy_record):
-    response = client.get(f"/v1/order/{legacy_record['orderId']}", headers=auth_headers("buyer-key"))
+    response = client.get(
+        f"/v1/order/{legacy_record['orderId']}", headers=auth_headers("buyer-key")
+    )
 
     assert response.status_code == 200
     assert response.json()["orderId"] == legacy_record["orderId"]
@@ -123,7 +125,9 @@ def test_legacy_order_id_route_gets_ubl(client, legacy_record):
 
 def test_legacy_order_id_route_deletes_order(client, legacy_record, monkeypatch):
     deleted: list[str] = []
-    monkeypatch.setattr(order_store, "delete_order_record", lambda order_id: deleted.append(order_id) or True)
+    monkeypatch.setattr(
+        order_store, "delete_order_record", lambda order_id: deleted.append(order_id) or True
+    )
 
     response = client.delete(
         f"/v1/order/{legacy_record['orderId']}",
@@ -164,9 +168,11 @@ def test_legacy_order_id_route_fetches_despatch_xml(client, legacy_record, monke
     monkeypatch.setattr(
         orders,
         "getXml",
-        lambda table_name, order_id: [{"xml": "<DespatchAdvice />"}]
-        if table_name == "dispatch_xml" and order_id == legacy_record["orderId"]
-        else [],
+        lambda table_name, order_id: (
+            [{"xml": "<DespatchAdvice />"}]
+            if table_name == "dispatch_xml" and order_id == legacy_record["orderId"]
+            else []
+        ),
     )
 
     response = client.get(

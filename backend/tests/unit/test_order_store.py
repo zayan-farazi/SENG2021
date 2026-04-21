@@ -513,22 +513,24 @@ def test_load_order_record_from_database_supports_legacy_public_ids(monkeypatch)
     monkeypatch.setattr(
         other,
         "findOrders",
-        lambda **kwargs: [
-            {
-                "id": 42,
-                "status": "SUBMITTED",
-                "buyeremail": "buyer@example.com",
-                "buyername": "Buyer Co",
-                "selleremail": "seller@example.com",
-                "sellername": "Seller Co",
-                "currency": "AUD",
-                "notes": "Legacy order",
-                "issuedate": "2026-03-12",
-                "ublxml": "<Order />",
-            }
-        ]
-        if kwargs.get("orderId") == 42
-        else [],
+        lambda **kwargs: (
+            [
+                {
+                    "id": 42,
+                    "status": "SUBMITTED",
+                    "buyeremail": "buyer@example.com",
+                    "buyername": "Buyer Co",
+                    "selleremail": "seller@example.com",
+                    "sellername": "Seller Co",
+                    "currency": "AUD",
+                    "notes": "Legacy order",
+                    "issuedate": "2026-03-12",
+                    "ublxml": "<Order />",
+                }
+            ]
+            if kwargs.get("orderId") == 42
+            else []
+        ),
     )
 
     class DetailsResponse:
