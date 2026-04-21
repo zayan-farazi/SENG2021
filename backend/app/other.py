@@ -433,3 +433,164 @@ def _with_party_identity_alias(row):
         normalized["contact_email"] = contact_email.strip().lower()
         normalized.setdefault("party_id", normalized["contact_email"])
     return normalized
+
+
+def addProduct(
+    partyemail: str,
+    name: str,
+    price: float | int,
+    description: str,
+    available_units: float | int,
+    is_visible: bool,
+    show_soldout: bool,
+    unit="EA",
+    release_date: datetime | None = None,
+    image_url=None,
+) -> int:
+
+    query = {
+        "party_id": partyemail,
+        "name": name,
+        "price": price,
+        "unit": unit,
+        "description": description,
+        "is_visible": is_visible,
+        "show_soldout": show_soldout,
+        "available_units": available_units,
+        "image_url": image_url,
+    }
+
+    # only allow custom / null release dates when product is not visible
+    if is_visible:
+        query["release_date"] = datetime.now().isoformat
+    elif release_date:
+        query["release_date"] = (release_date.isoformat(),)
+
+    get_supabase_client().table("products").upsert(query).execute()
+
+
+def getCatalogue(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
+    return getProducts(partyemail, False, limit, offset)
+
+
+def getInventory(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
+    return getProducts(partyemail, True, limit, offset)
+
+
+def getProducts(
+    partyemail: str, showUnreleased: bool, limit: int | None, offset: int | None
+) -> list[dir]:
+    updateAvailability(partyemail)
+    query = get_supabase_client().table("products").select("*").eq("party_id", partyemail)
+
+    if showUnreleased:
+        query = query.eq("is_visible", True)
+
+    if offset and limit:
+        query = query.range(offset - 1, offset + limit + 1)
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    return query.execute()
+
+
+def updateAvailability(partyemail: str) -> None:
+    now = datetime.now().isoformat()
+    query = get_supabase_client().table("products")
+    query.update({"is_visible": True}).eq("party_id", partyemail).lte("release_date", now).execute()
+
+    query.update({"is_visible": False}).eq("party_id", partyemail).eq("show_soldout", False).lte(
+        "available_units", 0
+    ).execute()
+
+
+def findProducts(
+    prod_id=None,
+    partyemail=None,
+    name=None,
+    priceExact=None,
+    priceLowerBound=None,
+    priceUpperBound=None,
+    unit=None,
+    available_units=None,
+    is_visible=None,
+    show_soldout=None,
+    description: str | None = None,
+):
+    updateAvailability("*")
+    query = get_supabase_client().table("products").select("*", count="exact")
+
+    if prod_id:
+        query = query.eq("prod_id", prod_id)
+    if partyemail:
+        query = query.eq("party_id", partyemail)
+    if is_visible is not None:
+        query = query.eq("is_visible", is_visible)
+    if show_soldout is not None:
+        query = query.eq("show_soldout", show_soldout)
+    if name:
+        query = query.ilike("name", f"%{name}%")
+    if priceExact:
+        query = query.eq("price", priceExact)
+    if priceLowerBound:
+        query = query.gte("price", priceLowerBound)
+    if priceUpperBound:
+        query = query.lte("price", priceUpperBound)
+    if unit:
+        query = query.eq("unit", unit)
+    if available_units:
+        query = query.gte("available_units", available_units)
+    if description:
+        query = query.ilike("description", f"%{description}%")
+
+    return query.execute()
+
+
+def updateProduct(
+    prod_id,
+    name=None,
+    price=None,
+    unit=None,
+    description=None,
+    available_units=None,
+    is_visible=None,
+    show_soldout=None,
+    image_url=None,
+    release_date: datetime | None = None,
+):
+    query = {}
+
+    if is_visible is not None:
+        query["is_visible"] = is_visible
+        # if user manually makes a product visible, set release date to now
+        if is_visible:
+            query["release_date"] = datetime.now().isoformat()
+        # if user makes a product invisible, change release date to given or null
+        # to avoid making product visible in next update products in case now > scheduled_date
+        else:
+            query["release_date"] = release_date if release_date else None
+    if show_soldout is not None:
+        query["show_soldout"] = show_soldout
+    if name:
+        query["name"] = name
+    if price:
+        query["price"] = price
+    if unit:
+        query["unit"] = unit
+    if available_units:
+        query["available_units"] = available_units
+    if description:
+        query["description"] = description
+    if release_date:
+        query["release_date"] = release_date
+    if image_url:
+        query["image_url"] = image_url
+
+    get_supabase_client().table("products").update(query).eq("prod_id", prod_id).execute()
+
+
+def deleteProduct(prod_id: int):
+    get_supabase_client().table("products").update({"deleted": True}).eq(
+        "prod_id", prod_id
+    ).execute()
