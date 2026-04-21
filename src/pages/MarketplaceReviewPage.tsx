@@ -1,18 +1,246 @@
+import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
-import { AppLink } from "../components/AppLink";
+import { AppLink, navigate } from "../components/AppLink";
+import { createOrder, submitOrder } from "../orderApi";
+import { useStoredSession } from "../session";
 import {
   calculateCartTotal,
+  clearStoredMarketplaceCart,
+  clearStoredMarketplaceCheckoutSuccess,
+  groupMarketplaceCartLines,
   readStoredMarketplaceCart,
+  type MarketplacePlacedOrder,
+  type MarketplaceSellerOrderGroup,
+  writeStoredMarketplaceCheckoutSuccess,
 } from "./marketplacePrototypeData";
 import "./marketplace-prototype.css";
+
+type CheckoutFailure = {
+  seller: string;
+  message: string;
+};
 
 function formatPrice(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
+function getLocalDateString(offsetDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function describeCheckoutError(error: unknown, prefix: string, fallbackMessage: string): string {
+  if (!(error instanceof Error) || !error.message.startsWith(prefix)) {
+    return fallbackMessage;
+  }
+
+  const separatorIndex = error.message.indexOf(":", prefix.length);
+  if (separatorIndex === -1) {
+    return fallbackMessage;
+  }
+
+  const detail = error.message.slice(separatorIndex + 1).trim();
+  return detail || fallbackMessage;
+}
+
+function buildFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("order-create:")) {
+    return describeCheckoutError(error, "order-create:", "Unable to create the order.");
+  }
+
+  if (error instanceof Error && error.message.startsWith("order-submit:")) {
+    return describeCheckoutError(error, "order-submit:", "Unable to submit the order.");
+  }
+
+  return "Unable to place this seller order right now.";
+}
+
+function buildGroupedOrderPayload(
+  group: MarketplaceSellerOrderGroup,
+  buyerEmail: string,
+  buyerName: string,
+  form: {
+    street: string;
+    city: string;
+    state: string;
+    postcode: string;
+    country: string;
+    requestedDate: string;
+    notes: string;
+    issueDate: string;
+    currency: string;
+  },
+) {
+  return {
+    buyerEmail,
+    buyerName,
+    sellerEmail: group.sellerEmail,
+    sellerName: group.seller,
+    currency: form.currency,
+    issueDate: form.issueDate,
+    notes: form.notes.trim() || null,
+    delivery: {
+      street: form.street.trim(),
+      city: form.city.trim(),
+      state: form.state.trim(),
+      postcode: form.postcode.trim(),
+      country: form.country.trim(),
+      requestedDate: form.requestedDate.trim(),
+    },
+    lines: group.lines.map(line => ({
+      productName: line.name,
+      quantity: line.quantity,
+      unitCode: line.unitCode,
+      unitPrice: line.unitPrice.toFixed(2),
+    })),
+  };
+}
+
 export function MarketplaceReviewPage() {
+  const storedSession = useStoredSession();
   const cart = readStoredMarketplaceCart();
-  const total = calculateCartTotal(cart.lines);
+  const groupedOrders = useMemo(
+    () => groupMarketplaceCartLines(cart.lines),
+    [cart.lines],
+  );
+  const total = useMemo(() => calculateCartTotal(cart.lines), [cart.lines]);
+  const [buyerName, setBuyerName] = useState(storedSession?.partyName ?? "");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [postcode, setPostcode] = useState("");
+  const [country, setCountry] = useState("AU");
+  const [requestedDate, setRequestedDate] = useState(getLocalDateString(7));
+  const [notes, setNotes] = useState("");
+  const [issueDate] = useState(getLocalDateString());
+  const [currency] = useState("AUD");
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [checkoutFailures, setCheckoutFailures] = useState<CheckoutFailure[]>([]);
+  const [partialOrders, setPartialOrders] = useState<MarketplacePlacedOrder[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (storedSession?.partyName) {
+      setBuyerName(current => current || storedSession.partyName);
+    }
+  }, [storedSession?.partyName]);
+
+  const validateForm = () => {
+    const missingFields: string[] = [];
+    if (!storedSession?.contactEmail) {
+      missingFields.push("signed-in buyer email");
+    }
+    if (!buyerName.trim()) {
+      missingFields.push("buyer name");
+    }
+    if (!street.trim()) {
+      missingFields.push("delivery street");
+    }
+    if (!city.trim()) {
+      missingFields.push("delivery city");
+    }
+    if (!state.trim()) {
+      missingFields.push("delivery state");
+    }
+    if (!postcode.trim()) {
+      missingFields.push("delivery postcode");
+    }
+    if (!country.trim()) {
+      missingFields.push("delivery country");
+    }
+    if (!requestedDate.trim()) {
+      missingFields.push("requested delivery date");
+    }
+    return missingFields;
+  };
+
+  const placeOrders = async () => {
+    if (!storedSession) {
+      setCheckoutError("Sign in again before placing the order.");
+      return;
+    }
+
+    if (groupedOrders.length === 0) {
+      setCheckoutError("Add products in the marketplace before placing an order.");
+      return;
+    }
+
+    const missingFields = validateForm();
+    if (missingFields.length > 0) {
+      setCheckoutError(`Complete the required checkout fields: ${missingFields.join(", ")}.`);
+      return;
+    }
+
+    setSubmitting(true);
+    setCheckoutError(null);
+    setCheckoutFailures([]);
+    setPartialOrders([]);
+    clearStoredMarketplaceCheckoutSuccess();
+
+    const createdOrders: MarketplacePlacedOrder[] = [];
+    const failures: CheckoutFailure[] = [];
+
+    for (const group of groupedOrders) {
+      try {
+        const payload = buildGroupedOrderPayload(
+          group,
+          storedSession.contactEmail,
+          buyerName.trim(),
+          {
+            street,
+            city,
+            state,
+            postcode,
+            country,
+            requestedDate,
+            notes,
+            issueDate,
+            currency,
+          },
+        );
+        const created = await createOrder(storedSession, payload);
+        await submitOrder(storedSession, created.orderId);
+        createdOrders.push({
+          orderId: created.orderId,
+          seller: group.seller,
+          sellerEmail: group.sellerEmail,
+          itemCount: group.itemCount,
+          total: group.total,
+        });
+      } catch (error) {
+        failures.push({
+          seller: group.seller,
+          message: buildFailureMessage(error),
+        });
+      }
+    }
+
+    setSubmitting(false);
+
+    if (failures.length > 0) {
+      setCheckoutError("Some seller orders could not be placed. The cart has been left intact.");
+      setCheckoutFailures(failures);
+      setPartialOrders(createdOrders);
+      return;
+    }
+
+    clearStoredMarketplaceCart();
+
+    if (createdOrders.length === 1) {
+      navigate(`/orders/${createdOrders[0]!.orderId}/edit`);
+      return;
+    }
+
+    writeStoredMarketplaceCheckoutSuccess({
+      buyerName: buyerName.trim(),
+      orders: createdOrders,
+    });
+    navigate("/marketplace/success");
+  };
 
   return (
     <div className="landing-root">
@@ -24,48 +252,208 @@ export function MarketplaceReviewPage() {
             <section className="marketplace-review-shell" aria-labelledby="marketplace-review-title">
               <div className="marketplace-review-header">
                 <div>
-                  <p className="marketplace-review-eyebrow">Marketplace review</p>
+                  <p className="marketplace-review-eyebrow">Marketplace checkout</p>
                   <h1 id="marketplace-review-title">Review your order</h1>
-                  <p>
-                    This prototype stops after cart review. Delivery details and real order creation
-                    come next.
-                  </p>
+                </div>
+                <div className="marketplace-review-pill-stack">
+                  <span className="marketplace-count-chip">{cart.lines.length} lines selected</span>
+                  <span className="marketplace-count-chip">{formatPrice(total)} total</span>
                 </div>
               </div>
 
               {cart.lines.length === 0 ? (
                 <div className="marketplace-empty-state">
-                  <strong>No items are ready for review.</strong>
+                  <strong>No items are ready for checkout.</strong>
                   <span>Add products in the marketplace before moving to this step.</span>
                 </div>
               ) : (
-                <div className="marketplace-review-lines">
-                  {cart.lines.map(line => (
-                    <article key={line.productId} className="marketplace-review-line">
-                      <div>
-                        <strong>{line.name}</strong>
-                        <span>
-                          {line.seller} · {line.quantity} × {formatPrice(line.unitPrice)}
-                        </span>
-                      </div>
-                      <strong>{formatPrice(line.subtotal)}</strong>
-                    </article>
-                  ))}
+                <>
+                  <section className="marketplace-checkout-layout" aria-label="Checkout details">
+                    <div className="marketplace-checkout-form">
+                      <div className="marketplace-checkout-card">
+                        <div className="marketplace-checkout-card-heading">
+                          <h2>Buyer</h2>
+                        </div>
 
-                  <div className="marketplace-review-total">
-                    <span>Total</span>
-                    <strong>{formatPrice(total)}</strong>
-                  </div>
-                </div>
+                        <label className="marketplace-form-field">
+                          <span>Buyer email</span>
+                          <input type="email" value={storedSession?.contactEmail ?? ""} readOnly />
+                        </label>
+
+                        <label className="marketplace-form-field">
+                          <span>Buyer name</span>
+                          <input
+                            type="text"
+                            value={buyerName}
+                            onChange={event => setBuyerName(event.target.value)}
+                            placeholder="Buyer display name"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="marketplace-checkout-card">
+                        <div className="marketplace-checkout-card-heading">
+                          <h2>Delivery</h2>
+                        </div>
+
+                        <div className="marketplace-form-grid">
+                          <label className="marketplace-form-field marketplace-form-field-wide">
+                            <span>Street</span>
+                            <input
+                              type="text"
+                              value={street}
+                              onChange={event => setStreet(event.target.value)}
+                              placeholder="123 Harbour Street"
+                            />
+                          </label>
+
+                          <label className="marketplace-form-field">
+                            <span>City</span>
+                            <input
+                              type="text"
+                              value={city}
+                              onChange={event => setCity(event.target.value)}
+                              placeholder="Sydney"
+                            />
+                          </label>
+
+                          <label className="marketplace-form-field">
+                            <span>State</span>
+                            <input
+                              type="text"
+                              value={state}
+                              onChange={event => setState(event.target.value)}
+                              placeholder="NSW"
+                            />
+                          </label>
+
+                          <label className="marketplace-form-field">
+                            <span>Postcode</span>
+                            <input
+                              type="text"
+                              value={postcode}
+                              onChange={event => setPostcode(event.target.value)}
+                              placeholder="2000"
+                            />
+                          </label>
+
+                          <label className="marketplace-form-field">
+                            <span>Country</span>
+                            <input
+                              type="text"
+                              value={country}
+                              onChange={event => setCountry(event.target.value)}
+                              placeholder="AU"
+                            />
+                          </label>
+
+                          <label className="marketplace-form-field">
+                            <span>Requested date</span>
+                            <input
+                              type="date"
+                              value={requestedDate}
+                              onChange={event => setRequestedDate(event.target.value)}
+                            />
+                          </label>
+                        </div>
+
+                        <label className="marketplace-form-field">
+                          <span>Notes</span>
+                          <textarea
+                            value={notes}
+                            onChange={event => setNotes(event.target.value)}
+                            placeholder="Optional delivery or fulfilment notes"
+                            rows={4}
+                          />
+                        </label>
+
+                        <div className="marketplace-checkout-meta">
+                          <span>Issue date: {issueDate}</span>
+                          <span>Currency: {currency}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="marketplace-review-groups">
+                      {groupedOrders.map(group => (
+                        <section key={group.sellerEmail} className="marketplace-checkout-card">
+                          <div className="marketplace-checkout-card-heading">
+                            <div>
+                              <h2>{group.seller}</h2>
+                              <p>{group.itemCount} items in this seller order.</p>
+                            </div>
+                            <span className="marketplace-count-chip">{formatPrice(group.total)}</span>
+                          </div>
+
+                          <div className="marketplace-review-lines">
+                            {group.lines.map(line => (
+                              <article key={line.productId} className="marketplace-review-line">
+                                <div>
+                                  <strong>{line.name}</strong>
+                                  <span>
+                                    {line.quantity} × {formatPrice(line.unitPrice)}
+                                  </span>
+                                </div>
+                                <strong>{formatPrice(line.subtotal)}</strong>
+                              </article>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  </section>
+
+                  {checkoutError ? (
+                    <div className="marketplace-checkout-feedback" role="alert">
+                      <strong>{checkoutError}</strong>
+                      {checkoutFailures.length > 0 ? (
+                        <ul className="marketplace-checkout-feedback-list">
+                          {checkoutFailures.map(failure => (
+                            <li key={`${failure.seller}-${failure.message}`}>
+                              {failure.seller}: {failure.message}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {partialOrders.length > 0 ? (
+                        <div className="marketplace-partial-success">
+                          <span>Orders already created:</span>
+                          <div className="marketplace-partial-success-links">
+                            {partialOrders.map(order => (
+                              <AppLink
+                                key={order.orderId}
+                                href={`/orders/${order.orderId}/edit`}
+                                className="marketplace-inline-link"
+                              >
+                                {order.seller}
+                              </AppLink>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
               )}
 
               <div className="marketplace-review-actions">
                 <AppLink href="/marketplace" className="marketplace-secondary-action">
                   Back to marketplace
                 </AppLink>
-                <AppLink href="/orders" className="marketplace-secondary-action">
-                  Open orders dashboard
-                </AppLink>
+                <button
+                  type="button"
+                  className="marketplace-primary-action"
+                  onClick={() => {
+                    void placeOrders();
+                  }}
+                  disabled={cart.lines.length === 0 || submitting}
+                >
+                  {submitting
+                    ? "Placing orders..."
+                    : groupedOrders.length > 1
+                      ? "Place orders"
+                      : "Place order"}
+                </button>
               </div>
             </section>
           </main>

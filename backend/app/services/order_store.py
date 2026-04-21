@@ -207,6 +207,32 @@ def update_order_record(order_id: str, req: OrderRequest) -> dict[str, Any]:
     return existing
 
 
+def submit_order_record(order_id: str) -> dict[str, Any]:
+    existing = get_order_record(order_id)
+    if existing is None:
+        raise OrderNotFoundError(order_id)
+
+    status = existing.get("status", "DRAFT")
+    if status != "DRAFT":
+        raise OrderConflictLockedError(f"Order cannot be submitted in status '{status}'.")
+
+    db_order_id = existing.get("dbOrderId")
+    if db_order_id is None:
+        raise OrderPersistenceError("Order is missing dbOrderId for persistence.")
+
+    updated_at = now_z()
+    persist_order_status_to_database(
+        db_order_id,
+        status="SUBMITTED",
+        updated_at=updated_at,
+    )
+
+    existing["status"] = "SUBMITTED"
+    existing["updatedAt"] = updated_at
+    _cache_order_record(order_id, existing)
+    return existing
+
+
 def persist_order_update_to_database(db_order_id: Any, req: OrderRequest) -> None:
     from app.other import (
         deleteOrderDetails,
@@ -278,6 +304,24 @@ def persist_order_runtime_metadata_to_database(
         )
     except Exception as exc:  # noqa: BLE001
         raise OrderPersistenceError("Order metadata could not be persisted in Supabase.") from exc
+
+
+def persist_order_status_to_database(
+    db_order_id: Any,
+    *,
+    status: str,
+    updated_at: str,
+) -> None:
+    from app.other import updateOrderRuntimeMetadata
+
+    try:
+        updateOrderRuntimeMetadata(
+            db_order_id,
+            updatedAt=updated_at,
+            status=status,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise OrderPersistenceError("Order status could not be persisted in Supabase.") from exc
 
 
 def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:

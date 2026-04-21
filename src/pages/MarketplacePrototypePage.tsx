@@ -42,9 +42,11 @@ function buildCartLine(product: MarketplaceProduct, quantity: number): Marketpla
     productId: product.id,
     name: product.name,
     seller: product.seller,
+    sellerEmail: product.sellerEmail,
     unitPrice: product.price,
     quantity,
     stock: product.stock,
+    unitCode: product.unitCode,
     subtotal: product.price * quantity,
   };
 }
@@ -266,7 +268,7 @@ export function MarketplacePrototypePage() {
                 <div className="marketplace-cart-header">
                   <div>
                     <h2 id="marketplace-cart-title">Cart summary</h2>
-                    <p>Selections stay local in this prototype.</p>
+                    <p>Review the cart, then place real orders grouped by seller.</p>
                   </div>
                   <span className="marketplace-cart-pill">
                     <ShoppingBag size={14} strokeWidth={2.1} />

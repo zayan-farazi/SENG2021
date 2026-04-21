@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setStoredSession } from "./session";
 import {
   clearStoredMarketplaceCart,
+  clearStoredMarketplaceCheckoutSuccess,
+  writeStoredMarketplaceCheckoutSuccess,
   writeStoredMarketplaceCart,
 } from "./pages/marketplacePrototypeData";
 
@@ -91,6 +93,7 @@ describe("App routing", () => {
     window.history.replaceState({}, "", "/");
     window.localStorage.clear();
     clearStoredMarketplaceCart();
+    clearStoredMarketplaceCheckoutSuccess();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
@@ -117,6 +120,7 @@ describe("App routing", () => {
   afterEach(() => {
     cleanup();
     clearStoredMarketplaceCart();
+    clearStoredMarketplaceCheckoutSuccess();
     vi.unstubAllGlobals();
   });
 
@@ -483,6 +487,17 @@ describe("App routing", () => {
     expect(window.location.search).toBe("?next=%2Fmarketplace%2Freview");
   });
 
+  it("redirects /marketplace/success to login with the original destination when no session exists", async () => {
+    window.history.replaceState({}, "", "/marketplace/success");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toBe("?next=%2Fmarketplace%2Fsuccess");
+  });
+
   it("renders the review route with stored marketplace selections when a session exists", () => {
     setStoredSession({
       partyId: "buyer@example.com",
@@ -496,9 +511,11 @@ describe("App routing", () => {
           productId: "market-ceramic-mug",
           name: "Handmade ceramic mug",
           seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
           unitPrice: 34,
           quantity: 2,
           stock: 9,
+          unitCode: "EA",
           subtotal: 68,
         },
       ],
@@ -509,6 +526,36 @@ describe("App routing", () => {
 
     expect(screen.getByRole("heading", { name: /review your order/i })).toBeInTheDocument();
     expect(screen.getByText("Handmade ceramic mug")).toBeInTheDocument();
+  });
+
+  it("renders the success route with created orders when a session exists", () => {
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCheckoutSuccess({
+      buyerName: "Buyer Co",
+      orders: [
+        {
+          orderId: "ord_created_1",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          itemCount: 2,
+          total: 68,
+        },
+      ],
+    });
+    window.history.replaceState({}, "", "/marketplace/success");
+
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: /checkout complete/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open first order/i })).toHaveAttribute(
+      "href",
+      "/orders/ord_created_1/edit",
+    );
   });
 
   it("redirects /inventory to login with the original destination when no session exists", async () => {

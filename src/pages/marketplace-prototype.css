@@ -571,6 +571,172 @@
   color: #7b6d5f;
 }
 
+.marketplace-review-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.marketplace-review-pill-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.marketplace-checkout-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.marketplace-checkout-form,
+.marketplace-review-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.marketplace-checkout-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(105, 85, 56, 0.1);
+  background: #fffdf8;
+}
+
+.marketplace-checkout-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.marketplace-checkout-card-heading h2 {
+  margin: 0;
+  color: #1f1a16;
+  font-size: 1.12rem;
+  line-height: 1.1;
+}
+
+.marketplace-checkout-card-heading p,
+.marketplace-checkout-meta,
+.marketplace-checkout-feedback,
+.marketplace-partial-success span {
+  margin: 6px 0 0;
+  color: #6b6155;
+  font-size: 0.92rem;
+}
+
+.marketplace-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.marketplace-form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.marketplace-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.marketplace-form-field span {
+  color: #5a5045;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.marketplace-form-field input,
+.marketplace-form-field textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(105, 85, 56, 0.12);
+  background: #fffdf8;
+  color: #1f1a16;
+  font: inherit;
+}
+
+.marketplace-form-field textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.marketplace-form-field input:focus,
+.marketplace-form-field textarea:focus {
+  outline: 2px solid rgba(47, 91, 59, 0.18);
+  outline-offset: 1px;
+}
+
+.marketplace-checkout-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.marketplace-checkout-feedback {
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(173, 88, 70, 0.18);
+  background: #fff6f2;
+}
+
+.marketplace-checkout-feedback strong {
+  color: #5b261b;
+}
+
+.marketplace-checkout-feedback-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #6b6155;
+}
+
+.marketplace-checkout-feedback-list li + li {
+  margin-top: 6px;
+}
+
+.marketplace-partial-success {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.marketplace-partial-success-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.marketplace-inline-link,
+.marketplace-primary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.marketplace-inline-link {
+  border: 1px solid rgba(105, 85, 56, 0.12);
+  background: #fffdf8;
+  color: #1f1a16;
+}
+
+.marketplace-primary-link {
+  background: #1f1a16;
+  color: #fff7eb;
+}
+
 @media (max-width: 1080px) {
   .marketplace-content {
     grid-template-columns: 1fr;
@@ -578,6 +744,10 @@
 
   .marketplace-cart-shell {
     position: static;
+  }
+
+  .marketplace-checkout-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -614,8 +784,13 @@
   }
 
   .marketplace-section-header,
-  .marketplace-cart-header {
+  .marketplace-cart-header,
+  .marketplace-review-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .marketplace-form-grid {
+    grid-template-columns: 1fr;
   }
 }

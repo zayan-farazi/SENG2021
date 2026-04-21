@@ -365,7 +365,7 @@ def deleteParty(partyId):
 
 
 def updateOrderRuntimeMetadata(
-    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None
+    orderId, externalOrderId=None, ublXml=None, createdAt=None, updatedAt=None, status=None
 ):
     query = {}
     if externalOrderId is not None:
@@ -377,6 +377,8 @@ def updateOrderRuntimeMetadata(
         query["lastchanged"] = updatedAt
     if ublXml is not None:
         query["ublXml"] = ublXml
+    if status is not None:
+        query["status"] = status
     if not query:
         return None
 

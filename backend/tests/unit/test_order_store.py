@@ -232,6 +232,52 @@ def test_update_order_record_loads_database_order_when_cache_is_empty(monkeypatc
     assert order_store.ORDERS["ord_db_update"]["payload"]["buyerEmail"] == req.buyerEmail
 
 
+def test_submit_order_record_updates_status_and_persists(monkeypatch):
+    order_store.ORDERS["ord_submit"] = {
+        "orderId": "ord_submit",
+        "status": "DRAFT",
+        "createdAt": "2026-03-11T00:00:00Z",
+        "updatedAt": "2026-03-11T00:00:00Z",
+        "payload": {"buyerEmail": "buyer@example.com", "sellerEmail": "seller@example.com"},
+        "ublXml": "<Order />",
+        "dbOrderId": "44",
+    }
+    persisted: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_status_to_database",
+        lambda db_order_id, *, status, updated_at: persisted.append(
+            (str(db_order_id), f"{status}:{updated_at.endswith('Z')}")
+        ),
+    )
+
+    submitted = order_store.submit_order_record("ord_submit")
+
+    assert submitted["status"] == "SUBMITTED"
+    assert submitted["updatedAt"].endswith("Z")
+    assert order_store.ORDERS["ord_submit"]["status"] == "SUBMITTED"
+    assert persisted == [("44", "SUBMITTED:True")]
+
+
+def test_submit_order_record_rejects_non_draft_orders():
+    order_store.ORDERS["ord_locked"] = {
+        "orderId": "ord_locked",
+        "status": "SUBMITTED",
+        "createdAt": "2026-03-11T00:00:00Z",
+        "updatedAt": "2026-03-11T00:00:00Z",
+        "payload": {"buyerEmail": "buyer@example.com", "sellerEmail": "seller@example.com"},
+        "ublXml": "<Order />",
+        "dbOrderId": "45",
+    }
+
+    with pytest.raises(
+        order_store.OrderConflictLockedError,
+        match="Order cannot be submitted in status 'SUBMITTED'.",
+    ):
+        order_store.submit_order_record("ord_locked")
+
+
 def test_delete_order_record_deletes_database_order_when_cache_is_empty(monkeypatch):
     events: list[tuple[str, str]] = []
     database_record = {

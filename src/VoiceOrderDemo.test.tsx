@@ -102,6 +102,7 @@ describe("VoiceOrderDemo", () => {
     MockWebSocket.instances = [];
     MockSpeechRecognition.instances = [];
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     installSpeechRecognition();
   });
@@ -143,9 +144,14 @@ describe("VoiceOrderDemo", () => {
 
     expect(MockWebSocket.instances).toHaveLength(2);
 
+    const activeSocket = MockWebSocket.instances[1];
+    if (!activeSocket) {
+      throw new Error("Expected a second websocket instance.");
+    }
+
     act(() => {
-      MockWebSocket.instances[1].open();
-      MockWebSocket.instances[1].emitMessage({
+      activeSocket.open();
+      activeSocket.emitMessage({
         type: "session.ready",
         payload: draftStatePatch(),
       });
@@ -710,5 +716,289 @@ describe("VoiceOrderDemo", () => {
     expect(screen.getByRole("heading", { name: /order xml/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("buyer@example.com")).toBeInTheDocument();
     expect(screen.getByDisplayValue("<LockedOrder />")).toBeInTheDocument();
+  });
+
+  it("disables despatch generation for buyers while leaving invoice generation available", async () => {
+    setStoredSession({
+      partyId: "buyer-party",
+      partyName: "Acme Books",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            orderId: "ord_docs123",
+            status: "SUBMITTED",
+            createdAt: "2026-03-07T00:00:00Z",
+            updatedAt: "2026-03-08T00:00:00Z",
+            payload: {
+              buyerEmail: "buyer@example.com",
+              buyerName: "Acme Books",
+              sellerEmail: "seller@example.com",
+              sellerName: "Digital Book Supply",
+              currency: "AUD",
+              issueDate: "2026-03-07",
+              notes: null,
+              delivery: null,
+              lines: [
+                {
+                  productName: "Oranges",
+                  quantity: 2,
+                  unitCode: "EA",
+                  unitPrice: "12.50",
+                },
+              ],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => "<LockedOrder />",
+        }),
+    );
+
+    render(<VoiceOrderDemo orderId="ord_docs123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /documents/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /generate despatch/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /generate invoice/i })).toBeEnabled();
+  });
+
+  it("supports generating despatch and invoice documents for locked seller orders", async () => {
+    setStoredSession({
+      partyId: "seller-party",
+      partyName: "Digital Book Supply",
+      contactEmail: "seller@example.com",
+      credential: "super-secure-password",
+    });
+
+    const createObjectUrl = vi.fn(() => "blob:test");
+    const revokeObjectUrl = vi.fn();
+    const anchorClick = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    vi.stubGlobal("URL", {
+      createObjectURL: createObjectUrl,
+      revokeObjectURL: revokeObjectUrl,
+    });
+    vi.spyOn(document, "createElement").mockImplementation(((tagName: string) => {
+      const element = originalCreateElement(tagName) as HTMLAnchorElement;
+      if (tagName === "a") {
+        Object.defineProperty(element, "click", {
+          configurable: true,
+          value: anchorClick,
+        });
+      }
+      return element;
+    }) as typeof document.createElement);
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_locked",
+          status: "SUBMITTED",
+          createdAt: "2026-03-07T00:00:00Z",
+          updatedAt: "2026-03-08T00:00:00Z",
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
+            sellerName: "Digital Book Supply",
+            currency: "AUD",
+            issueDate: "2026-03-07",
+            notes: "Leave at loading dock",
+            delivery: null,
+            lines: [
+              {
+                productName: "Oranges",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: "12.50",
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<LockedOrder />",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_locked",
+          updatedAt: "2026-03-08T00:00:00Z",
+          despatch: {
+            adviceId: "DESP-1",
+            xml: "<Despatch />",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_locked",
+          invoice: {
+            invoice_id: "INV-1",
+            status: "draft",
+            issue_date: "2026-03-07",
+            currency: "AUD",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<Invoice />",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(["%PDF-1.4"], { type: "application/pdf" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VoiceOrderDemo orderId="ord_docs_locked" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /generate despatch/i })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /generate despatch/i }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("<Despatch />")).toBeInTheDocument();
+      expect(screen.getByText("DESP-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /generate invoice/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("INV-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Load XML$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("<Invoice />")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+
+    await waitFor(() => {
+      expect(createObjectUrl).toHaveBeenCalled();
+      expect(anchorClick).toHaveBeenCalled();
+      expect(revokeObjectUrl).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /delete invoice/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Not generated")).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:8000/v1/order/ord_docs_locked/despatch",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer super-secure-password",
+          "X-Party-Email": "seller@example.com",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://localhost:8000/v1/order/ord_docs_locked/invoice",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer super-secure-password",
+          "X-Party-Email": "seller@example.com",
+        }),
+      }),
+    );
+  });
+
+  it("surfaces invoice generation validation errors inside the document panel", async () => {
+    setStoredSession({
+      partyId: "seller-party",
+      partyName: "Digital Book Supply",
+      contactEmail: "seller@example.com",
+      credential: "super-secure-password",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_validation",
+          status: "SUBMITTED",
+          createdAt: "2026-03-07T00:00:00Z",
+          updatedAt: "2026-03-08T00:00:00Z",
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
+            sellerName: "Digital Book Supply",
+            currency: "AUD",
+            issueDate: "2026-03-07",
+            notes: null,
+            delivery: null,
+            lines: [
+              {
+                productName: "Oranges",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: null,
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<LockedOrder />",
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          detail: [
+            {
+              path: "lines[0].unitPrice",
+              issue: "unitPrice is required to generate an invoice.",
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VoiceOrderDemo orderId="ord_docs_validation" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /generate invoice/i })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /generate invoice/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /lines\[0\]\.unitPrice: unitPrice is required to generate an invoice\./i,
+      );
+    });
   });
 });

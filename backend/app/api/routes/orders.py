@@ -138,8 +138,8 @@ ORDER_FETCH_XML_EXAMPLE = generate_docs_example_ubl_order_xml()
         "Create a new draft order as either the buyer or the seller. "
         f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Include the caller's registered email as either "
         "`buyerEmail` or `sellerEmail` in the request body. New orders are created in `DRAFT` "
-        "status and remain editable in the current MVP until a future submit/finalize step is "
-        "introduced."
+        "status and remain editable until they are submitted through "
+        "`POST /v1/order/{order_id}/submit`."
     ),
     responses={
         201: {
@@ -725,6 +725,70 @@ def update_order(
     except OrderPersistenceError as exc:
         logger.exception("Order update persistence verification failed")
         raise HTTPException(status_code=500, detail="Unable to persist updated order.") from exc
+
+    return {
+        "orderId": record["orderId"],
+        "status": record["status"],
+        "updatedAt": record["updatedAt"],
+    }
+
+
+@router.post(
+    "/v1/order/{order_id}/submit",
+    response_model=OrderUpdateResponse,
+    summary="Submit an order (authenticated)",
+    description=(
+        "Transition an existing order from `DRAFT` to `SUBMITTED`, which locks the order against "
+        "further draft edits and enables downstream document generation. "
+        f"{PROTECTED_ORDER_AUTH_DESCRIPTION} Only the buyer or seller on the order may submit it."
+    ),
+    responses={
+        200: {
+            "description": "Order submitted successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "orderId": "ord_abc123def456",
+                        "status": "SUBMITTED",
+                        "updatedAt": "2026-03-14T11:00:00Z",
+                    }
+                }
+            },
+        },
+        401: UNAUTHORIZED_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        409: {
+            "description": "The order is already locked or cannot be submitted in its current state.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Order cannot be submitted in status 'SUBMITTED'."}
+                }
+            },
+        },
+        500: {
+            "description": "The order status could not be persisted.",
+            "content": {"application/json": {"example": {"detail": "Unable to submit order."}}},
+        },
+    },
+)
+def submit_order(order_id: str, current_party_email: str = Depends(get_current_party_email)):
+    existing = order_store.get_order_record(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    payload = existing.get("payload", {})
+    _assert_order_access(current_party_email, payload)
+
+    try:
+        record = order_store.submit_order_record(order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Not Found") from exc
+    except OrderConflictLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OrderPersistenceError as exc:
+        logger.exception("Order submit persistence verification failed")
+        raise HTTPException(status_code=500, detail="Unable to submit order.") from exc
 
     return {
         "orderId": record["orderId"],

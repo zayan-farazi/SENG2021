@@ -20,10 +20,21 @@ import {
 import { AppHeader } from "./components/AppHeader";
 import {
   createOrder,
+  deleteInvoice,
   deleteOrder,
   fetchEditableOrder,
+  fetchInvoice,
+  fetchInvoicePdf,
+  fetchInvoiceUblXml,
+  fetchOrderDespatchXml,
   fetchOrderUblXml,
+  generateOrderDespatch,
+  generateOrderInvoice,
+  type InvoiceRecord,
+  type InvoiceUpdatePayload,
+  transitionInvoiceStatus,
   updateExistingOrder,
+  updateInvoice,
 } from "./orderApi";
 import "./create-order.css";
 import { useStoredSession } from "./session";
@@ -70,8 +81,70 @@ type LockedOrderState = {
   ublXml: string | null;
 };
 
+type DespatchState = {
+  adviceId: string | null;
+  xml: string | null;
+};
+
 type EditLoadState = "loading" | "ready" | "locked" | "error";
 const MANUAL_DRAFT_SYNC_DEBOUNCE_MS = 250;
+const INVOICE_MAPPING_STORAGE_KEY = "lockedout.order-invoices";
+
+function normalizeEmail(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function extractInvoiceId(invoice: InvoiceRecord | null): string | null {
+  if (!invoice) {
+    return null;
+  }
+
+  const candidate =
+    typeof invoice.invoice_id === "string"
+      ? invoice.invoice_id
+      : typeof invoice.invoiceId === "string"
+        ? invoice.invoiceId
+        : null;
+  return candidate?.trim() || null;
+}
+
+function getStoredInvoiceId(orderId: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(INVOICE_MAPPING_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const mapping = JSON.parse(raw) as Record<string, unknown>;
+    const candidate = mapping[orderId];
+    return typeof candidate === "string" && candidate.trim() ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredInvoiceId(orderId: string, invoiceId: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(INVOICE_MAPPING_STORAGE_KEY);
+    const mapping = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    if (invoiceId) {
+      mapping[orderId] = invoiceId;
+    } else {
+      delete mapping[orderId];
+    }
+    window.sessionStorage.setItem(INVOICE_MAPPING_STORAGE_KEY, JSON.stringify(mapping));
+  } catch {
+    // Ignore session storage failures and keep the document session in-memory only.
+  }
+}
 
 export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const isEditMode = Boolean(orderId);
@@ -89,6 +162,20 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const [editableOrderMeta, setEditableOrderMeta] = useState<EditableOrderMeta | null>(null);
   const [initialDraftSnapshot, setInitialDraftSnapshot] = useState<OrderDraft | null>(null);
   const [lockedOrder, setLockedOrder] = useState<LockedOrderState | null>(null);
+  const [despatchState, setDespatchState] = useState<DespatchState>({ adviceId: null, xml: null });
+  const [despatchBusy, setDespatchBusy] = useState<"generate" | "fetch" | null>(null);
+  const [despatchError, setDespatchError] = useState<string | null>(null);
+  const [documentClipboardMessage, setDocumentClipboardMessage] = useState<string | null>(null);
+  const [invoiceId, setInvoiceId] = useState<string | null>(null);
+  const [invoiceRecord, setInvoiceRecord] = useState<InvoiceRecord | null>(null);
+  const [invoiceXml, setInvoiceXml] = useState<string | null>(null);
+  const [invoiceBusy, setInvoiceBusy] = useState<
+    "generate" | "fetch" | "xml" | "pdf" | "update" | "status" | "delete" | null
+  >(null);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+  const [invoiceUpdateDraft, setInvoiceUpdateDraft] = useState("{}");
+  const [invoiceStatusDraft, setInvoiceStatusDraft] = useState("sent");
+  const [invoicePaymentDateDraft, setInvoicePaymentDateDraft] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -107,6 +194,64 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
   const pushDiagnostic = (level: DiagnosticLevel, text: string) => {
     setDiagnostics(current => [...current.slice(-7), { level, text }]);
+  };
+
+  const describeApiError = (
+    error: unknown,
+    prefix: string,
+    fallbackMessage: string,
+  ) => {
+    if (!(error instanceof Error) || !error.message.startsWith(prefix)) {
+      return fallbackMessage;
+    }
+
+    const remainder = error.message.slice(prefix.length);
+    const firstSeparatorIndex = remainder.indexOf(":");
+    const detail =
+      firstSeparatorIndex === -1 ? "" : remainder.slice(firstSeparatorIndex + 1).trim();
+    return detail || fallbackMessage;
+  };
+
+  const copyDocumentText = async (label: string, value: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(value);
+      setDocumentClipboardMessage(`${label} copied.`);
+      pushDiagnostic("info", `${label} copied to clipboard.`);
+      window.setTimeout(() => {
+        setDocumentClipboardMessage(current => (current === `${label} copied.` ? null : current));
+      }, 2200);
+    } catch {
+      setDocumentClipboardMessage(`Unable to copy ${label.toLowerCase()}.`);
+      pushDiagnostic("warning", `Copy failed for ${label}.`);
+    }
+  };
+
+  const downloadDocumentBlob = (filename: string, blob: Blob) => {
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    link.click();
+    window.URL.revokeObjectURL(objectUrl);
+  };
+
+  const syncInvoiceRecord = (nextInvoice: InvoiceRecord | null, orderIdentifier: string | null) => {
+    const nextInvoiceId = extractInvoiceId(nextInvoice);
+    setInvoiceRecord(nextInvoice);
+    setInvoiceId(nextInvoiceId);
+    setInvoiceUpdateDraft(nextInvoice ? JSON.stringify(nextInvoice, null, 2) : "{}");
+    setInvoiceStatusDraft(
+      typeof nextInvoice?.status === "string" && nextInvoice.status.trim()
+        ? nextInvoice.status
+        : "sent",
+    );
+    setInvoicePaymentDateDraft("");
+    if (orderIdentifier) {
+      setStoredInvoiceId(orderIdentifier, nextInvoiceId);
+    }
   };
 
   const describeCommitBlocked = (errors: CommitBlockedError[] | undefined) => {
@@ -326,7 +471,14 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
-        const transcript = result[0].transcript.trim();
+        if (!result) {
+          continue;
+        }
+        const alternative = result?.[0];
+        if (!alternative?.transcript) {
+          continue;
+        }
+        const transcript = alternative.transcript.trim();
 
         if (result.isFinal) {
           sendSocketEvent("transcript.final", { text: transcript });
@@ -437,6 +589,65 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     };
   }, [isEditMode, orderId, storedSession]);
 
+  const lockedOrderId = lockedOrder?.orderId ?? editableOrderMeta?.orderId ?? orderId ?? null;
+  const viewerEmail = normalizeEmail(storedSession?.contactEmail);
+  const sellerEmail = normalizeEmail(draftState.draft.sellerEmail);
+  const viewerIsSeller = Boolean(viewerEmail && sellerEmail && viewerEmail === sellerEmail);
+
+  useEffect(() => {
+    if (!isEditMode || editLoadState !== "locked" || !lockedOrderId) {
+      setDespatchState({ adviceId: null, xml: null });
+      setDespatchBusy(null);
+      setDespatchError(null);
+      setDocumentClipboardMessage(null);
+      setInvoiceXml(null);
+      setInvoiceBusy(null);
+      setInvoiceError(null);
+      syncInvoiceRecord(null, null);
+      return;
+    }
+
+    setDespatchState({ adviceId: null, xml: null });
+    setDespatchBusy(null);
+    setDespatchError(null);
+    setDocumentClipboardMessage(null);
+    setInvoiceXml(null);
+    setInvoiceBusy(null);
+    setInvoiceError(null);
+
+    const rememberedInvoiceId = getStoredInvoiceId(lockedOrderId);
+    if (!rememberedInvoiceId || !storedSession) {
+      syncInvoiceRecord(null, lockedOrderId);
+      return;
+    }
+
+    let cancelled = false;
+    setInvoiceBusy("fetch");
+
+    void fetchInvoice(storedSession, rememberedInvoiceId)
+      .then(invoice => {
+        if (cancelled) {
+          return;
+        }
+        syncInvoiceRecord(invoice, lockedOrderId);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        syncInvoiceRecord(null, lockedOrderId);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setInvoiceBusy(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editLoadState, isEditMode, lockedOrderId, storedSession]);
+
   useEffect(() => {
     if (
       isEditMode ||
@@ -480,6 +691,244 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     seededDraftOrderIdRef.current = orderId;
     pushDiagnostic("info", "Seeded the websocket draft with the stored order.");
   }, [connectionStatus, editLoadState, initialDraftSnapshot, isEditMode, orderId]);
+
+  const fetchExistingDespatch = async () => {
+    if (!storedSession || !lockedOrderId) {
+      return;
+    }
+
+    setDespatchBusy("fetch");
+    setDespatchError(null);
+
+    try {
+      const xml = await fetchOrderDespatchXml(storedSession, lockedOrderId);
+      setDespatchState(current => ({ ...current, xml }));
+      pushDiagnostic("info", `Fetched despatch XML for ${lockedOrderId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "order-despatch:",
+        "Unable to load the existing despatch advice.",
+      );
+      setDespatchError(message);
+      pushDiagnostic("error", `Despatch fetch failed: ${message}`);
+    } finally {
+      setDespatchBusy(null);
+    }
+  };
+
+  const createDespatchDocument = async () => {
+    if (!storedSession || !lockedOrderId) {
+      return;
+    }
+
+    setDespatchBusy("generate");
+    setDespatchError(null);
+
+    try {
+      const result = await generateOrderDespatch(storedSession, lockedOrderId);
+      setDespatchState({
+        adviceId: result.despatch.adviceId,
+        xml: result.despatch.xml,
+      });
+      pushDiagnostic("info", `Generated despatch advice for ${lockedOrderId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "order-despatch-create:",
+        "Unable to generate the despatch advice.",
+      );
+      setDespatchError(message);
+      pushDiagnostic("error", `Despatch generation failed: ${message}`);
+    } finally {
+      setDespatchBusy(null);
+    }
+  };
+
+  const refreshInvoiceRecord = async (nextInvoiceId = invoiceId) => {
+    if (!storedSession || !lockedOrderId || !nextInvoiceId) {
+      return;
+    }
+
+    setInvoiceBusy("fetch");
+    setInvoiceError(null);
+
+    try {
+      const invoice = await fetchInvoice(storedSession, nextInvoiceId);
+      syncInvoiceRecord(invoice, lockedOrderId);
+      pushDiagnostic("info", `Fetched invoice ${nextInvoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "invoice-fetch:",
+        "Unable to load the invoice details.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice fetch failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const createInvoiceDocument = async () => {
+    if (!storedSession || !lockedOrderId) {
+      return;
+    }
+
+    setInvoiceBusy("generate");
+    setInvoiceError(null);
+
+    try {
+      const result = await generateOrderInvoice(storedSession, lockedOrderId);
+      syncInvoiceRecord(result.invoice, lockedOrderId);
+      setInvoiceXml(null);
+      pushDiagnostic("info", `Generated invoice for ${lockedOrderId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "order-invoice-create:",
+        "Unable to generate the invoice.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice generation failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const loadInvoiceXml = async () => {
+    if (!storedSession || !invoiceId) {
+      return;
+    }
+
+    setInvoiceBusy("xml");
+    setInvoiceError(null);
+
+    try {
+      const xml = await fetchInvoiceUblXml(storedSession, invoiceId);
+      setInvoiceXml(xml);
+      pushDiagnostic("info", `Fetched invoice XML for ${invoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(error, "invoice-ubl:", "Unable to load the invoice XML.");
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice XML fetch failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const downloadInvoicePdfFile = async () => {
+    if (!storedSession || !invoiceId) {
+      return;
+    }
+
+    setInvoiceBusy("pdf");
+    setInvoiceError(null);
+
+    try {
+      const pdfBlob = await fetchInvoicePdf(storedSession, invoiceId);
+      downloadDocumentBlob(`${invoiceId}.pdf`, pdfBlob);
+      pushDiagnostic("info", `Downloaded invoice PDF for ${invoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "invoice-pdf:",
+        "Unable to download the invoice PDF.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice PDF download failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const submitInvoiceStatusUpdate = async () => {
+    if (!storedSession || !invoiceId) {
+      return;
+    }
+
+    setInvoiceBusy("status");
+    setInvoiceError(null);
+
+    try {
+      await transitionInvoiceStatus(storedSession, invoiceId, {
+        status: invoiceStatusDraft,
+        payment_date: invoicePaymentDateDraft.trim() || null,
+      });
+      await refreshInvoiceRecord(invoiceId);
+      pushDiagnostic("info", `Updated invoice status for ${invoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "invoice-status:",
+        "Unable to update the invoice status.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice status update failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const submitInvoiceUpdate = async () => {
+    if (!storedSession || !invoiceId) {
+      return;
+    }
+
+    let parsedPayload: InvoiceUpdatePayload;
+    try {
+      parsedPayload = JSON.parse(invoiceUpdateDraft) as InvoiceUpdatePayload;
+    } catch {
+      setInvoiceError("Invoice updates must be valid JSON.");
+      pushDiagnostic("warning", "Invoice update blocked by invalid JSON.");
+      return;
+    }
+
+    setInvoiceBusy("update");
+    setInvoiceError(null);
+
+    try {
+      await updateInvoice(storedSession, invoiceId, parsedPayload);
+      await refreshInvoiceRecord(invoiceId);
+      pushDiagnostic("info", `Updated invoice ${invoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "invoice-update:",
+        "Unable to update the invoice.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice update failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const removeInvoiceDocument = async () => {
+    if (!storedSession || !invoiceId || !lockedOrderId) {
+      return;
+    }
+
+    setInvoiceBusy("delete");
+    setInvoiceError(null);
+
+    try {
+      await deleteInvoice(storedSession, invoiceId);
+      syncInvoiceRecord(null, lockedOrderId);
+      setInvoiceXml(null);
+      pushDiagnostic("info", `Deleted invoice ${invoiceId}.`);
+    } catch (error) {
+      const message = describeApiError(
+        error,
+        "invoice-delete:",
+        "Unable to delete the invoice.",
+      );
+      setInvoiceError(message);
+      pushDiagnostic("error", `Invoice delete failed: ${message}`);
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
 
   const patchDraft = (nextDraft: OrderDraft, syncMode: "debounced" | "immediate" = "debounced") => {
     setDraftState(current => ({ ...current, draft: nextDraft }));
@@ -705,6 +1154,20 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
   const requestPayload = draftToOrderRequest(draftState.draft);
   const missingRequiredFields = getDraftMissingFields(draftState.draft);
+  const invoiceStatusValue =
+    (typeof invoiceRecord?.status === "string" && invoiceRecord.status) || "Not generated";
+  const invoiceUpdatedAtValue =
+    (typeof invoiceRecord?.updated_at === "string" && invoiceRecord.updated_at) ||
+    (typeof invoiceRecord?.updatedAt === "string" && invoiceRecord.updatedAt) ||
+    "Unknown";
+  const invoiceIssueDateValue =
+    (typeof invoiceRecord?.issue_date === "string" && invoiceRecord.issue_date) ||
+    (typeof invoiceRecord?.issueDate === "string" && invoiceRecord.issueDate) ||
+    "Unknown";
+  const invoiceCurrencyValue =
+    (typeof invoiceRecord?.currency === "string" && invoiceRecord.currency) ||
+    draftState.draft.currency ||
+    "Unknown";
   const pageTitle = isEditMode
     ? "Edit the order. Keep the live draft in sync."
     : "Speak the order. Watch the draft settle in real time.";
@@ -1007,6 +1470,309 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                           <textarea readOnly value={lockedOrder?.ublXml ?? ""} />
                         </label>
                       </div>
+                    </article>
+
+                    <article className="create-page-panel">
+                      <header className="create-page-panel-header">
+                        <div>
+                          <h2>Documents</h2>
+                          <p>Generate and manage despatch and invoice artifacts for this locked order.</p>
+                        </div>
+                      </header>
+
+                      {documentClipboardMessage ? (
+                        <div className="create-page-banner">{documentClipboardMessage}</div>
+                      ) : null}
+
+                      <section className="create-page-subsection create-page-subsection-compact">
+                        <div className="create-page-subsection-header">
+                          <div>
+                            <h3>Despatch</h3>
+                            <p className="create-page-empty-copy">
+                              Seller-only generation. Buyers can view the XML once it exists.
+                            </p>
+                          </div>
+                          <div className="create-page-inline-actions">
+                            <button
+                              type="button"
+                              className="landing-button landing-button-primary create-page-compact-button"
+                              onClick={() => {
+                                void createDespatchDocument();
+                              }}
+                              disabled={!viewerIsSeller || despatchBusy !== null}
+                              title={
+                                viewerIsSeller
+                                  ? undefined
+                                  : "Only the seller on the order can generate a despatch advice."
+                              }
+                            >
+                              {despatchBusy === "generate" ? "Generating..." : "Generate despatch"}
+                            </button>
+                            <button
+                              type="button"
+                              className="landing-button landing-button-secondary create-page-compact-button"
+                              onClick={() => {
+                                void fetchExistingDespatch();
+                              }}
+                              disabled={!lockedOrderId || despatchBusy !== null}
+                            >
+                              {despatchBusy === "fetch" ? "Loading..." : "Load existing XML"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {!viewerIsSeller ? (
+                          <p className="create-page-empty-copy">
+                            You can only generate a despatch advice when logged in as the seller on this
+                            order.
+                          </p>
+                        ) : null}
+                        {despatchError ? (
+                          <div className="create-page-banner create-page-banner-error" role="alert">
+                            {despatchError}
+                          </div>
+                        ) : null}
+
+                        <div className="create-page-result-grid">
+                          <p>
+                            <span className="create-page-label">Advice ID</span>
+                            {despatchState.adviceId ?? "Not available"}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Access</span>
+                            {viewerIsSeller ? "Seller can generate and view" : "View-only until created"}
+                          </p>
+                          <p>
+                            <span className="create-page-label">XML state</span>
+                            {despatchState.xml ? "Loaded" : "Not loaded"}
+                          </p>
+                          <label className="create-page-full-width">
+                            Despatch XML
+                            <textarea
+                              readOnly
+                              value={despatchState.xml ?? ""}
+                              placeholder="Generate or load a despatch advice to view the XML."
+                            />
+                          </label>
+                        </div>
+
+                        <div className="create-page-inline-actions">
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              if (despatchState.xml) {
+                                void copyDocumentText("Despatch XML", despatchState.xml);
+                              }
+                            }}
+                            disabled={!despatchState.xml}
+                          >
+                            Copy XML
+                          </button>
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              if (despatchState.xml) {
+                                downloadDocumentBlob(
+                                  `${lockedOrderId ?? "order"}-despatch.xml`,
+                                  new Blob([despatchState.xml], { type: "application/xml" }),
+                                );
+                              }
+                            }}
+                            disabled={!despatchState.xml}
+                          >
+                            Download XML
+                          </button>
+                        </div>
+                      </section>
+
+                      <section className="create-page-subsection">
+                        <div className="create-page-subsection-header">
+                          <div>
+                            <h3>Invoice</h3>
+                            <p className="create-page-empty-copy">
+                              Generate an invoice, then manage status, payload updates, XML, and PDF.
+                            </p>
+                          </div>
+                          <div className="create-page-inline-actions">
+                            <button
+                              type="button"
+                              className="landing-button landing-button-primary create-page-compact-button"
+                              onClick={() => {
+                                void createInvoiceDocument();
+                              }}
+                              disabled={invoiceBusy !== null}
+                            >
+                              {invoiceBusy === "generate" ? "Generating..." : "Generate invoice"}
+                            </button>
+                            <button
+                              type="button"
+                              className="landing-button landing-button-secondary create-page-compact-button"
+                              onClick={() => {
+                                void refreshInvoiceRecord();
+                              }}
+                              disabled={!invoiceId || invoiceBusy !== null}
+                            >
+                              {invoiceBusy === "fetch" ? "Refreshing..." : "Refresh invoice"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {invoiceError ? (
+                          <div className="create-page-banner create-page-banner-error" role="alert">
+                            {invoiceError}
+                          </div>
+                        ) : null}
+
+                        <div className="create-page-result-grid">
+                          <p>
+                            <span className="create-page-label">Invoice ID</span>
+                            {invoiceId ?? "Not generated"}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Status</span>
+                            {invoiceStatusValue}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Updated</span>
+                            {invoiceUpdatedAtValue}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Issue date</span>
+                            {invoiceIssueDateValue}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Currency</span>
+                            {invoiceCurrencyValue}
+                          </p>
+                          <p>
+                            <span className="create-page-label">Persistence</span>
+                            {invoiceId
+                              ? "Stored for this order in this browser session"
+                              : "No local invoice mapping stored"}
+                          </p>
+                          <label className="create-page-full-width">
+                            Invoice XML
+                            <textarea
+                              readOnly
+                              value={invoiceXml ?? ""}
+                              placeholder="Load the invoice XML once an invoice exists."
+                            />
+                          </label>
+                          <label className="create-page-full-width">
+                            Invoice JSON
+                            <textarea
+                              readOnly
+                              value={invoiceRecord ? JSON.stringify(invoiceRecord, null, 2) : ""}
+                              placeholder="Invoice metadata appears here after generation or refresh."
+                            />
+                          </label>
+                        </div>
+
+                        <div className="create-page-inline-actions">
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              void loadInvoiceXml();
+                            }}
+                            disabled={!invoiceId || invoiceBusy !== null}
+                          >
+                            {invoiceBusy === "xml" ? "Loading XML..." : "Load XML"}
+                          </button>
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              void downloadInvoicePdfFile();
+                            }}
+                            disabled={!invoiceId || invoiceBusy !== null}
+                          >
+                            {invoiceBusy === "pdf" ? "Downloading..." : "Download PDF"}
+                          </button>
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              if (invoiceXml) {
+                                void copyDocumentText("Invoice XML", invoiceXml);
+                              }
+                            }}
+                            disabled={!invoiceXml}
+                          >
+                            Copy XML
+                          </button>
+                          <button
+                            type="button"
+                            className="landing-button landing-button-danger create-page-compact-button"
+                            onClick={() => {
+                              void removeInvoiceDocument();
+                            }}
+                            disabled={!invoiceId || invoiceBusy !== null}
+                          >
+                            {invoiceBusy === "delete" ? "Deleting..." : "Delete invoice"}
+                          </button>
+                        </div>
+
+                        <div className="create-page-form-grid">
+                          <label>
+                            Next status
+                            <input
+                              value={invoiceStatusDraft}
+                              onChange={event => {
+                                setInvoiceStatusDraft(event.target.value);
+                              }}
+                              placeholder="sent"
+                              disabled={!invoiceId || invoiceBusy !== null}
+                            />
+                          </label>
+                          <label>
+                            Payment date
+                            <input
+                              type="date"
+                              value={invoicePaymentDateDraft}
+                              onChange={event => {
+                                setInvoicePaymentDateDraft(event.target.value);
+                              }}
+                              disabled={!invoiceId || invoiceBusy !== null}
+                            />
+                          </label>
+                          <label className="create-page-full-width">
+                            Update invoice JSON
+                            <textarea
+                              value={invoiceUpdateDraft}
+                              onChange={event => {
+                                setInvoiceUpdateDraft(event.target.value);
+                              }}
+                              disabled={!invoiceId || invoiceBusy !== null}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="create-page-inline-actions">
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              void submitInvoiceStatusUpdate();
+                            }}
+                            disabled={!invoiceId || invoiceBusy !== null}
+                          >
+                            {invoiceBusy === "status" ? "Updating status..." : "Update status"}
+                          </button>
+                          <button
+                            type="button"
+                            className="landing-button landing-button-secondary create-page-compact-button"
+                            onClick={() => {
+                              void submitInvoiceUpdate();
+                            }}
+                            disabled={!invoiceId || invoiceBusy !== null}
+                          >
+                            {invoiceBusy === "update" ? "Saving invoice..." : "Save invoice update"}
+                          </button>
+                        </div>
+                      </section>
                     </article>
                   </div>
                 </section>

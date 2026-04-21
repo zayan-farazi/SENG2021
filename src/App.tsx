@@ -3,6 +3,7 @@ import "./landing/landing.css";
 import { useEffect, useState } from "react";
 import { LandingPage } from "./landing/LandingPage";
 import { InventoryPrototypePage } from "./pages/InventoryPrototypePage";
+import { MarketplaceCheckoutSuccessPage } from "./pages/MarketplaceCheckoutSuccessPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MarketplacePrototypePage } from "./pages/MarketplacePrototypePage";
 import { MarketplaceReviewPage } from "./pages/MarketplaceReviewPage";
@@ -42,6 +43,7 @@ export function App() {
     pathname === "/orders/create" ||
     pathname === "/marketplace" ||
     pathname === "/marketplace/review" ||
+    pathname === "/marketplace/success" ||
     pathname === "/inventory" ||
     editOrderId !== null;
 
@@ -84,6 +86,8 @@ export function App() {
       return <MarketplacePrototypePage />;
     case "/marketplace/review":
       return <MarketplaceReviewPage />;
+    case "/marketplace/success":
+      return <MarketplaceCheckoutSuccessPage />;
     case "/inventory":
       return <InventoryPrototypePage />;
     default:
