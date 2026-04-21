@@ -248,7 +248,7 @@ def test_endpoint_responses_include_examples_for_common_flows():
 
     create_post = schema["paths"]["/v1/order/create"]["post"]
     assert "Create a new draft order" in create_post["description"]
-    assert "remain editable in the current MVP" in create_post["description"]
+    assert "remain editable until they are submitted" in create_post["description"]
     assert create_post["responses"]["201"]["content"]["application/json"]["example"]["orderId"] == (
         "ord_abc123def456"
     )

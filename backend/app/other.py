@@ -440,13 +440,14 @@ def addProduct(
     name: str,
     price: float | int,
     description: str,
+    category: str,
     available_units: float | int,
     is_visible: bool,
     show_soldout: bool,
     unit="EA",
     release_date: datetime | None = None,
     image_url=None,
-) -> int:
+) -> dict[str, Any]:
 
     query = {
         "party_id": partyemail,
@@ -454,6 +455,7 @@ def addProduct(
         "price": price,
         "unit": unit,
         "description": description,
+        "category": category,
         "is_visible": is_visible,
         "show_soldout": show_soldout,
         "available_units": available_units,
@@ -462,11 +464,12 @@ def addProduct(
 
     # only allow custom / null release dates when product is not visible
     if is_visible:
-        query["release_date"] = datetime.now().isoformat
+        query["release_date"] = datetime.now().isoformat()
     elif release_date:
-        query["release_date"] = (release_date.isoformat(),)
+        query["release_date"] = release_date.isoformat()
 
-    get_supabase_client().table("products").upsert(query).execute()
+    response = get_supabase_client().table("products").insert(query).execute()
+    return response.data[0] if response.data else query
 
 
 def getCatalogue(partyemail: str, limit: int | None, offset: int | None) -> list[dir]:
@@ -483,11 +486,11 @@ def getProducts(
     updateAvailability(partyemail)
     query = get_supabase_client().table("products").select("*").eq("party_id", partyemail)
 
-    if showUnreleased:
+    if not showUnreleased:
         query = query.eq("is_visible", True)
 
-    if offset and limit:
-        query = query.range(offset - 1, offset + limit + 1)
+    if offset is not None and limit is not None:
+        query = query.range(offset, offset + limit - 1)
 
     if limit is not None:
         query = query.limit(limit)
@@ -498,9 +501,14 @@ def getProducts(
 def updateAvailability(partyemail: str) -> None:
     now = datetime.now().isoformat()
     query = get_supabase_client().table("products")
-    query.update({"is_visible": True}).eq("party_id", partyemail).lte("release_date", now).execute()
+    if partyemail != "*":
+        query = query.eq("party_id", partyemail)
+    query.update({"is_visible": True}).lte("release_date", now).execute()
 
-    query.update({"is_visible": False}).eq("party_id", partyemail).eq("show_soldout", False).lte(
+    soldout_query = get_supabase_client().table("products")
+    if partyemail != "*":
+        soldout_query = soldout_query.eq("party_id", partyemail)
+    soldout_query.update({"is_visible": False}).eq("show_soldout", False).lte(
         "available_units", 0
     ).execute()
 
@@ -513,6 +521,7 @@ def findProducts(
     priceLowerBound=None,
     priceUpperBound=None,
     unit=None,
+    category=None,
     available_units=None,
     is_visible=None,
     show_soldout=None,
@@ -521,7 +530,7 @@ def findProducts(
     updateAvailability("*")
     query = get_supabase_client().table("products").select("*", count="exact")
 
-    if prod_id:
+    if prod_id is not None:
         query = query.eq("prod_id", prod_id)
     if partyemail:
         query = query.eq("party_id", partyemail)
@@ -531,15 +540,17 @@ def findProducts(
         query = query.eq("show_soldout", show_soldout)
     if name:
         query = query.ilike("name", f"%{name}%")
-    if priceExact:
+    if priceExact is not None:
         query = query.eq("price", priceExact)
-    if priceLowerBound:
+    if priceLowerBound is not None:
         query = query.gte("price", priceLowerBound)
-    if priceUpperBound:
+    if priceUpperBound is not None:
         query = query.lte("price", priceUpperBound)
     if unit:
         query = query.eq("unit", unit)
-    if available_units:
+    if category is not None:
+        query = query.eq("category", category)
+    if available_units is not None:
         query = query.gte("available_units", available_units)
     if description:
         query = query.ilike("description", f"%{description}%")
@@ -553,6 +564,7 @@ def updateProduct(
     price=None,
     unit=None,
     description=None,
+    category=None,
     available_units=None,
     is_visible=None,
     show_soldout=None,
@@ -572,25 +584,25 @@ def updateProduct(
             query["release_date"] = release_date if release_date else None
     if show_soldout is not None:
         query["show_soldout"] = show_soldout
-    if name:
+    if name is not None:
         query["name"] = name
-    if price:
+    if price is not None:
         query["price"] = price
-    if unit:
+    if unit is not None:
         query["unit"] = unit
-    if available_units:
+    if category is not None:
+        query["category"] = category
+    if available_units is not None:
         query["available_units"] = available_units
-    if description:
+    if description is not None:
         query["description"] = description
-    if release_date:
-        query["release_date"] = release_date
-    if image_url:
+    if release_date is not None:
+        query["release_date"] = release_date.isoformat()
+    if image_url is not None:
         query["image_url"] = image_url
 
     get_supabase_client().table("products").update(query).eq("prod_id", prod_id).execute()
 
 
 def deleteProduct(prod_id: int):
-    get_supabase_client().table("products").update({"deleted": True}).eq(
-        "prod_id", prod_id
-    ).execute()
+    get_supabase_client().table("products").delete().eq("prod_id", prod_id).execute()

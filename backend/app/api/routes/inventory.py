@@ -17,7 +17,9 @@ from app.models.schemas import (
     PRODUCT_CREATE_RESPONSE_EXAMPLE,
     PRODUCT_LIST_RESPONSE_EXAMPLE,
     ProductCreateResponse,
+    ProductListResponse,
     ProductRequest,
+    ProductUpdateRequest,
 )
 from app.services.app_key_auth import get_current_party_email
 from app.services.product_store import (
@@ -155,7 +157,7 @@ async def add_Inventory_Item(
     except DuplicateProductError as exc:
         logger.exception(f"Product with name {name} already exists in user inventory.")
         raise HTTPException(status_code=409, detail="Duplicate product found.") from exc
-    return ProductCreateResponse(record)
+    return record
 
 
 @router.patch(
@@ -188,7 +190,7 @@ async def update_item_endpoint(
     image: UploadFile | None = File(None),  # noqa B008
     current_party_email: str = Depends(get_current_party_email),
 ):
-    req = ProductRequest(
+    req = ProductUpdateRequest(
         name=name,
         price=price,
         unit=unit,
@@ -200,7 +202,7 @@ async def update_item_endpoint(
         release_date=release_date,
     )
     try:
-        record = update_product_record(req, prod_id, current_party_email, image)
+        record = await update_product_record(req, prod_id, current_party_email, image)
     except ProductNotFoundError as exc:
         logger.exception("Unable to find product to update.")
         raise HTTPException(status_code=404, detail="Product not found") from exc
@@ -215,7 +217,7 @@ async def update_item_endpoint(
 
 @router.get(
     "/v2/catalogue/{party_id}",
-    response_model=dict,
+    response_model=ProductListResponse,
     summary="Get public catalogue.",
     description="View visible and released products for a specific party.",
     responses={
@@ -244,7 +246,7 @@ async def get_public_catalogue(
 
 @router.get(
     "/v2/inventory",
-    response_model=dict,
+    response_model=ProductListResponse,
     summary="Get owner inventory.",
     description="View all products including unreleased and hidden items. Owner only.",
     responses={
@@ -252,9 +254,17 @@ async def get_public_catalogue(
         401: UNAUTHORIZED_RESPONSE,
     },
 )
-async def get_private_inventory(current_party_email: str = Depends(get_current_party_email)):
+async def get_private_inventory(
+    limit: int = Query(
+        default=DEFAULT_PRODUCT_LIST_LIMIT,
+        ge=1,
+        le=MAX_PRODUCT_LIST_LIMIT,
+    ),
+    offset: int = Query(default=DEFAULT_PRODUCT_LIST_OFFSET, ge=0),
+    current_party_email: str = Depends(get_current_party_email),
+):
     try:
-        results = get_user_inventory(current_party_email)
+        results = get_user_inventory(current_party_email, limit, offset)
         return results
     except UnexpectedError as e:
         logger.exception("Unexpected error while fetching inventory.")
@@ -264,7 +274,7 @@ async def get_private_inventory(current_party_email: str = Depends(get_current_p
 
 
 @router.delete(
-    "/{prod_id}",
+    "/v2/inventory/{prod_id}",
     response_model=dict,
     summary="Delete product",
     description="Deletes product from user inventory",
@@ -274,7 +284,7 @@ async def get_private_inventory(current_party_email: str = Depends(get_current_p
     },
 )
 async def delete_product(prod_id: int, curr_party: str = Depends(get_current_party_email)):
-    delete_product_record(prod_id, curr_party)
+    return delete_product_record(prod_id, curr_party)
 
 
 def _validate_product_core(product: ProductRequest, issues: list[dict[str, str]]) -> None:
