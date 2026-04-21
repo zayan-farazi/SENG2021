@@ -20,6 +20,7 @@ from app.models.schemas import (
 )
 from app.other import close_supabase_client
 
+SUPABASE_URL="https://zfkanfxuznozqpqfxbly.supabase.co"
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:3000",
     "http://localhost:5173",
