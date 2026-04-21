@@ -480,19 +480,30 @@ def getInventory(partyemail: str, limit: int | None, offset: int | None) -> list
     return getProducts(partyemail, True, limit, offset)
 
 
+def getPublicProducts(limit: int | None, offset: int | None) -> list[dir]:
+    updateAvailability("*")
+    query = get_supabase_client().table("products").select("*", count="exact").eq("is_visible", True)
+
+    if offset is not None and limit is not None:
+        query = query.range(offset, offset + limit - 1)
+    elif limit is not None:
+        query = query.limit(limit)
+
+    return query.execute()
+
+
 def getProducts(
     partyemail: str, showUnreleased: bool, limit: int | None, offset: int | None
 ) -> list[dir]:
     updateAvailability(partyemail)
-    query = get_supabase_client().table("products").select("*").eq("party_id", partyemail)
+    query = get_supabase_client().table("products").select("*", count="exact").eq("party_id", partyemail)
 
     if not showUnreleased:
         query = query.eq("is_visible", True)
 
     if offset is not None and limit is not None:
         query = query.range(offset, offset + limit - 1)
-
-    if limit is not None:
+    elif limit is not None:
         query = query.limit(limit)
 
     return query.execute()

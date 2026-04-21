@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { Coffee, Gift, Package2, Palette, Shirt, Sparkles } from "lucide-react";
+import type { ProductRecord } from "../productApi";
 
 export type MarketplaceProduct = {
   id: string;
@@ -141,6 +142,92 @@ export const marketplaceProducts: MarketplaceProduct[] = [
 ];
 
 export const marketplaceCategories = ["All", ...new Set(marketplaceProducts.map(product => product.category))];
+
+function formatSellerLabel(email: string): string {
+  const [handle = email, domain = ""] = email.split("@");
+  const genericHandles = new Set(["orders", "sales", "dispatch", "hello", "studio", "support"]);
+  const rawLabel =
+    genericHandles.has(handle.toLowerCase()) && domain
+      ? (domain.split(".")[0] ?? handle)
+      : handle;
+
+  return rawLabel
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getMarketplaceTone(category: string): MarketplaceProduct["tone"] {
+  const normalized = category.toLowerCase();
+  if (normalized.includes("fashion") || normalized.includes("beauty") || normalized.includes("accessories")) {
+    return "mint";
+  }
+  if (normalized.includes("gift") || normalized.includes("electronics") || normalized.includes("sports")) {
+    return "gold";
+  }
+  return "peach";
+}
+
+function getMarketplaceIcon(
+  category: string,
+): ComponentType<{ size?: number; strokeWidth?: number }> {
+  const normalized = category.toLowerCase();
+  if (normalized.includes("fashion") || normalized.includes("beauty") || normalized.includes("accessories")) {
+    return Shirt;
+  }
+  if (normalized.includes("gift")) {
+    return Gift;
+  }
+  if (normalized.includes("art") || normalized.includes("craft")) {
+    return Palette;
+  }
+  if (normalized.includes("home") || normalized.includes("kitchen") || normalized.includes("handcrafted")) {
+    return Coffee;
+  }
+  if (normalized.includes("electronics") || normalized.includes("book") || normalized.includes("music")) {
+    return Sparkles;
+  }
+  return Package2;
+}
+
+function getMarketplaceBadge(record: ProductRecord): MarketplaceProduct["badge"] | undefined {
+  if (record.available_units <= 3) {
+    return "Low stock";
+  }
+
+  if (record.release_date) {
+    const releaseTimestamp = Date.parse(record.release_date);
+    if (!Number.isNaN(releaseTimestamp)) {
+      const ageDays = Math.abs(Date.now() - releaseTimestamp) / (1000 * 60 * 60 * 24);
+      if (ageDays <= 21) {
+        return "New";
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function deriveMarketplaceCategories(products: MarketplaceProduct[]): string[] {
+  return ["All", ...new Set(products.map(product => product.category).filter(Boolean))];
+}
+
+export function productRecordToMarketplaceProduct(record: ProductRecord): MarketplaceProduct {
+  return {
+    id: `product-${record.prod_id ?? `${record.party_id}-${record.name}`}`,
+    name: record.name,
+    price: record.price,
+    seller: formatSellerLabel(record.party_id),
+    sellerEmail: record.party_id,
+    stock: Math.max(0, Math.floor(record.available_units)),
+    category: record.category,
+    unitCode: record.unit,
+    badge: getMarketplaceBadge(record),
+    tone: getMarketplaceTone(record.category),
+    icon: getMarketplaceIcon(record.category),
+  };
+}
 
 export function readStoredMarketplaceCart(): MarketplaceCartState {
   if (typeof window === "undefined") {

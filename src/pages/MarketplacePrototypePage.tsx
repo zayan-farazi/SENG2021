@@ -3,11 +3,12 @@ import { Minus, Plus, Search, ShoppingBag } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
 import { navigate } from "../components/AppLink";
+import { fetchMarketplaceProducts } from "../productApi";
 import { getMarketplaceAssistantWebSocketUrl } from "../voiceOrder";
 import {
   calculateCartTotal,
-  marketplaceCategories,
-  marketplaceProducts,
+  deriveMarketplaceCategories,
+  productRecordToMarketplaceProduct,
   readStoredMarketplaceCart,
   writeStoredMarketplaceCart,
   type MarketplaceCartLine,
@@ -140,11 +141,16 @@ function MarketplaceProductCard({
 export function MarketplacePrototypePage() {
   const [filters, setFilters] = useState<MarketplaceFilterState>(defaultFilters);
   const [cart, setCart] = useState<MarketplaceCartState>(() => readStoredMarketplaceCart());
+  const [products, setProducts] = useState<MarketplaceProduct[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const [assistantLiveTranscript, setAssistantLiveTranscript] = useState<string | null>(null);
   const assistantSocketRef = useRef<WebSocket | null>(null);
   const assistantResultResolverRef = useRef<((result: AssistantActionResult) => void) | null>(null);
   const cartRef = useRef(cart);
   const filtersRef = useRef(filters);
+  const productsRef = useRef(products);
+  const categoriesRef = useRef<string[]>(["All"]);
   const marketplaceAssistantWebSocketUrl = getMarketplaceAssistantWebSocketUrl();
 
   useEffect(() => {
@@ -159,8 +165,73 @@ export function MarketplacePrototypePage() {
     filtersRef.current = filters;
   }, [filters]);
 
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProducts = async () => {
+      setIsLoadingProducts(true);
+      setProductsError(null);
+
+      try {
+        const response = await fetchMarketplaceProducts(100, 0);
+        if (cancelled) {
+          return;
+        }
+
+        const nextProducts = response.items.map(productRecordToMarketplaceProduct);
+        setProducts(nextProducts);
+        setCart(current => {
+          const productIndex = new Map(nextProducts.map(product => [product.id, product]));
+          const nextLines = current.lines
+            .map(line => {
+              const product = productIndex.get(line.productId);
+              if (!product || product.stock <= 0) {
+                return null;
+              }
+
+              const quantity = Math.max(0, Math.min(line.quantity, product.stock));
+              if (quantity === 0) {
+                return null;
+              }
+
+              return buildCartLine(product, quantity);
+            })
+            .filter((line): line is MarketplaceCartLine => line !== null);
+
+          return { lines: nextLines };
+        });
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Unable to load marketplace listings.";
+          setProductsError(message);
+          setProducts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProducts(false);
+        }
+      }
+    };
+
+    void loadProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const marketplaceCategories = useMemo(() => deriveMarketplaceCategories(products), [products]);
+
+  useEffect(() => {
+    categoriesRef.current = marketplaceCategories;
+  }, [marketplaceCategories]);
+
   const filteredProducts = useMemo(() => {
-    return marketplaceProducts.filter(product => {
+    return products.filter(product => {
       const matchesQuery =
         filters.query.trim().length === 0 ||
         `${product.name} ${product.seller}`.toLowerCase().includes(filters.query.trim().toLowerCase());
@@ -168,7 +239,7 @@ export function MarketplacePrototypePage() {
       const matchesStock = !filters.inStockOnly || product.stock > 0;
       return matchesQuery && matchesCategory && matchesStock;
     });
-  }, [filters]);
+  }, [filters, products]);
 
   const totalItems = useMemo(
     () => cart.lines.reduce((sum, line) => sum + line.quantity, 0),
@@ -238,7 +309,7 @@ export function MarketplacePrototypePage() {
       };
     }
 
-    const product = marketplaceProducts.find(candidate => candidate.id === command.productId);
+    const product = products.find(candidate => candidate.id === command.productId);
     if (!product) {
       return {
         kind: "rejected",
@@ -325,14 +396,14 @@ export function MarketplacePrototypePage() {
         JSON.stringify({
           type,
           payload: {
-            products: marketplaceProducts.map(product => ({
+            products: productsRef.current.map(product => ({
               id: product.id,
               name: product.name,
               seller: product.seller,
               category: product.category,
               stock: product.stock,
             })),
-            categories: marketplaceCategories,
+            categories: categoriesRef.current,
             filters: filtersRef.current,
             cartLines: cartRef.current.lines.map(line => ({
               productId: line.productId,
@@ -418,6 +489,14 @@ export function MarketplacePrototypePage() {
       JSON.stringify({
         type: "context.patch",
         payload: {
+          products: products.map(product => ({
+            id: product.id,
+            name: product.name,
+            seller: product.seller,
+            category: product.category,
+            stock: product.stock,
+          })),
+          categories: marketplaceCategories,
           filters,
           cartLines: cart.lines.map(line => ({
             productId: line.productId,
@@ -427,7 +506,7 @@ export function MarketplacePrototypePage() {
         },
       }),
     );
-  }, [cart, filters]);
+  }, [cart, filters, marketplaceCategories, products]);
 
   const handleVoiceTranscript = async (transcript: string): Promise<AssistantActionResult> => {
     setAssistantLiveTranscript(null);
@@ -436,7 +515,7 @@ export function MarketplacePrototypePage() {
       return streamedResult;
     }
 
-    const command = parseMarketplaceVoiceCommand(transcript, marketplaceProducts, marketplaceCategories);
+    const command = parseMarketplaceVoiceCommand(transcript, products, marketplaceCategories);
 
     if (!command) {
       return {
@@ -546,8 +625,20 @@ export function MarketplacePrototypePage() {
 
                 {filteredProducts.length === 0 ? (
                   <div className="marketplace-empty-state">
-                    <strong>No listings match these filters.</strong>
-                    <span>Adjust the search or category to bring products back into view.</span>
+                    <strong>
+                      {productsError
+                        ? "Marketplace listings are unavailable."
+                        : isLoadingProducts
+                          ? "Loading marketplace listings."
+                          : "No listings match these filters."}
+                    </strong>
+                    <span>
+                      {productsError
+                        ? "The catalogue request failed. Reload or publish products from inventory first."
+                        : isLoadingProducts
+                          ? "Fetching the latest published products."
+                          : "Adjust the search or category to bring products back into view."}
+                    </span>
                   </div>
                 ) : (
                   <div className="marketplace-product-grid">

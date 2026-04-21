@@ -6,6 +6,7 @@ import pytest
 from app.services.product_store import (
     ProductNotFoundError,
     create_product_record,
+    get_public_marketplace_products,
 )
 
 # 1. Use real values for Pydantic models to avoid ValidationErrors
@@ -127,3 +128,29 @@ class TestCatalogue:
 
             result = get_user_catalogue(MOCK_PARTY, limit=10, offset=0)
             assert len(result.items) == 1
+
+    def test_get_public_marketplace_products_structure(self):
+        with patch("app.services.product_store.getPublicProducts") as mock_get:
+            mock_response = MagicMock()
+            mock_response.data = [
+                {
+                    "prod_id": 1,
+                    "party_id": MOCK_PARTY,
+                    "name": "P1",
+                    "price": 10,
+                    "unit": "pc",
+                    "available_units": 1,
+                    "description": "d",
+                    "category": "Groceries and Consumables",
+                    "image_url": "u",
+                    "release_date": "2023-01-01",
+                    "is_visible": True,
+                    "show_soldout": True,
+                }
+            ]
+            mock_response.count = 1
+            mock_get.return_value = mock_response
+
+            result = get_public_marketplace_products(limit=10, offset=0)
+            assert len(result.items) == 1
+            assert result.items[0].name == "P1"

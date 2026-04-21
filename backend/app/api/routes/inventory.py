@@ -29,6 +29,7 @@ from app.services.product_store import (
     UnexpectedError,
     create_product_record,
     delete_product_record,
+    get_public_marketplace_products,
     get_image_url,
     get_user_catalogue,
     get_user_inventory,
@@ -213,6 +214,32 @@ async def update_item_endpoint(
         logger.exception("Product persistence verification failed.")
         raise HTTPException(status_code=500, detail="Unable to persist product.") from exc
     return record
+
+
+@router.get(
+    "/v2/catalogue",
+    response_model=ProductListResponse,
+    summary="Get marketplace listings.",
+    description="View all visible public products across sellers for the marketplace.",
+    responses={
+        200: {"content": {"application/json": {"example": PRODUCT_LIST_RESPONSE_EXAMPLE}}},
+    },
+)
+async def get_marketplace_catalogue(
+    limit: int = Query(
+        default=DEFAULT_PRODUCT_LIST_LIMIT,
+        ge=1,
+        le=MAX_PRODUCT_LIST_LIMIT,
+    ),
+    offset: int = Query(default=DEFAULT_PRODUCT_LIST_OFFSET, ge=0),
+):
+    try:
+        return get_public_marketplace_products(limit, offset)
+    except UnexpectedError as e:
+        logger.exception("Unexpected error while fetching public marketplace listings.")
+        raise HTTPException(
+            status_code=500, detail="Unexpected error while fetching marketplace listings"
+        ) from e
 
 
 @router.get(

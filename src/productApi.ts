@@ -112,6 +112,24 @@ export async function fetchInventory(
   return (await response.json()) as ProductListResponse;
 }
 
+export async function fetchMarketplaceProducts(
+  limit = 100,
+  offset = 0,
+): Promise<ProductListResponse> {
+  const response = await fetch(
+    `${getBackendHttpUrl()}/v2/catalogue?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(
+      String(offset),
+    )}`,
+  );
+
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response);
+    throw new Error(`marketplace-products:${response.status}:${detail}`);
+  }
+
+  return (await response.json()) as ProductListResponse;
+}
+
 export async function createInventoryProduct(
   session: StoredSession,
   payload: CreateProductInput,

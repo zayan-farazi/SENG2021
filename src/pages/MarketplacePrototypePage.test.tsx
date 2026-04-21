@@ -9,6 +9,7 @@ import { MarketplaceReviewPage } from "./MarketplaceReviewPage";
 import {
   clearStoredMarketplaceCart,
   clearStoredMarketplaceCheckoutSuccess,
+  marketplaceProducts,
   writeStoredMarketplaceCheckoutSuccess,
   writeStoredMarketplaceCart,
 } from "./marketplacePrototypeData";
@@ -113,12 +114,116 @@ function openAssistantSocket() {
   return socket;
 }
 
+function buildMarketplaceCatalogueResponse() {
+  return {
+    items: [
+      {
+        prod_id: 101,
+        party_id: "orders@harbourstudio.example",
+        name: "Handmade ceramic mug",
+        price: 34,
+        unit: "EA",
+        description: "Handmade ceramic mug",
+        category: "Homeware",
+        release_date: "2026-04-20",
+        available_units: 9,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/mug.webp",
+      },
+      {
+        prod_id: 102,
+        party_id: "sales@northlanevintage.example",
+        name: "Vintage denim jacket",
+        price: 62,
+        unit: "EA",
+        description: "Vintage denim jacket",
+        category: "Fashion",
+        release_date: "2026-04-20",
+        available_units: 3,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/jacket.webp",
+      },
+      {
+        prod_id: 103,
+        party_id: "dispatch@softlight.example",
+        name: "Natural soy candle set",
+        price: 28,
+        unit: "EA",
+        description: "Natural soy candle set",
+        category: "Homeware",
+        release_date: "2026-04-20",
+        available_units: 12,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/candle.webp",
+      },
+      {
+        prod_id: 104,
+        party_id: "orders@bloomassembly.example",
+        name: "Self-care gift box",
+        price: 48,
+        unit: "EA",
+        description: "Self-care gift box",
+        category: "Gifts",
+        release_date: "2026-03-20",
+        available_units: 6,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/gift.webp",
+      },
+      {
+        prod_id: 105,
+        party_id: "studio@lineformpress.example",
+        name: "Abstract wall print",
+        price: 46,
+        unit: "EA",
+        description: "Abstract wall print",
+        category: "Art",
+        release_date: "2026-03-20",
+        available_units: 14,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/print.webp",
+      },
+      {
+        prod_id: 106,
+        party_id: "hello@fieldnotesgoods.example",
+        name: "Weekend tote bag",
+        price: 31,
+        unit: "EA",
+        description: "Weekend tote bag",
+        category: "Fashion",
+        release_date: "2026-03-20",
+        available_units: 18,
+        is_visible: true,
+        show_soldout: true,
+        image_url: "https://example.test/tote.webp",
+      },
+    ],
+    page: {
+      limit: 100,
+      offset: 0,
+      hasMore: false,
+      total: marketplaceProducts.length,
+    },
+  };
+}
+
 describe("MarketplacePrototypePage", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     MockSpeechRecognition.instances = [];
     installSpeechRecognition();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => buildMarketplaceCatalogueResponse(),
+      }),
+    );
   });
 
   afterEach(() => {
@@ -130,20 +235,21 @@ describe("MarketplacePrototypePage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders search, filters, products, and cart summary", () => {
+  it("renders search, filters, products, and cart summary", async () => {
     render(<MarketplacePrototypePage />);
 
     expect(screen.getByRole("heading", { name: /^marketplace$/i })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: /search products or sellers/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /filter by category/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /cart summary/i })).toBeInTheDocument();
-    expect(screen.getByText("Handmade ceramic mug")).toBeInTheDocument();
+    expect(await screen.findByText("Handmade ceramic mug")).toBeInTheDocument();
   });
 
   it("updates the cart when quantities change", async () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
     await user.click(screen.getByRole("button", { name: /increase handmade ceramic mug/i }));
 
     expect(screen.getByText(/1 items/i)).toBeInTheDocument();
@@ -157,6 +263,7 @@ describe("MarketplacePrototypePage", () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Vintage denim jacket");
     const increaseButton = screen.getByRole("button", { name: /increase vintage denim jacket/i });
 
     await user.click(increaseButton);
@@ -171,6 +278,7 @@ describe("MarketplacePrototypePage", () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
     await user.type(screen.getByRole("searchbox", { name: /search products or sellers/i }), "zzzz");
 
     expect(screen.getByText(/no listings match these filters/i)).toBeInTheDocument();
@@ -181,6 +289,7 @@ describe("MarketplacePrototypePage", () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
     await user.click(screen.getByRole("button", { name: /increase handmade ceramic mug/i }));
     await user.click(screen.getByRole("button", { name: /review order/i }));
 
@@ -191,6 +300,7 @@ describe("MarketplacePrototypePage", () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
     const socket = openAssistantSocket();
     await user.click(screen.getByRole("button", { name: /^start$/i }));
     emitTranscript("search candle");
@@ -215,6 +325,7 @@ describe("MarketplacePrototypePage", () => {
     const user = userEvent.setup();
 
     render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
     const socket = openAssistantSocket();
     await user.click(screen.getByRole("button", { name: /^start$/i }));
     emitTranscript("add two ceramic mugs");
@@ -222,11 +333,7 @@ describe("MarketplacePrototypePage", () => {
       socket.emitMessage({
         type: "assistant.command",
         payload: {
-          command: {
-            kind: "change_quantity",
-            productId: "market-ceramic-mug",
-            quantityDelta: 2,
-          },
+          command: { kind: "change_quantity", productId: "product-101", quantityDelta: 2 },
         },
       });
     });

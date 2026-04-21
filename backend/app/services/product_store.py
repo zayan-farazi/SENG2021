@@ -11,6 +11,7 @@ from app.other import (
     addProduct,
     deleteProduct,
     findProducts,
+    getPublicProducts,
     get_supabase_client,
     getCatalogue,
     getInventory,
@@ -223,6 +224,28 @@ def get_user_inventory(
 
     except Exception as e:
         raise UnexpectedError("There was an unexpected error looking up the catalogue.") from e
+
+
+def get_public_marketplace_products(
+    limit: int | None = None, offset: int | None = None
+) -> ProductListResponse:
+    try:
+        response = getPublicProducts(limit, offset)
+        data = response.data
+        total_count = response.count or 0
+
+        resolved_offset = offset or 0
+        return ProductListResponse(
+            items=[ProductListResponseItem(**item) for item in data],
+            page={
+                "limit": limit,
+                "offset": offset,
+                "hasMore": (resolved_offset + len(data)) < total_count,
+                "total": total_count,
+            },
+        )
+    except Exception as e:
+        raise UnexpectedError("There was an unexpected error looking up public listings.") from e
 
 
 def delete_product_record(prod_id: int, curr_party: str):
