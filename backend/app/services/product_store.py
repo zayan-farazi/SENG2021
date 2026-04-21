@@ -1,6 +1,5 @@
 import logging
 
-from app.api.routes.inventory import validate_party_access
 from app.models.schemas import (
     ProductCreateResponse,
     ProductListResponseItem,
@@ -8,6 +7,7 @@ from app.models.schemas import (
 )
 from app.other import (
     addProduct,
+    deleteProduct,
     findProducts,
     get_supabase_client,
     getCatalogue,
@@ -72,14 +72,9 @@ AVAILABLE_CATEGORIES = [
     "Others",
 ]
 
-DEFAULT_PRODUCT_LIST_LIMIT = 20
-DEFAULT_PRODUCT_LIST_OFFSET = 0
-MAX_PRODUCT_LIST_LIMIT = 100
-MAX_PRODUCT_ORDERS = 256
-
 
 def create_product_record(prod: ProductRequest, curr_party_email: str, image_url: str):
-    if findProducts(curr_party_email, prod.name) is not None or []:
+    if findProducts(curr_party_email, prod.name) is not None:
         raise DuplicateProductError(f"Product '{prod.name}' already exists in your catalogue.")
     try:
         addProduct(
@@ -102,7 +97,12 @@ def create_product_record(prod: ProductRequest, curr_party_email: str, image_url
 
         raise ProductGenerationError(status_code=500, detail="Database persistence failed.") from e
     return ProductCreateResponse(
-        prod.name, prod.price, prod.unit, prod.units_available, prod.description, image_url
+        name=prod.name,
+        price=prod.price,
+        unit=prod.unit,
+        units_available=prod.units_available,
+        description=prod.description,
+        image_url=image_url,
     )
 
 
@@ -112,10 +112,12 @@ def update_product_record(req: ProductRequest, prod_id: int, curr_party: str, im
     except Exception as e:
         raise ProductNotFoundError(f"Unable to find product with id {prod_id}") from e
 
-    if record is None or []:
+    if len(record) == 0:
         raise ProductNotFoundError(f"Unable to find product with id {prod_id}")
 
     record = record[0]
+    from app.api.routes.inventory import validate_party_access
+
     validate_party_access(record.get("party_id"), curr_party)
     try:
         updateProduct(
@@ -221,5 +223,25 @@ def get_user_inventory(party_id: str, limit: int | None, offset: int | None):
         raise UnexpectedError("There was an unexpected error looking up the catalogue.") from e
 
 
-def delete_product(party_id: str, prod_id: int):
-    return
+def delete_product_record(prod_id: int, curr_party: str):
+    try:
+        response = findProducts(prod_id=prod_id)
+        record_list = response.data
+    except Exception as e:
+        raise ProductNotFoundError(f"Unable to find product with id {prod_id}") from e
+
+    if not record_list or len(record_list) == 0:
+        raise ProductNotFoundError(f"Unable to find product with id {prod_id}")
+
+    record = record_list[0]
+
+    from app.api.routes.inventory import validate_party_access
+
+    validate_party_access(record.get("party_id"), curr_party)
+
+    try:
+        deleteProduct(prod_id)
+    except Exception as e:
+        raise UnexpectedError("An error occurred while deleting the product.") from e
+
+    return {"detail": "Product successfully deleted"}

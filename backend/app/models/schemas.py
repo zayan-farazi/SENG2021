@@ -1263,7 +1263,11 @@ class PartyUserFetchResponse(BaseModel):
 
 
 class ProductCreateResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"example": PRODUCT_CREATE_RESPONSE_EXAMPLE})
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": PRODUCT_CREATE_RESPONSE_EXAMPLE,
+        }
+    )
     name: str
     price: int | float
     unit: str

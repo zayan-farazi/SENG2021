@@ -21,14 +21,12 @@ from app.models.schemas import (
 )
 from app.services.app_key_auth import get_current_party_email
 from app.services.product_store import (
-    DEFAULT_PRODUCT_LIST_LIMIT,
-    DEFAULT_PRODUCT_LIST_OFFSET,
-    MAX_PRODUCT_LIST_LIMIT,
     DuplicateProductError,
     ProductNotFoundError,
     ProductPersistenceError,
     UnexpectedError,
     create_product_record,
+    delete_product_record,
     get_image_url,
     get_user_catalogue,
     get_user_inventory,
@@ -38,6 +36,10 @@ from app.services.product_store import (
 router = APIRouter(tags=["Catalogue and Inventory"])
 logger = logging.getLogger(__name__)
 
+DEFAULT_PRODUCT_LIST_LIMIT = 20
+DEFAULT_PRODUCT_LIST_OFFSET = 0
+MAX_PRODUCT_LIST_LIMIT = 100
+MAX_PRODUCT_ORDERS = 256
 
 UNAUTHORIZED_RESPONSE = {
     "description": (
@@ -259,6 +261,20 @@ async def get_private_inventory(current_party_email: str = Depends(get_current_p
         raise HTTPException(
             status_code=500, detail="Unexpected error while fetching catalogue"
         ) from e
+
+
+@router.delete(
+    "/{prod_id}",
+    response_model=dict,
+    summary="Delete product",
+    description="Deletes product from user inventory",
+    responses={
+        404: "Product not found.",
+        200: {"content": {"application/json": {"message": "Product successfully deleted"}}},
+    },
+)
+async def delete_product(prod_id: int, curr_party: str = Depends(get_current_party_email)):
+    delete_product_record(prod_id, curr_party)
 
 
 def _validate_product_core(product: ProductRequest, issues: list[dict[str, str]]) -> None:
