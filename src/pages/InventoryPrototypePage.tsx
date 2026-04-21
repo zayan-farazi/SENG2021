@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import {
   Coffee,
@@ -9,15 +9,25 @@ import {
   Search,
   Shirt,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
+import {
+  createInventoryProduct,
+  deleteInventoryProduct,
+  fetchInventory,
+  type ProductRecord,
+  updateInventoryProduct,
+} from "../productApi";
+import { useStoredSession } from "../session";
 import "./inventory-prototype.css";
 
 type InventorySection = "launched" | "draft";
 
 type InventoryProduct = {
   id: string;
+  productId: number | null;
   name: string;
   price: number;
   stock: number;
@@ -28,6 +38,10 @@ type InventoryProduct = {
   sortDate: string;
   tone: "peach" | "mint" | "gold";
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
+  description: string;
+  category: string;
+  isVisible: boolean;
+  showSoldout: boolean;
 };
 
 type EditorMode =
@@ -41,116 +55,27 @@ type EditorForm = {
   stock: string;
   unitCode: string;
   launchDate: string;
+  description: string;
+  category: string;
+  isVisible: boolean;
+  showSoldout: boolean;
 };
 
-const initialLaunchedProducts: InventoryProduct[] = [
-  {
-    id: "launch-denim-jacket",
-    name: "Vintage denim jacket",
-    price: 62,
-    stock: 12,
-    unitCode: "EA",
-    status: "Low stock",
-    section: "launched",
-    dateLabel: "Since 14 Apr 2026",
-    sortDate: "2026-04-14",
-    tone: "mint",
-    icon: Shirt,
-  },
-  {
-    id: "launch-soy-candle",
-    name: "Soy candle set",
-    price: 28,
-    stock: 4,
-    unitCode: "EA",
-    status: "Limited",
-    section: "launched",
-    dateLabel: "Since 17 Apr 2026",
-    sortDate: "2026-04-17",
-    tone: "gold",
-    icon: Sparkles,
-  },
-  {
-    id: "launch-ceramic-mug",
-    name: "Ceramic mug",
-    price: 34,
-    stock: 40,
-    unitCode: "EA",
-    status: "Live",
-    section: "launched",
-    dateLabel: "Since 08 Apr 2026",
-    sortDate: "2026-04-08",
-    tone: "peach",
-    icon: Coffee,
-  },
-  {
-    id: "launch-market-tote",
-    name: "Market tote bag",
-    price: 31,
-    stock: 18,
-    unitCode: "EA",
-    status: "Live",
-    section: "launched",
-    dateLabel: "Since 02 Apr 2026",
-    sortDate: "2026-04-02",
-    tone: "mint",
-    icon: Package2,
-  },
-];
-
-const initialDraftProducts: InventoryProduct[] = [
-  {
-    id: "draft-wall-print",
-    name: "Abstract wall print",
-    price: 46,
-    stock: 40,
-    unitCode: "EA",
-    status: "Draft",
-    section: "draft",
-    dateLabel: "Launches 22 Apr 2026",
-    sortDate: "2026-04-22",
-    tone: "peach",
-    icon: Palette,
-  },
-  {
-    id: "draft-weekend-tote",
-    name: "Weekend tote bag",
-    price: 31,
-    stock: 18,
-    unitCode: "EA",
-    status: "Draft",
-    section: "draft",
-    dateLabel: "Launches 28 Apr 2026",
-    sortDate: "2026-04-28",
-    tone: "mint",
-    icon: Package2,
-  },
-  {
-    id: "draft-linen-runner",
-    name: "Linen table runner",
-    price: 25,
-    stock: 24,
-    unitCode: "EA",
-    status: "Draft",
-    section: "draft",
-    dateLabel: "Launches 02 May 2026",
-    sortDate: "2026-05-02",
-    tone: "gold",
-    icon: Shirt,
-  },
-  {
-    id: "draft-ceramic-bowl",
-    name: "Ceramic serving bowl",
-    price: 52,
-    stock: 16,
-    unitCode: "EA",
-    status: "Draft",
-    section: "draft",
-    dateLabel: "Launches 10 May 2026",
-    sortDate: "2026-05-10",
-    tone: "peach",
-    icon: Coffee,
-  },
+const categoryOptions = [
+  "Fashion",
+  "Home and Kitchen",
+  "Groceries and Consumables",
+  "Antiques and Collectibles",
+  "Jewellery and Accessories",
+  "Health and Beauty",
+  "Sports",
+  "Furniture",
+  "Electronics",
+  "Arts & Crafts",
+  "Books, Music and Film",
+  "Gifts",
+  "Handcrafted",
+  "Others",
 ];
 
 const emptyForm: EditorForm = {
@@ -158,21 +83,110 @@ const emptyForm: EditorForm = {
   price: "",
   stock: "",
   unitCode: "EA",
-  launchDate: "2026-05-01",
+  launchDate: "",
+  description: "",
+  category: "Handcrafted",
+  isVisible: false,
+  showSoldout: true,
 };
 
 function formatPrice(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-function formatLaunchLabel(date: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
-  const formatter = new Intl.DateTimeFormat("en-AU", {
+function formatInventoryDateLabel(product: ProductRecord, section: InventorySection): string {
+  if (!product.release_date) {
+    return section === "launched" ? "Live now" : "No launch date";
+  }
+
+  const parsed = new Date(product.release_date);
+  if (Number.isNaN(parsed.getTime())) {
+    return section === "launched" ? "Live now" : "No launch date";
+  }
+
+  const formatted = new Intl.DateTimeFormat("en-AU", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
-  return `Launches ${formatter.format(parsed)}`;
+  }).format(parsed);
+
+  return section === "launched" ? `Since ${formatted}` : `Launches ${formatted}`;
+}
+
+function deriveSection(product: ProductRecord): InventorySection {
+  if (!product.is_visible) {
+    return "draft";
+  }
+
+  if (!product.release_date) {
+    return "launched";
+  }
+
+  const releaseAt = new Date(product.release_date);
+  return releaseAt.getTime() > Date.now() ? "draft" : "launched";
+}
+
+function deriveStatus(product: ProductRecord, section: InventorySection): string {
+  if (section === "draft") {
+    return "Draft";
+  }
+  if (product.available_units <= 0) {
+    return "Out of stock";
+  }
+  if (product.available_units <= 5) {
+    return "Low stock";
+  }
+  return "Live";
+}
+
+function toneForCategory(category: string): InventoryProduct["tone"] {
+  const normalized = category.toLowerCase();
+  if (normalized.includes("fashion") || normalized.includes("beauty")) {
+    return "mint";
+  }
+  if (normalized.includes("gift") || normalized.includes("craft")) {
+    return "gold";
+  }
+  return "peach";
+}
+
+function iconForCategory(category: string): InventoryProduct["icon"] {
+  const normalized = category.toLowerCase();
+  if (normalized.includes("fashion")) {
+    return Shirt;
+  }
+  if (normalized.includes("gift")) {
+    return Sparkles;
+  }
+  if (normalized.includes("craft") || normalized.includes("art")) {
+    return Palette;
+  }
+  if (normalized.includes("home") || normalized.includes("kitchen")) {
+    return Coffee;
+  }
+  return Package2;
+}
+
+function normalizeInventoryRecord(product: ProductRecord): InventoryProduct {
+  const section = deriveSection(product);
+  return {
+    id: String(product.prod_id ?? `${product.party_id}-${product.name}`),
+    productId: product.prod_id,
+    name: product.name,
+    price: product.price,
+    stock: product.available_units,
+    unitCode: product.unit,
+    status: deriveStatus(product, section),
+    section,
+    dateLabel: formatInventoryDateLabel(product, section),
+    sortDate: product.release_date ?? "9999-12-31",
+    tone: toneForCategory(product.category),
+    icon: iconForCategory(product.category),
+    description: product.description ?? "",
+    category: product.category,
+    isVisible: product.is_visible,
+    showSoldout: product.show_soldout,
+  };
 }
 
 function sortProducts(products: InventoryProduct[], section: InventorySection): InventoryProduct[] {
@@ -194,7 +208,7 @@ function InventoryCard({ product, onEdit }: InventoryCardProps) {
   const statusClass =
     product.status === "Low stock"
       ? "inventory-product-badge inventory-product-badge-warning"
-      : product.status === "Limited"
+      : product.status === "Out of stock"
         ? "inventory-product-badge inventory-product-badge-muted"
         : product.status === "Draft"
           ? "inventory-product-badge inventory-product-badge-draft"
@@ -263,10 +277,7 @@ function InventorySectionBlock({
         </button>
       </div>
 
-      <div
-        className="inventory-product-grid"
-        data-expanded={expanded ? "true" : "false"}
-      >
+      <div className="inventory-product-grid" data-expanded={expanded ? "true" : "false"}>
         {products.map(product => (
           <InventoryCard key={product.id} product={product} onEdit={onEdit} />
         ))}
@@ -276,8 +287,10 @@ function InventorySectionBlock({
 }
 
 export function InventoryPrototypePage() {
-  const [launchedProducts, setLaunchedProducts] = useState<InventoryProduct[]>(initialLaunchedProducts);
-  const [draftProducts, setDraftProducts] = useState<InventoryProduct[]>(initialDraftProducts);
+  const session = useStoredSession();
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<InventorySection, boolean>>({
@@ -286,19 +299,55 @@ export function InventoryPrototypePage() {
   });
   const [editorMode, setEditorMode] = useState<EditorMode>({ type: "closed" });
   const [editorForm, setEditorForm] = useState<EditorForm>(emptyForm);
+  const [editorBusy, setEditorBusy] = useState<"save" | "delete" | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
-  const allProducts = useMemo(
-    () => [...launchedProducts, ...draftProducts],
-    [draftProducts, launchedProducts],
-  );
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setPageError(null);
+
+    void fetchInventory(session)
+      .then(response => {
+        if (cancelled) {
+          return;
+        }
+        setProducts(response.items.map(normalizeInventoryRecord));
+      })
+      .catch(error => {
+        if (cancelled) {
+          return;
+        }
+        setPageError(
+          error instanceof Error && error.message.startsWith("inventory-fetch:")
+            ? error.message.slice(error.message.lastIndexOf(":") + 1).trim() ||
+                "Unable to load inventory."
+            : "Unable to load inventory.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   const openAddPanel = () => {
     setEditorMode({ type: "add" });
     setEditorForm(emptyForm);
+    setEditorError(null);
   };
 
   const openEditPanel = (productId: string) => {
-    const product = allProducts.find(item => item.id === productId);
+    const product = products.find(item => item.id === productId);
     if (!product) {
       return;
     }
@@ -309,83 +358,133 @@ export function InventoryPrototypePage() {
       price: String(product.price),
       stock: String(product.stock),
       unitCode: product.unitCode,
-      launchDate: product.sortDate,
+      launchDate: product.sortDate === "9999-12-31" ? "" : product.sortDate.slice(0, 10),
+      description: product.description,
+      category: product.category,
+      isVisible: product.isVisible,
+      showSoldout: product.showSoldout,
     });
+    setEditorError(null);
   };
 
   const closeEditor = () => {
     setEditorMode({ type: "closed" });
+    setEditorError(null);
+    setEditorBusy(null);
   };
 
   const filteredLaunched = useMemo(() => {
     return sortProducts(
-      launchedProducts.filter(product => {
+      products.filter(product => {
+        const matchesSection = product.section === "launched";
         const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStock = !inStockOnly || product.stock > 0;
-        return matchesSearch && matchesStock;
+        return matchesSection && matchesSearch && matchesStock;
       }),
       "launched",
     );
-  }, [inStockOnly, launchedProducts, searchQuery]);
+  }, [inStockOnly, products, searchQuery]);
 
   const filteredDraft = useMemo(() => {
     return sortProducts(
-      draftProducts.filter(product => {
+      products.filter(product => {
+        const matchesSection = product.section === "draft";
         const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStock = !inStockOnly || product.stock > 0;
-        return matchesSearch && matchesStock;
+        return matchesSection && matchesSearch && matchesStock;
       }),
       "draft",
     );
-  }, [draftProducts, inStockOnly, searchQuery]);
+  }, [inStockOnly, products, searchQuery]);
 
-  const handleSave = () => {
-    const normalizedProduct: InventoryProduct = {
-      id:
-        editorMode.type === "edit"
-          ? editorMode.productId
-          : `draft-${editorForm.name.toLowerCase().replace(/\s+/g, "-") || Date.now()}`,
-      name: editorForm.name || "Untitled product",
-      price: Number(editorForm.price || 0),
-      stock: Number(editorForm.stock || 0),
-      unitCode: editorForm.unitCode || "EA",
-      status: editorMode.type === "edit" ? "Draft" : "Draft",
-      section: "draft",
-      dateLabel: formatLaunchLabel(editorForm.launchDate || emptyForm.launchDate),
-      sortDate: editorForm.launchDate || emptyForm.launchDate,
-      tone: "mint",
-      icon: Package2,
-    };
-
-    if (editorMode.type === "edit") {
-      const update = (products: InventoryProduct[]) =>
-        products.map(product =>
-          product.id === editorMode.productId
-            ? {
-                ...product,
-                name: normalizedProduct.name,
-                price: normalizedProduct.price,
-                stock: normalizedProduct.stock,
-                unitCode: normalizedProduct.unitCode,
-                dateLabel:
-                  product.section === "draft"
-                    ? normalizedProduct.dateLabel
-                    : product.dateLabel,
-                sortDate:
-                  product.section === "draft"
-                    ? normalizedProduct.sortDate
-                    : product.sortDate,
-              }
-            : product,
-        );
-      setLaunchedProducts(update);
-      setDraftProducts(update);
-    } else {
-      setDraftProducts(current => sortProducts([normalizedProduct, ...current], "draft"));
-      setExpandedSections(current => ({ ...current, draft: true }));
+  const handleSave = async () => {
+    if (!session) {
+      setEditorError("Sign in again before saving products.");
+      return;
     }
 
-    closeEditor();
+    setEditorBusy("save");
+    setEditorError(null);
+
+    try {
+      if (editorMode.type === "edit") {
+        const product = products.find(item => item.id === editorMode.productId);
+        if (!product?.productId) {
+          throw new Error("Missing product identifier.");
+        }
+
+        const updated = await updateInventoryProduct(session, product.productId, {
+          name: editorForm.name.trim(),
+          price: Number(editorForm.price),
+          unit: editorForm.unitCode.trim() || "EA",
+          description: editorForm.description.trim(),
+          category: editorForm.category,
+          availableUnits: Number(editorForm.stock),
+          isVisible: editorForm.isVisible,
+          showSoldout: editorForm.showSoldout,
+          releaseDate: editorForm.launchDate || null,
+        });
+
+        const normalized = normalizeInventoryRecord(updated);
+        setProducts(current =>
+          current.map(item => (item.id === editorMode.productId ? normalized : item)),
+        );
+      } else {
+        const created = await createInventoryProduct(session, {
+          partyId: session.contactEmail,
+          name: editorForm.name.trim(),
+          price: Number(editorForm.price),
+          unit: editorForm.unitCode.trim() || "EA",
+          description: editorForm.description.trim(),
+          category: editorForm.category,
+          availableUnits: Number(editorForm.stock),
+          isVisible: editorForm.isVisible,
+          showSoldout: editorForm.showSoldout,
+          releaseDate: editorForm.launchDate || null,
+        });
+        const normalized = normalizeInventoryRecord(created);
+        setProducts(current => [normalized, ...current]);
+        setExpandedSections(current => ({ ...current, [normalized.section]: true }));
+      }
+
+      closeEditor();
+    } catch (error) {
+      setEditorError(
+        error instanceof Error && error.message.includes(":")
+          ? error.message.slice(error.message.lastIndexOf(":") + 1).trim() || "Unable to save product."
+          : "Unable to save product.",
+      );
+      setEditorBusy(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!session || editorMode.type !== "edit") {
+      return;
+    }
+
+    const product = products.find(item => item.id === editorMode.productId);
+    if (!product?.productId) {
+      setEditorError("Missing product identifier.");
+      return;
+    }
+
+    setEditorBusy("delete");
+    setEditorError(null);
+
+    try {
+      await deleteInventoryProduct(session, product.productId);
+      setProducts(current => current.filter(item => item.id !== editorMode.productId));
+      closeEditor();
+    } catch (error) {
+      setEditorError(
+        error instanceof Error && error.message.includes(":")
+          ? error.message.slice(error.message.lastIndexOf(":") + 1).trim() ||
+              "Unable to delete product."
+          : "Unable to delete product.",
+      );
+      setEditorBusy(null);
+    }
   };
 
   return (
@@ -431,37 +530,52 @@ export function InventoryPrototypePage() {
               </div>
             </header>
 
-            <div className="inventory-content">
-              <div className="inventory-sections">
-                <InventorySectionBlock
-                  title="Launched"
-                  helper="Visible to buyers right now"
-                  products={filteredLaunched}
-                  expanded={expandedSections.launched}
-                  onToggleExpanded={() =>
-                    setExpandedSections(current => ({
-                      ...current,
-                      launched: !current.launched,
-                    }))
-                  }
-                  onEdit={openEditPanel}
-                />
-
-                <InventorySectionBlock
-                  title="Draft listings"
-                  helper="Hidden from buyers until their launch date"
-                  products={filteredDraft}
-                  expanded={expandedSections.draft}
-                  onToggleExpanded={() =>
-                    setExpandedSections(current => ({
-                      ...current,
-                      draft: !current.draft,
-                    }))
-                  }
-                  onEdit={openEditPanel}
-                />
+            {pageError ? (
+              <div className="inventory-section-shell" role="alert">
+                <div className="inventory-empty-state">
+                  <strong>Inventory could not be loaded.</strong>
+                  <span>{pageError}</span>
+                </div>
               </div>
-            </div>
+            ) : loading ? (
+              <div className="inventory-section-shell">
+                <div className="inventory-empty-state">
+                  <strong>Loading inventory…</strong>
+                </div>
+              </div>
+            ) : (
+              <div className="inventory-content">
+                <div className="inventory-sections">
+                  <InventorySectionBlock
+                    title="Launched"
+                    helper="Visible to buyers right now"
+                    products={filteredLaunched}
+                    expanded={expandedSections.launched}
+                    onToggleExpanded={() =>
+                      setExpandedSections(current => ({
+                        ...current,
+                        launched: !current.launched,
+                      }))
+                    }
+                    onEdit={openEditPanel}
+                  />
+
+                  <InventorySectionBlock
+                    title="Draft listings"
+                    helper="Hidden from buyers until their launch date"
+                    products={filteredDraft}
+                    expanded={expandedSections.draft}
+                    onToggleExpanded={() =>
+                      setExpandedSections(current => ({
+                        ...current,
+                        draft: !current.draft,
+                      }))
+                    }
+                    onEdit={openEditPanel}
+                  />
+                </div>
+              </div>
+            )}
 
             <div
               className="inventory-editor-backdrop"
@@ -486,7 +600,7 @@ export function InventoryPrototypePage() {
                   <p>
                     {editorMode.type === "closed"
                       ? "Choose Add product or open a card menu to start editing."
-                      : "Shared editor for launched items and draft listings."}
+                      : "Edit live stock, release timing, and catalogue visibility."}
                   </p>
                 </div>
                 <button
@@ -521,6 +635,9 @@ export function InventoryPrototypePage() {
                     <label className="inventory-field">
                       <span>Price</span>
                       <input
+                        type="number"
+                        min="0"
+                        step="0.01"
                         value={editorForm.price}
                         onChange={event =>
                           setEditorForm(current => ({ ...current, price: event.target.value }))
@@ -531,6 +648,9 @@ export function InventoryPrototypePage() {
                     <label className="inventory-field">
                       <span>Stock quantity</span>
                       <input
+                        type="number"
+                        min="0"
+                        step="1"
                         value={editorForm.stock}
                         onChange={event =>
                           setEditorForm(current => ({ ...current, stock: event.target.value }))
@@ -562,16 +682,103 @@ export function InventoryPrototypePage() {
                     </label>
                   </div>
 
-                  <div className="inventory-upload-slot" role="button" tabIndex={0}>
-                    <ImagePlus size={18} strokeWidth={2.1} />
-                    <span>Image placeholder / upload slot</span>
+                  <label className="inventory-field">
+                    <span>Category</span>
+                    <select
+                      value={editorForm.category}
+                      onChange={event =>
+                        setEditorForm(current => ({ ...current, category: event.target.value }))
+                      }
+                    >
+                      {categoryOptions.map(option => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="inventory-field">
+                    <span>Description</span>
+                    <textarea
+                      rows={4}
+                      value={editorForm.description}
+                      onChange={event =>
+                        setEditorForm(current => ({ ...current, description: event.target.value }))
+                      }
+                    />
+                  </label>
+
+                  <div className="inventory-toggle-grid">
+                    <label className="inventory-filter-toggle">
+                      <input
+                        type="checkbox"
+                        checked={editorForm.isVisible}
+                        onChange={event =>
+                          setEditorForm(current => ({ ...current, isVisible: event.target.checked }))
+                        }
+                      />
+                      <span className="inventory-filter-toggle-mark" aria-hidden="true" />
+                      <span>Visible now</span>
+                    </label>
+
+                    <label className="inventory-filter-toggle">
+                      <input
+                        type="checkbox"
+                        checked={editorForm.showSoldout}
+                        onChange={event =>
+                          setEditorForm(current => ({
+                            ...current,
+                            showSoldout: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span className="inventory-filter-toggle-mark" aria-hidden="true" />
+                      <span>Show when sold out</span>
+                    </label>
                   </div>
 
+                  <div className="inventory-upload-slot" role="button" tabIndex={0}>
+                    <ImagePlus size={18} strokeWidth={2.1} />
+                    <span>Image upload wiring is the next pass.</span>
+                  </div>
+
+                  {editorError ? (
+                    <div className="inventory-editor-error" role="alert">
+                      {editorError}
+                    </div>
+                  ) : null}
+
                   <div className="inventory-editor-actions">
-                    <button type="button" className="inventory-primary-action" onClick={handleSave}>
-                      Save product
+                    <button
+                      type="button"
+                      className="inventory-primary-action"
+                      onClick={() => {
+                        void handleSave();
+                      }}
+                      disabled={editorBusy !== null}
+                    >
+                      {editorBusy === "save" ? "Saving..." : "Save product"}
                     </button>
-                    <button type="button" className="inventory-secondary-action" onClick={closeEditor}>
+                    {editorMode.type === "edit" ? (
+                      <button
+                        type="button"
+                        className="inventory-danger-action"
+                        onClick={() => {
+                          void handleDelete();
+                        }}
+                        disabled={editorBusy !== null}
+                      >
+                        <Trash2 size={16} strokeWidth={2.1} />
+                        {editorBusy === "delete" ? "Deleting..." : "Delete"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="inventory-secondary-action"
+                      onClick={closeEditor}
+                      disabled={editorBusy !== null}
+                    >
                       Cancel
                     </button>
                   </div>
