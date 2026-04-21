@@ -1,7 +1,7 @@
 import type { MarketplaceProduct } from "./pages/marketplacePrototypeData";
 import type { OrderRequestPayload } from "./voiceOrder";
 
-export type AssistantContext = "marketplace" | "checkout" | "locked_order";
+export type AssistantContext = "marketplace" | "checkout" | "locked_order" | "inventory";
 
 export type AssistantActionResult =
   | {
@@ -24,8 +24,24 @@ export type MarketplaceVoiceCommand =
   | { kind: "clear_search" }
   | { kind: "set_category"; category: string }
   | { kind: "set_in_stock"; value: boolean }
+  | { kind: "go_to_checkout" }
   | { kind: "change_quantity"; productId: string; quantityDelta: number; productName: string }
   | { kind: "remove_product"; productId: string; productName: string };
+
+export type InventoryVoiceCommand =
+  | { kind: "search"; query: string }
+  | { kind: "clear_search" }
+  | { kind: "set_in_stock"; value: boolean }
+  | {
+      kind: "create_product";
+      name: string;
+      price: number;
+      stock: number;
+      category: string;
+      unitCode: string;
+      isVisible: boolean;
+    }
+  | { kind: "delete_product"; productId: string; productName: string };
 
 export type LockedOrderVoiceCommand =
   | { kind: "fetch_despatch" }
@@ -34,7 +50,7 @@ export type LockedOrderVoiceCommand =
   | { kind: "refresh_invoice" }
   | { kind: "fetch_invoice_xml" }
   | { kind: "download_invoice_pdf" }
-  | { kind: "set_invoice_status"; status: string }
+  | { kind: "set_invoice_status"; status: string; paymentDate?: string | null }
   | { kind: "delete_invoice" };
 
 export type CheckoutVoiceCommand = { kind: "submit_checkout" };
@@ -61,6 +77,7 @@ const STOP_WORDS = new Set([
   "stock",
   "item",
   "items",
+  "inventory",
 ]);
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -77,12 +94,18 @@ const NUMBER_WORDS: Record<string, number> = {
   couple: 2,
 };
 
+const DEFAULT_INVENTORY_CATEGORY = "Others";
+const DEFAULT_INVENTORY_UNIT_CODE = "EA";
+
 function normalizeToken(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s$\.]/g, " ")
     .trim()
-    .replace(/\b(mugs|bags|candles|jackets|prints|boxes)\b/g, match => match.slice(0, -1))
+    .replace(
+      /\b(mugs|bags|candles|jackets|prints|boxes|products|listings)\b/g,
+      match => match.slice(0, -1),
+    )
     .replace(/\s+/g, " ");
 }
 
@@ -109,24 +132,27 @@ function extractQuantity(transcript: string): number {
   return 1;
 }
 
-function findBestMatchingProduct(
+function findBestMatchingNamedItem<T extends { name: string }>(
   transcript: string,
-  products: MarketplaceProduct[],
-): MarketplaceProduct | null {
+  items: T[],
+): T | null {
   const transcriptTokens = tokenize(transcript);
   if (transcriptTokens.length === 0) {
     return null;
   }
 
-  const scored = products
-    .map(product => {
-      const productTokens = tokenize(product.name);
-      const score = productTokens.reduce((count, token) => {
-        return transcriptTokens.some(transcriptToken => transcriptToken.startsWith(token) || token.startsWith(transcriptToken))
+  const scored = items
+    .map(item => {
+      const itemTokens = tokenize(item.name);
+      const score = itemTokens.reduce((count, token) => {
+        return transcriptTokens.some(
+          transcriptToken =>
+            transcriptToken.startsWith(token) || token.startsWith(transcriptToken),
+        )
           ? count + 1
           : count;
       }, 0);
-      return { product, score, tokenCount: productTokens.length };
+      return { item, score, tokenCount: itemTokens.length };
     })
     .filter(candidate => candidate.score > 0)
     .sort((left, right) => {
@@ -146,7 +172,70 @@ function findBestMatchingProduct(
     return null;
   }
 
-  return best.score >= 2 || best.tokenCount === 1 ? best.product : null;
+  return best.score >= 2 || best.tokenCount === 1 ? best.item : null;
+}
+
+function findBestMatchingProduct(
+  transcript: string,
+  products: MarketplaceProduct[],
+): MarketplaceProduct | null {
+  return findBestMatchingNamedItem(transcript, products);
+}
+
+function parseInventoryCategory(transcript: string, categories: string[]): string {
+  const normalized = normalizeToken(transcript);
+  const matched = categories.find(category => normalized.includes(normalizeToken(category)));
+  return matched ?? DEFAULT_INVENTORY_CATEGORY;
+}
+
+function parseInventoryUnitCode(transcript: string): string {
+  const normalized = normalizeToken(transcript);
+  const unitMatch = normalized.match(/unit(?: code)?\s+([a-z]{1,4})\b/);
+  return unitMatch?.[1]?.toUpperCase() || DEFAULT_INVENTORY_UNIT_CODE;
+}
+
+function parseInventoryName(transcript: string): string | null {
+  const normalized = normalizeToken(transcript);
+  const namedMatch = normalized.match(
+    /(?:called|named)\s+(.+?)(?=\s+(?:priced?|price|for|with|category|in)\b|$)/,
+  );
+  if (namedMatch?.[1]) {
+    return namedMatch[1]!.trim();
+  }
+
+  const createMatch = normalized.match(
+    /(?:create|add|list)\s+(?:a\s+|an\s+|new\s+)?(?:product|item|listing)?\s*(.+?)(?=\s+(?:priced?|price|for|with|category|in)\b|$)/,
+  );
+  const candidate = createMatch?.[1]?.trim();
+  if (!candidate || ["product", "item", "listing"].includes(candidate)) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function parseInventoryPrice(transcript: string): number | null {
+  const normalized = normalizeToken(transcript);
+  const priceMatch =
+    normalized.match(/(?:priced? at|price|for)\s+\$?(\d+(?:\.\d+)?)/) ??
+    normalized.match(/\$(\d+(?:\.\d+)?)/);
+  if (!priceMatch?.[1]) {
+    return null;
+  }
+
+  return Number.parseFloat(priceMatch[1]!);
+}
+
+function parseInventoryStock(transcript: string): number | null {
+  const normalized = normalizeToken(transcript);
+  const stockMatch = normalized.match(
+    /(?:with|and)\s+(\d+)\s+(?:in stock|available|units?|items?)\b/,
+  );
+  if (!stockMatch?.[1]) {
+    return null;
+  }
+
+  return Number.parseInt(stockMatch[1]!, 10);
 }
 
 export function parseMarketplaceVoiceCommand(
@@ -184,7 +273,9 @@ export function parseMarketplaceVoiceCommand(
     candidate =>
       candidate !== "All" &&
       normalized.includes(normalizeToken(candidate)) &&
-      (normalized.startsWith("show") || normalized.startsWith("filter") || normalized.includes("only")),
+      (normalized.startsWith("show") ||
+        normalized.startsWith("filter") ||
+        normalized.includes("only")),
   );
   if (category) {
     return { kind: "set_category", category };
@@ -194,13 +285,27 @@ export function parseMarketplaceVoiceCommand(
     return { kind: "set_category", category: "All" };
   }
 
-  if (normalized.startsWith("search ") || normalized.startsWith("find ") || normalized.startsWith("look for ")) {
+  if (
+    normalized.startsWith("search ") ||
+    normalized.startsWith("find ") ||
+    normalized.startsWith("look for ")
+  ) {
     const query = normalized
       .replace(/^search\s+/, "")
       .replace(/^find\s+/, "")
       .replace(/^look for\s+/, "")
       .trim();
     return query ? { kind: "search", query } : null;
+  }
+
+  if (
+    normalized.includes("go to checkout") ||
+    normalized.includes("go checkout") ||
+    normalized.includes("open checkout") ||
+    normalized.includes("review order") ||
+    normalized === "checkout"
+  ) {
+    return { kind: "go_to_checkout" };
   }
 
   const product = findBestMatchingProduct(normalized, products);
@@ -235,6 +340,96 @@ export function parseMarketplaceVoiceCommand(
       productId: product.id,
       productName: product.name,
       quantityDelta: -extractQuantity(normalized),
+    };
+  }
+
+  return null;
+}
+
+export function parseInventoryVoiceCommand(
+  transcript: string,
+  products: Array<{ id: string; name: string }>,
+  categories: string[],
+): InventoryVoiceCommand | null {
+  const normalized = normalizeToken(transcript);
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes("clear search")) {
+    return { kind: "clear_search" };
+  }
+
+  if (
+    normalized.includes("in stock only") ||
+    normalized.includes("only in stock") ||
+    normalized.includes("hide out of stock")
+  ) {
+    return { kind: "set_in_stock", value: true };
+  }
+
+  if (
+    normalized.includes("show out of stock") ||
+    normalized.includes("include out of stock") ||
+    normalized.includes("all stock")
+  ) {
+    return { kind: "set_in_stock", value: false };
+  }
+
+  if (
+    normalized.startsWith("search ") ||
+    normalized.startsWith("find ") ||
+    normalized.startsWith("look for ")
+  ) {
+    const query = normalized
+      .replace(/^search\s+/, "")
+      .replace(/^find\s+/, "")
+      .replace(/^look for\s+/, "")
+      .trim();
+    return query ? { kind: "search", query } : null;
+  }
+
+  if (
+    normalized.startsWith("create") ||
+    normalized.startsWith("add product") ||
+    normalized.startsWith("add item") ||
+    normalized.startsWith("list product") ||
+    normalized.startsWith("list item")
+  ) {
+    const name = parseInventoryName(transcript);
+    const price = parseInventoryPrice(transcript);
+    const stock = parseInventoryStock(transcript);
+    if (!name || price === null || stock === null) {
+      return null;
+    }
+
+    return {
+      kind: "create_product",
+      name,
+      price,
+      stock,
+      category: parseInventoryCategory(transcript, categories),
+      unitCode: parseInventoryUnitCode(transcript),
+      isVisible: !(normalized.includes("draft") || normalized.includes("hidden")),
+    };
+  }
+
+  if (
+    normalized.startsWith("delete") ||
+    normalized.startsWith("remove") ||
+    normalized.includes("remove from inventory") ||
+    normalized.includes("delete from inventory")
+  ) {
+    const product = findBestMatchingNamedItem(normalized, products);
+    if (!product) {
+      return null;
+    }
+
+    return {
+      kind: "delete_product",
+      productId: product.id,
+      productName: product.name,
     };
   }
 
@@ -277,7 +472,7 @@ export function parseLockedOrderVoiceCommand(transcript: string): LockedOrderVoi
   }
 
   const statusMatch =
-    normalized.match(/set invoice status to ([a-z]+)/) ||
+    normalized.match(/set invoice status to ([a-z]+)/) ??
     normalized.match(/mark invoice ([a-z]+)/);
   if (statusMatch?.[1]) {
     return { kind: "set_invoice_status", status: statusMatch[1]!.trim() };
@@ -328,6 +523,7 @@ export function buildCheckoutAssistantPayload(current: {
   issueDate: string;
   currency: string;
   lines: Array<{
+    productId?: number | null;
     productName: string;
     quantity: number;
     unitCode: string;
@@ -351,6 +547,7 @@ export function buildCheckoutAssistantPayload(current: {
       requestedDate: current.requestedDate || null,
     },
     lines: current.lines.map(line => ({
+      productId: line.productId ?? null,
       productName: line.productName,
       quantity: line.quantity,
       unitCode: line.unitCode,
@@ -382,12 +579,18 @@ export function summarizeCheckoutFieldMutations(
   },
 ): string[] {
   const messages = [
-    previous.buyerName !== next.buyerName ? summarizeFieldChange("buyer name", next.buyerName) : null,
+    previous.buyerName !== next.buyerName
+      ? summarizeFieldChange("buyer name", next.buyerName)
+      : null,
     previous.street !== next.street ? summarizeFieldChange("delivery street", next.street) : null,
     previous.city !== next.city ? summarizeFieldChange("delivery city", next.city) : null,
     previous.state !== next.state ? summarizeFieldChange("delivery state", next.state) : null,
-    previous.postcode !== next.postcode ? summarizeFieldChange("delivery postcode", next.postcode) : null,
-    previous.country !== next.country ? summarizeFieldChange("delivery country", next.country) : null,
+    previous.postcode !== next.postcode
+      ? summarizeFieldChange("delivery postcode", next.postcode)
+      : null,
+    previous.country !== next.country
+      ? summarizeFieldChange("delivery country", next.country)
+      : null,
     previous.requestedDate !== next.requestedDate
       ? summarizeFieldChange("requested date", next.requestedDate)
       : null,

@@ -343,6 +343,20 @@ describe("MarketplacePrototypePage", () => {
     });
     expect(screen.getByText(/added 2 handmade ceramic mug to the cart/i)).toBeInTheDocument();
   });
+
+  it("navigates to checkout from a marketplace voice command", async () => {
+    const user = userEvent.setup();
+
+    render(<MarketplacePrototypePage />);
+    await screen.findByText("Handmade ceramic mug");
+    await user.click(screen.getByRole("button", { name: /increase handmade ceramic mug/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("go to checkout");
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/marketplace/review");
+    });
+  });
 });
 
 describe("MarketplaceReviewPage", () => {

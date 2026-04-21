@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import {
   Coffee,
@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
+import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
 import {
   createInventoryProduct,
   deleteInventoryProduct,
@@ -21,6 +22,12 @@ import {
   updateInventoryProduct,
 } from "../productApi";
 import { useStoredSession } from "../session";
+import {
+  parseInventoryVoiceCommand,
+  type AssistantActionResult,
+  type InventoryVoiceCommand,
+} from "../voiceAssistant";
+import { getInventoryAssistantWebSocketUrl } from "../voiceOrder";
 import "./inventory-prototype.css";
 
 type InventorySection = "launched" | "draft";
@@ -61,6 +68,16 @@ type EditorForm = {
   showSoldout: boolean;
 };
 
+type InventoryAssistantServerEnvelope = {
+  type: string;
+  payload?: {
+    kind?: "partial" | "final";
+    text?: string;
+    command?: InventoryVoiceCommand | null;
+    message?: string | null;
+  };
+};
+
 const categoryOptions = [
   "Fashion",
   "Home and Kitchen",
@@ -89,6 +106,14 @@ const emptyForm: EditorForm = {
   isVisible: false,
   showSoldout: true,
 };
+
+function describeInventoryError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error) || !error.message.includes(":")) {
+    return fallback;
+  }
+
+  return error.message.slice(error.message.lastIndexOf(":") + 1).trim() || fallback;
+}
 
 function formatPrice(value: number): string {
   return `$${value.toFixed(0)}`;
@@ -301,6 +326,31 @@ export function InventoryPrototypePage() {
   const [editorForm, setEditorForm] = useState<EditorForm>(emptyForm);
   const [editorBusy, setEditorBusy] = useState<"save" | "delete" | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [assistantLiveTranscript, setAssistantLiveTranscript] = useState<string | null>(null);
+  const assistantSocketRef = useRef<WebSocket | null>(null);
+  const assistantResultResolverRef = useRef<((result: AssistantActionResult) => void) | null>(null);
+  const productsRef = useRef(products);
+  const searchQueryRef = useRef(searchQuery);
+  const inStockOnlyRef = useRef(inStockOnly);
+  const categoriesRef = useRef<string[]>(categoryOptions);
+  const sessionRef = useRef(session);
+  const inventoryAssistantWebSocketUrl = getInventoryAssistantWebSocketUrl();
+
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
+
+  useEffect(() => {
+    inStockOnlyRef.current = inStockOnly;
+  }, [inStockOnly]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -397,6 +447,304 @@ export function InventoryPrototypePage() {
     );
   }, [inStockOnly, products, searchQuery]);
 
+  const inventoryCategories = useMemo(() => {
+    return Array.from(new Set([...categoryOptions, ...products.map(product => product.category)])).sort();
+  }, [products]);
+
+  useEffect(() => {
+    categoriesRef.current = inventoryCategories;
+  }, [inventoryCategories]);
+
+  const applyInventoryCommand = (command: InventoryVoiceCommand): AssistantActionResult => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) {
+      return {
+        kind: "rejected",
+        message: "Sign in again before using inventory voice actions.",
+      };
+    }
+
+    if (command.kind === "search") {
+      setSearchQuery(command.query);
+      return {
+        kind: "applied",
+        message: `Updated inventory search to ${command.query}.`,
+      };
+    }
+
+    if (command.kind === "clear_search") {
+      setSearchQuery("");
+      return {
+        kind: "applied",
+        message: "Cleared the inventory search.",
+      };
+    }
+
+    if (command.kind === "set_in_stock") {
+      setInStockOnly(command.value);
+      return {
+        kind: "applied",
+        message: command.value ? "Enabled in-stock-only inventory filtering." : "Showing all stock states.",
+      };
+    }
+
+    if (command.kind === "create_product") {
+      return {
+        kind: "confirm",
+        message: `Create ${command.name} in ${command.category} for $${command.price.toFixed(2)} with ${command.stock} in stock?`,
+        confirmLabel: "Create product",
+        execute: async () => {
+          try {
+            const created = await createInventoryProduct(currentSession, {
+              partyId: currentSession.contactEmail,
+              name: command.name,
+              price: command.price,
+              unit: command.unitCode,
+              description: "",
+              category: command.category,
+              availableUnits: command.stock,
+              isVisible: command.isVisible,
+              showSoldout: true,
+              releaseDate: null,
+            });
+            const normalized = normalizeInventoryRecord(created);
+            setProducts(current => [normalized, ...current]);
+            setExpandedSections(current => ({ ...current, [normalized.section]: true }));
+
+            return {
+              kind: "applied",
+              message: `Created ${normalized.name} in inventory.`,
+            };
+          } catch (error) {
+            return {
+              kind: "rejected",
+              message: describeInventoryError(error, "Unable to create the inventory product."),
+            };
+          }
+        },
+      };
+    }
+
+    const product = productsRef.current.find(item => item.id === command.productId);
+    if (!product?.productId) {
+      return {
+        kind: "rejected",
+        message: "That inventory item could not be found.",
+      };
+    }
+    const productId = product.productId;
+
+    return {
+      kind: "confirm",
+      message: `Delete ${command.productName} from inventory?`,
+      confirmLabel: "Delete product",
+      execute: async () => {
+        try {
+          await deleteInventoryProduct(currentSession, productId);
+          setProducts(current => current.filter(item => item.id !== product.id));
+          return {
+            kind: "applied",
+            message: `Deleted ${command.productName} from inventory.`,
+          };
+        } catch (error) {
+          return {
+            kind: "rejected",
+            message: describeInventoryError(error, "Unable to delete the inventory product."),
+          };
+        }
+      },
+    };
+  };
+
+  const startInventoryAssistantRequest = (transcript: string) => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return null;
+    }
+
+    return new Promise<AssistantActionResult>(resolve => {
+      const timeoutId = window.setTimeout(() => {
+        if (assistantResultResolverRef.current) {
+          assistantResultResolverRef.current = null;
+          resolve({
+            kind: "rejected",
+            message: "The inventory assistant timed out.",
+          });
+        }
+      }, 12000);
+
+      assistantResultResolverRef.current = resolve;
+      socket.send(JSON.stringify({ type: "transcript.final", payload: { text: transcript } }));
+
+      assistantResultResolverRef.current = result => {
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      };
+    });
+  };
+
+  useEffect(() => {
+    const socket = new WebSocket(inventoryAssistantWebSocketUrl);
+    assistantSocketRef.current = socket;
+
+    const sendContext = (type: "session.start" | "context.patch") => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type,
+          payload: {
+            products: productsRef.current.map(product => ({
+              id: product.id,
+              name: product.name,
+              category: product.category,
+              stock: product.stock,
+            })),
+            categories: categoriesRef.current,
+            filters: {
+              query: searchQueryRef.current,
+              inStockOnly: inStockOnlyRef.current,
+            },
+          },
+        }),
+      );
+    };
+
+    const handleOpen = () => {
+      sendContext("session.start");
+    };
+
+    const handleMessage = (event: MessageEvent<string>) => {
+      const envelope = JSON.parse(event.data) as InventoryAssistantServerEnvelope;
+      if (envelope.type === "transcript.echo") {
+        if (envelope.payload?.kind === "partial") {
+          setAssistantLiveTranscript(envelope.payload.text ?? null);
+        }
+        if (envelope.payload?.kind === "final") {
+          setAssistantLiveTranscript(null);
+        }
+        return;
+      }
+
+      if (envelope.type === "assistant.command") {
+        const resolver = assistantResultResolverRef.current;
+        assistantResultResolverRef.current = null;
+        const result = envelope.payload?.command
+          ? applyInventoryCommand(envelope.payload.command)
+          : {
+              kind: "rejected" as const,
+              message: envelope.payload?.message ?? "I could not map that to an inventory action.",
+            };
+        resolver?.(result);
+        return;
+      }
+
+      if (envelope.type === "error") {
+        const resolver = assistantResultResolverRef.current;
+        assistantResultResolverRef.current = null;
+        resolver?.({
+          kind: "rejected",
+          message: envelope.payload?.message ?? "The inventory assistant could not respond.",
+        });
+      }
+    };
+
+    const handleClose = () => {
+      setAssistantLiveTranscript(null);
+      const resolver = assistantResultResolverRef.current;
+      assistantResultResolverRef.current = null;
+      resolver?.({
+        kind: "rejected",
+        message: "The inventory assistant disconnected.",
+      });
+    };
+
+    socket.addEventListener("open", handleOpen);
+    socket.addEventListener("message", handleMessage);
+    socket.addEventListener("close", handleClose);
+
+    return () => {
+      socket.removeEventListener("open", handleOpen);
+      socket.removeEventListener("message", handleMessage);
+      socket.removeEventListener("close", handleClose);
+      assistantSocketRef.current = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    };
+  }, [inventoryAssistantWebSocketUrl]);
+
+  useEffect(() => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "context.patch",
+        payload: {
+          products: products.map(product => ({
+            id: product.id,
+            name: product.name,
+            category: product.category,
+            stock: product.stock,
+          })),
+          categories: inventoryCategories,
+          filters: {
+            query: searchQuery,
+            inStockOnly,
+          },
+        },
+      }),
+    );
+  }, [inStockOnly, inventoryCategories, products, searchQuery]);
+
+  const handleInventoryVoiceTranscript = async (
+    transcript: string,
+  ): Promise<AssistantActionResult> => {
+    if (!session) {
+      return {
+        kind: "rejected",
+        message: "Sign in again before using inventory voice actions.",
+      };
+    }
+
+    setAssistantLiveTranscript(null);
+    const streamedResult = await startInventoryAssistantRequest(transcript);
+    if (streamedResult) {
+      return streamedResult;
+    }
+
+    const command = parseInventoryVoiceCommand(
+      transcript,
+      productsRef.current.map(product => ({ id: product.id, name: product.name })),
+      categoriesRef.current,
+    );
+
+    if (!command) {
+      return {
+        kind: "rejected",
+        message:
+          "Try a more explicit inventory command, such as creating a named product or deleting an existing listing.",
+      };
+    }
+
+    return applyInventoryCommand(command);
+  };
+
+  const handleInventoryVoicePartialTranscript = (transcript: string) => {
+    const socket = assistantSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setAssistantLiveTranscript(transcript);
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "transcript.partial", payload: { text: transcript } }));
+  };
+
   const handleSave = async () => {
     if (!session) {
       setEditorError("Sign in again before saving products.");
@@ -449,11 +797,7 @@ export function InventoryPrototypePage() {
 
       closeEditor();
     } catch (error) {
-      setEditorError(
-        error instanceof Error && error.message.includes(":")
-          ? error.message.slice(error.message.lastIndexOf(":") + 1).trim() || "Unable to save product."
-          : "Unable to save product.",
-      );
+      setEditorError(describeInventoryError(error, "Unable to save product."));
       setEditorBusy(null);
     }
   };
@@ -477,12 +821,7 @@ export function InventoryPrototypePage() {
       setProducts(current => current.filter(item => item.id !== editorMode.productId));
       closeEditor();
     } catch (error) {
-      setEditorError(
-        error instanceof Error && error.message.includes(":")
-          ? error.message.slice(error.message.lastIndexOf(":") + 1).trim() ||
-              "Unable to delete product."
-          : "Unable to delete product.",
-      );
+      setEditorError(describeInventoryError(error, "Unable to delete product."));
       setEditorBusy(null);
     }
   };
@@ -529,6 +868,16 @@ export function InventoryPrototypePage() {
                 </button>
               </div>
             </header>
+
+            <VoiceAssistantDock
+              context="inventory"
+              hint='Try “find my tote listings”, “only show in-stock items”, “create a new linen tote for 31 dollars with 8 in stock in Fashion”, or “delete the ceramic mug listing”.'
+              disabledReason={!session ? "Sign in again before using inventory voice actions." : null}
+              liveTranscript={assistantLiveTranscript}
+              streaming
+              onPartialTranscript={handleInventoryVoicePartialTranscript}
+              onTranscript={handleInventoryVoiceTranscript}
+            />
 
             {pageError ? (
               <div className="inventory-section-shell" role="alert">

@@ -49,6 +49,7 @@ class MarketplaceAssistantCommandPatch(BaseModel):
         "clear_search",
         "set_category",
         "set_in_stock",
+        "go_to_checkout",
         "change_quantity",
         "remove_product",
         "none",
@@ -233,6 +234,7 @@ Rules:
 - Use `search` when the user wants to search listings or sellers.
 - Use `set_category` when the user wants a category such as Fashion or Homeware.
 - Use `set_in_stock` when the user wants to show only in-stock items or all stock states.
+- Use `go_to_checkout` when the user wants to review the cart or move to checkout.
 - Use `change_quantity` when the user wants to add or remove a quantity of a specific product.
 - Use `remove_product` when the user wants the whole product removed from the cart.
 - Natural shopping phrases like "I would like three ceramic mugs" or "can I get two candles" should map to `change_quantity`.

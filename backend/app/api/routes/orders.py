@@ -41,6 +41,14 @@ from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
 from app.services.despatch import create_despatch_from_order_xml
+from app.services.documents_assistant import (
+    interpret_documents_command,
+)
+from app.services.inventory_assistant import (
+    InventoryAssistantFilterState,
+    InventoryAssistantProduct,
+    interpret_inventory_command,
+)
 from app.services.marketplace_assistant import (
     MarketplaceAssistantCartLine,
     MarketplaceAssistantFilterState,
@@ -463,6 +471,228 @@ async def marketplace_assistant_session(websocket: WebSocket):
         logger.info("Marketplace assistant session disconnected")
 
 
+@router.websocket("/v1/inventory/assistant/ws")
+async def inventory_assistant_session(websocket: WebSocket):
+    await websocket.accept()
+    state: dict[str, Any] = {
+        "products": [],
+        "categories": [],
+        "filters": InventoryAssistantFilterState(),
+        "transcript_log": [],
+        "current_partial": "",
+    }
+    ready_sent = await _safe_websocket_send_json(
+        websocket,
+        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}},
+    )
+    if not ready_sent:
+        logger.info("Inventory assistant session disconnected before ready state was delivered")
+        return
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict):
+                await _send_error(
+                    websocket, "invalid_message", "WebSocket messages must be JSON objects."
+                )
+                continue
+
+            event_type = message.get("type")
+            payload = message.get("payload") or {}
+            if not isinstance(payload, dict):
+                await _send_error(
+                    websocket, "invalid_payload", "Event payloads must be JSON objects."
+                )
+                continue
+
+            if event_type == "session.start":
+                await _handle_inventory_assistant_context(websocket, state, payload)
+            elif event_type == "context.patch":
+                await _handle_inventory_assistant_context(websocket, state, payload)
+            elif event_type == "transcript.partial":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Partial transcript text must be a string.",
+                    )
+                    continue
+
+                state["current_partial"] = text.strip()
+                if not await _safe_websocket_send_json(
+                    websocket,
+                    {
+                        "type": "transcript.echo",
+                        "payload": {"kind": "partial", "text": state["current_partial"]},
+                    },
+                ):
+                    return
+            elif event_type == "transcript.final":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Final transcript text must be a string.",
+                    )
+                    continue
+
+                cleaned = text.strip()
+                state["current_partial"] = ""
+                state["transcript_log"].append(cleaned)
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "transcript.echo",
+                        "payload": {"kind": "final", "text": cleaned},
+                    },
+                ):
+                    return
+
+                interpretation = await interpret_inventory_command(
+                    transcript=cleaned,
+                    products=state["products"],
+                    categories=state["categories"],
+                    filters=state["filters"],
+                    transcript_log=state["transcript_log"],
+                )
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "assistant.command",
+                        "payload": {
+                            "command": interpretation.command.model_dump(mode="json")
+                            if interpretation.command
+                            else None,
+                            "message": interpretation.unresolved_reason
+                            or interpretation.warning_message,
+                        },
+                    },
+                ):
+                    return
+            else:
+                await _send_error(
+                    websocket, "unknown_event", f"Unsupported event type: {event_type}"
+                )
+    except WebSocketDisconnect:
+        logger.info("Inventory assistant session disconnected")
+
+
+@router.websocket("/v1/order/documents/assistant/ws")
+async def documents_assistant_session(websocket: WebSocket):
+    await websocket.accept()
+    state: dict[str, Any] = {
+        "order_id": None,
+        "has_despatch": False,
+        "has_invoice": False,
+        "invoice_status": None,
+        "viewer_is_seller": False,
+        "transcript_log": [],
+        "current_partial": "",
+    }
+    ready_sent = await _safe_websocket_send_json(
+        websocket,
+        {"type": "session.ready", "payload": {"currentPartial": state["current_partial"]}},
+    )
+    if not ready_sent:
+        logger.info("Documents assistant session disconnected before ready state was delivered")
+        return
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict):
+                await _send_error(
+                    websocket, "invalid_message", "WebSocket messages must be JSON objects."
+                )
+                continue
+
+            event_type = message.get("type")
+            payload = message.get("payload") or {}
+            if not isinstance(payload, dict):
+                await _send_error(
+                    websocket, "invalid_payload", "Event payloads must be JSON objects."
+                )
+                continue
+
+            if event_type == "session.start":
+                await _handle_documents_assistant_context(websocket, state, payload)
+            elif event_type == "context.patch":
+                await _handle_documents_assistant_context(websocket, state, payload)
+            elif event_type == "transcript.partial":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Partial transcript text must be a string.",
+                    )
+                    continue
+
+                state["current_partial"] = text.strip()
+                if not await _safe_websocket_send_json(
+                    websocket,
+                    {
+                        "type": "transcript.echo",
+                        "payload": {"kind": "partial", "text": state["current_partial"]},
+                    },
+                ):
+                    return
+            elif event_type == "transcript.final":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    await _send_error(
+                        websocket,
+                        "invalid_transcript",
+                        "Final transcript text must be a string.",
+                    )
+                    continue
+
+                cleaned = text.strip()
+                state["current_partial"] = ""
+                state["transcript_log"].append(cleaned)
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "transcript.echo",
+                        "payload": {"kind": "final", "text": cleaned},
+                    },
+                ):
+                    return
+
+                interpretation = await interpret_documents_command(
+                    transcript=cleaned,
+                    order_id=state["order_id"],
+                    has_despatch=state["has_despatch"],
+                    has_invoice=state["has_invoice"],
+                    invoice_status=state["invoice_status"],
+                    viewer_is_seller=state["viewer_is_seller"],
+                    transcript_log=state["transcript_log"],
+                )
+                if not await _safe_websocket_send_json(
+                    websocket=websocket,
+                    message={
+                        "type": "assistant.command",
+                        "payload": {
+                            "command": interpretation.command.model_dump(mode="json")
+                            if interpretation.command
+                            else None,
+                            "message": interpretation.unresolved_reason
+                            or interpretation.warning_message,
+                        },
+                    },
+                ):
+                    return
+            else:
+                await _send_error(
+                    websocket, "unknown_event", f"Unsupported event type: {event_type}"
+                )
+    except WebSocketDisconnect:
+        logger.info("Documents assistant session disconnected")
+
+
 async def _handle_session_start(
     websocket: WebSocket,
     state: DraftSessionState,
@@ -536,6 +766,100 @@ async def _handle_marketplace_assistant_context(
                 "productCount": len(state["products"]),
                 "categoryCount": len(state["categories"]),
                 "cartLineCount": len(state["cart_lines"]),
+            },
+        },
+    )
+
+
+async def _handle_inventory_assistant_context(
+    websocket: WebSocket,
+    state: dict[str, Any],
+    payload: dict[str, Any],
+):
+    raw_products = payload.get("products")
+    raw_categories = payload.get("categories")
+    raw_filters = payload.get("filters")
+
+    try:
+        if raw_products is not None:
+            if not isinstance(raw_products, list):
+                raise ValueError("Products payload must be an array.")
+            state["products"] = [
+                InventoryAssistantProduct.model_validate(product) for product in raw_products
+            ]
+
+        if raw_categories is not None:
+            if not isinstance(raw_categories, list) or not all(
+                isinstance(category, str) for category in raw_categories
+            ):
+                raise ValueError("Categories payload must be a string array.")
+            state["categories"] = raw_categories
+
+        if raw_filters is not None:
+            if not isinstance(raw_filters, dict):
+                raise ValueError("Filters payload must be an object.")
+            state["filters"] = InventoryAssistantFilterState.model_validate(raw_filters)
+    except (ValidationError, ValueError) as exc:
+        await _send_error(websocket, "invalid_context", str(exc))
+        return
+
+    await _safe_websocket_send_json(
+        websocket,
+        {
+            "type": "context.updated",
+            "payload": {
+                "productCount": len(state["products"]),
+                "categoryCount": len(state["categories"]),
+            },
+        },
+    )
+
+
+async def _handle_documents_assistant_context(
+    websocket: WebSocket,
+    state: dict[str, Any],
+    payload: dict[str, Any],
+):
+    raw_order_id = payload.get("orderId")
+    raw_has_despatch = payload.get("hasDespatch")
+    raw_has_invoice = payload.get("hasInvoice")
+    raw_invoice_status = payload.get("invoiceStatus")
+    raw_viewer_is_seller = payload.get("viewerIsSeller")
+
+    try:
+        if raw_order_id is not None and not isinstance(raw_order_id, str):
+            raise ValueError("orderId must be a string when provided.")
+        if raw_has_despatch is not None and not isinstance(raw_has_despatch, bool):
+            raise ValueError("hasDespatch must be a boolean.")
+        if raw_has_invoice is not None and not isinstance(raw_has_invoice, bool):
+            raise ValueError("hasInvoice must be a boolean.")
+        if raw_invoice_status is not None and not isinstance(raw_invoice_status, str):
+            raise ValueError("invoiceStatus must be a string when provided.")
+        if raw_viewer_is_seller is not None and not isinstance(raw_viewer_is_seller, bool):
+            raise ValueError("viewerIsSeller must be a boolean.")
+
+        if raw_order_id is not None:
+            state["order_id"] = raw_order_id.strip() or None
+        if raw_has_despatch is not None:
+            state["has_despatch"] = raw_has_despatch
+        if raw_has_invoice is not None:
+            state["has_invoice"] = raw_has_invoice
+        if raw_invoice_status is not None:
+            state["invoice_status"] = raw_invoice_status.strip() or None
+        if raw_viewer_is_seller is not None:
+            state["viewer_is_seller"] = raw_viewer_is_seller
+    except ValueError as exc:
+        await _send_error(websocket, "invalid_context", str(exc))
+        return
+
+    await _safe_websocket_send_json(
+        websocket,
+        {
+            "type": "context.updated",
+            "payload": {
+                "orderId": state["order_id"],
+                "hasDespatch": state["has_despatch"],
+                "hasInvoice": state["has_invoice"],
             },
         },
     )
