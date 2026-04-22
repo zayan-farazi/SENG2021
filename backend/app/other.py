@@ -520,6 +520,9 @@ def getXml(table_name: str, orderId: str):
         raise last_exc
     return []
 
+def deleteXml(table_name: str, orderId: str) -> None:
+    get_supabase_client().table(table_name).delete().eq("order_id", orderId).execute()
+
 
 # deletes all order lines related to a query
 def deleteOrderDetails(orderId):
