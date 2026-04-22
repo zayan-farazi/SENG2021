@@ -282,6 +282,10 @@ app = FastAPI(
             "name": "Invoices",
             "description": "Invoice integration endpoints backed by the LastMinutePush invoice API.",
         },
+        {
+            "name": "Despatch",
+            "description": "Despatch integration endpoints backed by the Devex Despatch API.",
+        },
     ],
 )
 app.add_middleware(

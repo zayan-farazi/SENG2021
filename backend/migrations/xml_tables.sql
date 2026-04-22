@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS invoice_xml (
     FOREIGN KEY (order_id) REFERENCES orders(id)
 );
 
-CREATE TABLE IF NOT EXISTS dispatch_xml (
+CREATE TABLE IF NOT EXISTS dispatched_xml (
     buyer_id TEXT NOT NULL,
     seller_id TEXT NOT NULL,
     order_id TEXT UNIQUE,

@@ -165,12 +165,19 @@ def test_legacy_order_id_route_submits_order(client, legacy_record, monkeypatch)
 
 
 def test_legacy_order_id_route_fetches_despatch_xml(client, legacy_record, monkeypatch):
+    # Mock the order lookup to return the legacy record
     monkeypatch.setattr(
-        orders,
-        "getXml",
+        "app.api.routes.despatch.order_store.get_order_record",
+        lambda order_id: legacy_record if order_id == legacy_record["orderId"] else None,
+    )
+
+    # Mock getXml to return despatch XML
+    monkeypatch.setattr(
+        "app.api.routes.despatch.getXml",
         lambda table_name, order_id: (
             [{"xml": "<DespatchAdvice />"}]
-            if table_name == "dispatch_xml" and order_id == legacy_record["orderId"]
+            if table_name in ("dispatched_xml", "dispatch_xml")
+            and order_id == legacy_record["dbOrderId"]
             else []
         ),
     )

@@ -136,6 +136,7 @@ def test_http_endpoints_include_summaries_and_tags():
         "Catalogue and Inventory",
         "Health",
         "Invoices",
+        "Despatch",
     ]
     assert schema["paths"]["/v1/health"]["get"]["summary"] == "Health check"
     assert schema["paths"]["/v1/health"]["get"]["tags"] == ["Health"]
