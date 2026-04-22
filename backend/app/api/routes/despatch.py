@@ -229,6 +229,7 @@ def get_despatch_xml(
 
     return Response(content=xml, media_type="application/xml")
 
+
 @router.delete(
     "/v1/order/{order_id}/despatch",
     status_code=200,

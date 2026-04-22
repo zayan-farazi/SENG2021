@@ -36,11 +36,9 @@ from app.models.schemas import (
     OrderUpdateResponse,
     TranscriptConversionRequest,
 )
-from app.other import getXml, saveXml, deleteXml
 from app.services import groq_order_extractor, order_conversion, order_store
 from app.services.analytics_service import get_user_analytics
 from app.services.app_key_auth import get_current_party_email, resolve_party_email_from_app_key
-from app.services.despatch_service import create_despatch_from_order_xml
 from app.services.documents_assistant import (
     interpret_documents_command,
 )

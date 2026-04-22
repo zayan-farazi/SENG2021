@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import pytest
+from unittest.mock import AsyncMock, patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.api.routes.despatch import router
 from app.services.app_key_auth import get_current_party_email
