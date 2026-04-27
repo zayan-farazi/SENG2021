@@ -251,6 +251,7 @@ def test_submit_order_record_updates_status_and_persists(monkeypatch):
             (str(db_order_id), f"{status}:{updated_at.endswith('Z')}")
         ),
     )
+    monkeypatch.setattr(order_store, "persist_order_stock_deduction_to_database", lambda payload: [])
 
     submitted = order_store.submit_order_record("ord_submit")
 
@@ -258,6 +259,128 @@ def test_submit_order_record_updates_status_and_persists(monkeypatch):
     assert submitted["updatedAt"].endswith("Z")
     assert order_store.ORDERS["ord_submit"]["status"] == "SUBMITTED"
     assert persisted == [("44", "SUBMITTED:True")]
+
+
+def test_submit_order_record_deducts_stock_for_product_lines(monkeypatch):
+    order_store.ORDERS["ord_submit_stock"] = {
+        "orderId": "ord_submit_stock",
+        "status": "DRAFT",
+        "createdAt": "2026-03-11T00:00:00Z",
+        "updatedAt": "2026-03-11T00:00:00Z",
+        "payload": {
+            "buyerEmail": "buyer@example.com",
+            "sellerEmail": "seller@example.com",
+            "lines": [
+                {"productId": 101, "quantity": 2},
+                {"productId": 102, "quantity": 1},
+            ],
+        },
+        "ublXml": "<Order />",
+        "dbOrderId": "46",
+    }
+    product_rows = {
+        101: {"prod_id": 101, "name": "Ceramic mug", "available_units": 9},
+        102: {"prod_id": 102, "name": "Soy candle", "available_units": 4},
+    }
+    updated_products: list[tuple[int, float]] = []
+
+    monkeypatch.setattr(
+        other,
+        "findProducts",
+        lambda prod_id=None, **kwargs: type(
+            "Response",
+            (),
+            {"data": [deepcopy(product_rows[prod_id])] if prod_id in product_rows else []},
+        )(),
+    )
+    monkeypatch.setattr(
+        other,
+        "updateProduct",
+        lambda prod_id, **kwargs: updated_products.append((prod_id, kwargs["available_units"])),
+    )
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_status_to_database",
+        lambda db_order_id, *, status, updated_at: None,
+    )
+
+    submitted = order_store.submit_order_record("ord_submit_stock")
+
+    assert submitted["status"] == "SUBMITTED"
+    assert updated_products == [(101, 7.0), (102, 3.0)]
+
+
+def test_submit_order_record_rolls_back_stock_when_status_persist_fails(monkeypatch):
+    order_store.ORDERS["ord_submit_rollback"] = {
+        "orderId": "ord_submit_rollback",
+        "status": "DRAFT",
+        "createdAt": "2026-03-11T00:00:00Z",
+        "updatedAt": "2026-03-11T00:00:00Z",
+        "payload": {
+            "buyerEmail": "buyer@example.com",
+            "sellerEmail": "seller@example.com",
+            "lines": [{"productId": 101, "quantity": 2}],
+        },
+        "ublXml": "<Order />",
+        "dbOrderId": "47",
+    }
+    updates: list[tuple[int, float]] = []
+
+    monkeypatch.setattr(
+        other,
+        "findProducts",
+        lambda prod_id=None, **kwargs: type(
+            "Response",
+            (),
+            {"data": [{"prod_id": 101, "name": "Ceramic mug", "available_units": 9}]},
+        )(),
+    )
+    monkeypatch.setattr(
+        other,
+        "updateProduct",
+        lambda prod_id, **kwargs: updates.append((prod_id, kwargs["available_units"])),
+    )
+    monkeypatch.setattr(
+        order_store,
+        "persist_order_status_to_database",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            OrderPersistenceError("Order status could not be persisted in Supabase.")
+        ),
+    )
+
+    with pytest.raises(OrderPersistenceError, match="Order status could not be persisted"):
+        order_store.submit_order_record("ord_submit_rollback")
+
+    assert updates == [(101, 7.0), (101, 9.0)]
+
+
+def test_submit_order_record_rejects_when_stock_is_insufficient(monkeypatch):
+    order_store.ORDERS["ord_submit_short"] = {
+        "orderId": "ord_submit_short",
+        "status": "DRAFT",
+        "createdAt": "2026-03-11T00:00:00Z",
+        "updatedAt": "2026-03-11T00:00:00Z",
+        "payload": {
+            "buyerEmail": "buyer@example.com",
+            "sellerEmail": "seller@example.com",
+            "lines": [{"productId": 101, "quantity": 12}],
+        },
+        "ublXml": "<Order />",
+        "dbOrderId": "48",
+    }
+
+    monkeypatch.setattr(
+        other,
+        "findProducts",
+        lambda prod_id=None, **kwargs: type(
+            "Response",
+            (),
+            {"data": [{"prod_id": 101, "name": "Ceramic mug", "available_units": 9}]},
+        )(),
+    )
+
+    with pytest.raises(order_store.OrderStockConflictError, match="does not have enough stock"):
+        order_store.submit_order_record("ord_submit_short")
 
 
 def test_submit_order_record_rejects_non_draft_orders():

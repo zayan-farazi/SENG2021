@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
+import { buildLiveRefreshLabel, LIVE_REFRESH_INTERVAL_MS } from "../liveRefresh";
 import {
   createInventoryProduct,
   deleteInventoryProduct,
@@ -316,6 +317,8 @@ export function InventoryPrototypePage() {
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<InventorySection, boolean>>({
@@ -358,17 +361,47 @@ export function InventoryPrototypePage() {
     }
 
     let cancelled = false;
-    setLoading(true);
-    setPageError(null);
+    let pollTimer: number | null = null;
 
-    void fetchInventory(session)
-      .then(response => {
+    const clearPollTimer = () => {
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const scheduleNextPoll = () => {
+      clearPollTimer();
+      if (cancelled) {
+        return;
+      }
+
+      pollTimer = window.setTimeout(() => {
+        if (document.visibilityState !== "visible") {
+          scheduleNextPoll();
+          return;
+        }
+
+        void refreshInventory(false).finally(scheduleNextPoll);
+      }, LIVE_REFRESH_INTERVAL_MS);
+    };
+
+    const refreshInventory = async (showLoading: boolean) => {
+      if (showLoading) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+      setPageError(null);
+
+      try {
+        const response = await fetchInventory(session);
         if (cancelled) {
           return;
         }
         setProducts(response.items.map(normalizeInventoryRecord));
-      })
-      .catch(error => {
+        setLastUpdatedAt(Date.now());
+      } catch (error) {
         if (cancelled) {
           return;
         }
@@ -378,15 +411,34 @@ export function InventoryPrototypePage() {
                 "Unable to load inventory."
             : "Unable to load inventory.",
         );
-      })
-      .finally(() => {
-        if (!cancelled) {
+        if (productsRef.current.length === 0) {
+          setProducts([]);
+        }
+      } finally {
+        if (!cancelled && showLoading) {
           setLoading(false);
         }
-      });
+        if (!cancelled && !showLoading) {
+          setRefreshing(false);
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void refreshInventory(false);
+    };
+
+    void refreshInventory(true).finally(scheduleNextPoll);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      clearPollTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [session]);
 
@@ -837,6 +889,9 @@ export function InventoryPrototypePage() {
               <div>
                 <h1>Inventory</h1>
                 <p>Manage live products and draft listings without turning the page into a dashboard.</p>
+                <p className="inventory-live-status" aria-live="polite">
+                  {buildLiveRefreshLabel(lastUpdatedAt, refreshing)}
+                </p>
               </div>
 
               <div className="inventory-toolbar">

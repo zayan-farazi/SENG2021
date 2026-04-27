@@ -56,7 +56,7 @@ export type LockedOrderVoiceCommand =
   | { kind: "set_invoice_status"; status: string; paymentDate?: string | null }
   | { kind: "delete_invoice" };
 
-export type CheckoutVoiceCommand = { kind: "submit_checkout" };
+export type CheckoutVoiceCommand = { kind: "submit_checkout" } | { kind: "save_checkout_draft" };
 
 const STOP_WORDS = new Set([
   "add",
@@ -530,10 +530,30 @@ export function parseCheckoutVoiceCommand(transcript: string): CheckoutVoiceComm
   }
 
   if (
+    normalized.includes("save as draft") ||
+    normalized.includes("save this as draft") ||
+    normalized.includes("save this order as draft") ||
+    normalized.includes("save order as draft") ||
+    normalized.includes("save draft") ||
+    normalized.includes("save drafts") ||
+    normalized.includes("create draft") ||
+    normalized.includes("make this a draft")
+  ) {
+    return { kind: "save_checkout_draft" };
+  }
+
+  if (
     normalized.includes("place order") ||
+    normalized.includes("place the order") ||
+    normalized.includes("place this order") ||
+    normalized.includes("place it") ||
     normalized.includes("place orders") ||
+    normalized.includes("order for me") ||
+    normalized.includes("submit it") ||
+    normalized.includes("submit this order") ||
     normalized.includes("submit checkout") ||
     normalized.includes("submit order") ||
+    normalized.includes("complete the order") ||
     normalized.includes("complete checkout") ||
     normalized.includes("confirm order") ||
     normalized.includes("checkout now")

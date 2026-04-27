@@ -66,6 +66,7 @@ from app.services.order_store import (
     OrderConflictLockedError,
     OrderNotFoundError,
     OrderPersistenceError,
+    OrderStockConflictError,
 )
 from app.services.party_password_auth import authenticate_party_v2
 from app.services.ubl_order import OrderGenerationError, generate_docs_example_ubl_order_xml
@@ -1286,6 +1287,8 @@ def submit_order(order_id: str, current_party_email: str = Depends(get_current_p
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Not Found") from exc
     except OrderConflictLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OrderStockConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OrderPersistenceError as exc:
         logger.exception("Order submit persistence verification failed")

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { marketplaceCategories, marketplaceProducts } from "./pages/marketplacePrototypeData";
 import {
+  parseCheckoutVoiceCommand,
   parseInventoryVoiceCommand,
   parseLockedOrderVoiceCommand,
   parseMarketplaceVoiceCommand,
@@ -143,5 +144,29 @@ describe("voiceAssistant helpers", () => {
       "Updated requested date to 2026-05-03.",
       "Updated notes to Leave at loading dock.",
     ]);
+  });
+
+  it("parses forgiving checkout placement phrases", () => {
+    expect(parseCheckoutVoiceCommand("place the order")).toEqual({
+      kind: "submit_checkout",
+    });
+    expect(parseCheckoutVoiceCommand("great can you please the order for me")).toEqual({
+      kind: "submit_checkout",
+    });
+    expect(parseCheckoutVoiceCommand("submit it")).toEqual({
+      kind: "submit_checkout",
+    });
+  });
+
+  it("parses checkout draft-saving phrases", () => {
+    expect(parseCheckoutVoiceCommand("save as draft")).toEqual({
+      kind: "save_checkout_draft",
+    });
+    expect(parseCheckoutVoiceCommand("save this order as draft")).toEqual({
+      kind: "save_checkout_draft",
+    });
+    expect(parseCheckoutVoiceCommand("make this a draft")).toEqual({
+      kind: "save_checkout_draft",
+    });
   });
 });

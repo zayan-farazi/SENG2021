@@ -27,6 +27,8 @@ type CheckoutFailure = {
   message: string;
 };
 
+type CheckoutMode = "draft" | "submit";
+
 type PlaceOrdersResult = {
   success: boolean;
   createdOrders: MarketplacePlacedOrder[];
@@ -61,16 +63,22 @@ function describeCheckoutError(error: unknown, prefix: string, fallbackMessage: 
   return detail || fallbackMessage;
 }
 
-function buildFailureMessage(error: unknown): string {
+function buildFailureMessage(error: unknown, mode: CheckoutMode): string {
   if (error instanceof Error && error.message.startsWith("order-create:")) {
-    return describeCheckoutError(error, "order-create:", "Unable to create the order.");
+    return describeCheckoutError(
+      error,
+      "order-create:",
+      mode === "draft" ? "Unable to create the draft order." : "Unable to create the order.",
+    );
   }
 
-  if (error instanceof Error && error.message.startsWith("order-submit:")) {
+  if (mode === "submit" && error instanceof Error && error.message.startsWith("order-submit:")) {
     return describeCheckoutError(error, "order-submit:", "Unable to submit the order.");
   }
 
-  return "Unable to place this seller order right now.";
+  return mode === "draft"
+    ? "Unable to create this seller draft right now."
+    : "Unable to place this seller order right now.";
 }
 
 function buildGroupedOrderPayload(
@@ -136,7 +144,7 @@ export function MarketplaceReviewPage() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutFailures, setCheckoutFailures] = useState<CheckoutFailure[]>([]);
   const [partialOrders, setPartialOrders] = useState<MarketplacePlacedOrder[]>([]);
-  const [submitting, setSubmitting] = useState(false);
+  const [submittingMode, setSubmittingMode] = useState<CheckoutMode | null>(null);
 
   useEffect(() => {
     if (storedSession?.partyName) {
@@ -209,15 +217,21 @@ export function MarketplaceReviewPage() {
     return missingFields;
   };
 
-  const placeOrders = async (): Promise<PlaceOrdersResult> => {
+  const processOrders = async (mode: CheckoutMode): Promise<PlaceOrdersResult> => {
     if (!storedSession) {
-      const message = "Sign in again before placing the order.";
+      const message =
+        mode === "draft"
+          ? "Sign in again before saving draft orders."
+          : "Sign in again before placing the order.";
       setCheckoutError(message);
       return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
 
     if (groupedOrders.length === 0) {
-      const message = "Add products in the marketplace before placing an order.";
+      const message =
+        mode === "draft"
+          ? "Add products in the marketplace before saving draft orders."
+          : "Add products in the marketplace before placing an order.";
       setCheckoutError(message);
       return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
@@ -229,7 +243,7 @@ export function MarketplaceReviewPage() {
       return { success: false, createdOrders: [], failures: [], errorMessage: message };
     }
 
-    setSubmitting(true);
+    setSubmittingMode(mode);
     setCheckoutError(null);
     setCheckoutFailures([]);
     setPartialOrders([]);
@@ -257,7 +271,9 @@ export function MarketplaceReviewPage() {
           },
         );
         const created = await createOrder(storedSession, payload);
-        await submitOrder(storedSession, created.orderId);
+        if (mode === "submit") {
+          await submitOrder(storedSession, created.orderId);
+        }
         createdOrders.push({
           orderId: created.orderId,
           seller: group.seller,
@@ -268,22 +284,26 @@ export function MarketplaceReviewPage() {
       } catch (error) {
         failures.push({
           seller: group.seller,
-          message: buildFailureMessage(error),
+          message: buildFailureMessage(error, mode),
         });
       }
     }
 
-    setSubmitting(false);
+    setSubmittingMode(null);
 
     if (failures.length > 0) {
-      setCheckoutError("Some seller orders could not be placed. The cart has been left intact.");
+      const errorMessage =
+        mode === "draft"
+          ? "Some seller draft orders could not be created. The cart has been left intact."
+          : "Some seller orders could not be placed. The cart has been left intact.";
+      setCheckoutError(errorMessage);
       setCheckoutFailures(failures);
       setPartialOrders(createdOrders);
       return {
         success: false,
         createdOrders,
         failures,
-        errorMessage: "Some seller orders could not be placed. The cart has been left intact.",
+        errorMessage,
       };
     }
 
@@ -291,6 +311,11 @@ export function MarketplaceReviewPage() {
 
     if (createdOrders.length === 1) {
       navigate(`/orders/${createdOrders[0]!.orderId}/edit`);
+      return { success: true, createdOrders, failures: [], errorMessage: null };
+    }
+
+    if (mode === "draft") {
+      navigate("/orders");
       return { success: true, createdOrders, failures: [], errorMessage: null };
     }
 
@@ -302,41 +327,59 @@ export function MarketplaceReviewPage() {
     return { success: true, createdOrders, failures: [], errorMessage: null };
   };
 
+  const placeOrders = async (): Promise<PlaceOrdersResult> => processOrders("submit");
+
+  const saveDraftOrders = async (): Promise<PlaceOrdersResult> => processOrders("draft");
+
   const handleCheckoutVoiceTranscript = async (
     transcript: string,
   ): Promise<AssistantActionResult> => {
     const checkoutCommand = parseCheckoutVoiceCommand(transcript);
-    if (checkoutCommand?.kind === "submit_checkout") {
-      return {
-        kind: "confirm",
-        message:
-          groupedOrders.length > 1
-            ? `Place ${groupedOrders.length} seller orders now?`
-            : "Place this order now?",
-        confirmLabel: groupedOrders.length > 1 ? "Place orders" : "Place order",
-        execute: async () => {
-          const result = await placeOrders();
-          if (!result.success) {
-            const failureSummary =
-              result.failures.length > 0
-                ? ` ${result.failures.map(failure => `${failure.seller}: ${failure.message}`).join(" ")}`
-                : "";
-            return {
-              kind: "rejected",
-              message:
-                result.errorMessage ??
-                `The checkout assistant could not place the order.${failureSummary}`.trim(),
-            };
-          }
+    if (checkoutCommand?.kind === "save_checkout_draft") {
+      const result = await saveDraftOrders();
+      if (!result.success) {
+        const failureSummary =
+          result.failures.length > 0
+            ? ` ${result.failures.map(failure => `${failure.seller}: ${failure.message}`).join(" ")}`
+            : "";
+        return {
+          kind: "rejected",
+          message:
+            result.errorMessage ??
+            `The checkout assistant could not save the draft order.${failureSummary}`.trim(),
+        };
+      }
 
-          return {
-            kind: "applied",
-            message:
-              result.createdOrders.length > 1
-                ? `Placed ${result.createdOrders.length} seller orders.`
-                : "Placed the order.",
-          };
-        },
+      return {
+        kind: "applied",
+        message:
+          result.createdOrders.length > 1
+            ? `Saved ${result.createdOrders.length} seller drafts.`
+            : "Saved the draft order.",
+      };
+    }
+
+    if (checkoutCommand?.kind === "submit_checkout") {
+      const result = await placeOrders();
+      if (!result.success) {
+        const failureSummary =
+          result.failures.length > 0
+            ? ` ${result.failures.map(failure => `${failure.seller}: ${failure.message}`).join(" ")}`
+            : "";
+        return {
+          kind: "rejected",
+          message:
+            result.errorMessage ??
+            `The checkout assistant could not place the order.${failureSummary}`.trim(),
+        };
+      }
+
+      return {
+        kind: "applied",
+        message:
+          result.createdOrders.length > 1
+            ? `Placed ${result.createdOrders.length} seller orders.`
+            : "Placed the order.",
       };
     }
 
@@ -461,8 +504,9 @@ export function MarketplaceReviewPage() {
 
               <VoiceAssistantDock
                 context="checkout"
-                hint="Try “deliver to 123 Harbour Street next Tuesday” or “add note leave at loading dock”."
+                hint="Try “deliver to 123 Harbour Street next Tuesday”, “save as draft”, or “place order”."
                 disabledReason={cart.lines.length === 0 ? "Add items before using checkout voice actions." : null}
+                autoRestart
                 onTranscript={handleCheckoutVoiceTranscript}
               />
 
@@ -610,7 +654,7 @@ export function MarketplaceReviewPage() {
 
                   {checkoutError ? (
                     <div className="marketplace-checkout-feedback" role="alert">
-                      <strong>{checkoutError}</strong>
+                  <strong>{checkoutError}</strong>
                       {checkoutFailures.length > 0 ? (
                         <ul className="marketplace-checkout-feedback-list">
                           {checkoutFailures.map(failure => (
@@ -647,13 +691,29 @@ export function MarketplaceReviewPage() {
                 </AppLink>
                 <button
                   type="button"
+                  className="marketplace-secondary-action"
+                  onClick={() => {
+                    void saveDraftOrders();
+                  }}
+                  disabled={cart.lines.length === 0 || submittingMode !== null}
+                >
+                  {submittingMode === "draft"
+                    ? groupedOrders.length > 1
+                      ? "Saving drafts..."
+                      : "Saving draft..."
+                    : groupedOrders.length > 1
+                      ? "Save as drafts"
+                      : "Save as draft"}
+                </button>
+                <button
+                  type="button"
                   className="marketplace-primary-action"
                   onClick={() => {
                     void placeOrders();
                   }}
-                  disabled={cart.lines.length === 0 || submitting}
+                  disabled={cart.lines.length === 0 || submittingMode !== null}
                 >
-                  {submitting
+                  {submittingMode === "submit"
                     ? "Placing orders..."
                     : groupedOrders.length > 1
                       ? "Place orders"

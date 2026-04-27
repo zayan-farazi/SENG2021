@@ -34,6 +34,14 @@
   font-size: 0.96rem;
 }
 
+.inventory-live-status {
+  margin: 12px 0 0;
+  color: #866f53;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .inventory-toolbar {
   display: flex;
   flex-wrap: wrap;
