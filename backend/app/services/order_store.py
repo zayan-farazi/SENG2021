@@ -350,8 +350,10 @@ def persist_order_stock_deduction_to_database(payload: dict[str, Any]) -> list[t
         try:
             normalized_product_id = int(product_id)
             normalized_quantity = int(quantity)
-        except (TypeError, ValueError):
-            raise OrderStockConflictError(f"Order line product {product_id!r} has invalid stock data.")
+        except (TypeError, ValueError) as err:
+            raise OrderStockConflictError(
+                f"Order line product {product_id!r} has invalid stock data."
+            ) from err
         if normalized_quantity <= 0:
             continue
         aggregated_quantities[normalized_product_id] = (
@@ -386,7 +388,9 @@ def persist_order_stock_deduction_to_database(payload: dict[str, Any]) -> list[t
     applied_snapshots: list[tuple[int, float]] = []
     try:
         for product_id, next_available in next_levels:
-            previous_available = next(snapshot[1] for snapshot in stock_snapshots if snapshot[0] == product_id)
+            previous_available = next(
+                snapshot[1] for snapshot in stock_snapshots if snapshot[0] == product_id
+            )
             updateProduct(product_id, available_units=next_available)
             applied_snapshots.append((product_id, previous_available))
     except Exception as exc:  # noqa: BLE001

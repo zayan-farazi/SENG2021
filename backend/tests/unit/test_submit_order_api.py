@@ -210,7 +210,9 @@ def test_submit_order_returns_409_when_stock_is_unavailable(client, monkeypatch)
 
     def fail_submit(requested_order_id: str):
         if requested_order_id == order_id:
-            raise OrderStockConflictError("Product 'Domain-Driven Design' does not have enough stock.")
+            raise OrderStockConflictError(
+                "Product 'Domain-Driven Design' does not have enough stock."
+            )
         return original_submit(requested_order_id)
 
     monkeypatch.setattr(order_store, "submit_order_record", fail_submit)

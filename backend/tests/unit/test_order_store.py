@@ -251,7 +251,9 @@ def test_submit_order_record_updates_status_and_persists(monkeypatch):
             (str(db_order_id), f"{status}:{updated_at.endswith('Z')}")
         ),
     )
-    monkeypatch.setattr(order_store, "persist_order_stock_deduction_to_database", lambda payload: [])
+    monkeypatch.setattr(
+        order_store, "persist_order_stock_deduction_to_database", lambda payload: []
+    )
 
     submitted = order_store.submit_order_record("ord_submit")
 
