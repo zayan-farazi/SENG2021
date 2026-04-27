@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.integrations.lastminutepush_client import InvoiceServiceError
 from app.main import app
 
 
@@ -39,13 +40,13 @@ def test_update_invoice_returns_502_when_downstream_fails(client, monkeypatch):
     _override_auth()
 
     async def boom(invoice_id: str, body: dict):  # noqa: ARG001
-        raise RuntimeError("downstream error")
+        raise InvoiceServiceError(reason="payload", message="downstream error", status_code=422)
 
     monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.update_invoice", boom)
 
     resp = client.put("/v1/invoice/INV-1", json={"currency": "USD"})
     assert resp.status_code == 502
-    assert resp.json() == {"detail": "Invoice service failed."}
+    assert resp.json() == {"detail": "Invoice service rejected the payload."}
 
 
 def test_delete_invoice_returns_204(client, monkeypatch):
@@ -65,13 +66,13 @@ def test_delete_invoice_returns_502_when_downstream_fails(client, monkeypatch):
     _override_auth()
 
     async def boom(invoice_id: str):  # noqa: ARG001
-        raise RuntimeError("downstream error")
+        raise InvoiceServiceError(reason="auth", message="downstream error", status_code=401)
 
     monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.delete_invoice", boom)
 
     resp = client.delete("/v1/invoice/INV-1")
     assert resp.status_code == 502
-    assert resp.json() == {"detail": "Invoice service failed."}
+    assert resp.json() == {"detail": "Invoice service rejected the API key."}
 
 
 def test_transition_status_returns_200(client, monkeypatch):
@@ -100,7 +101,7 @@ def test_transition_status_returns_502_when_downstream_fails(client, monkeypatch
     _override_auth()
 
     async def boom(invoice_id: str, body: dict):  # noqa: ARG001
-        raise RuntimeError("downstream error")
+        raise InvoiceServiceError(reason="unavailable", message="downstream error")
 
     monkeypatch.setattr(
         "app.api.routes.invoices.lastminutepush_client.transition_invoice_status", boom
@@ -108,4 +109,4 @@ def test_transition_status_returns_502_when_downstream_fails(client, monkeypatch
 
     resp = client.post("/v1/invoice/INV-1/status", json={"status": "sent"})
     assert resp.status_code == 502
-    assert resp.json() == {"detail": "Invoice service failed."}
+    assert resp.json() == {"detail": "Invoice service is unavailable."}

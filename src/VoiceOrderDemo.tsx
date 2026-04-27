@@ -107,18 +107,112 @@ function normalizeEmail(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
-function extractInvoiceId(invoice: InvoiceRecord | null): string | null {
+function findNestedInvoiceString(
+  value: unknown,
+  keys: string[],
+  seen = new Set<unknown>(),
+): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if (seen.has(value)) {
+    return null;
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = findNestedInvoiceString(item, keys, seen);
+      if (nested) {
+        return nested;
+      }
+    }
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const nested = findNestedInvoiceString(nestedValue, keys, seen);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+function firstNonEmptyInvoiceString(
+  invoice: InvoiceRecord | null,
+  keys: string[],
+): string | null {
   if (!invoice) {
     return null;
   }
 
-  const candidate =
-    typeof invoice.invoice_id === "string"
-      ? invoice.invoice_id
-      : typeof invoice.invoiceId === "string"
-        ? invoice.invoiceId
-        : null;
-  return candidate?.trim() || null;
+  for (const key of keys) {
+    const value = invoice[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return findNestedInvoiceString(invoice, keys);
+}
+
+function normalizeInvoiceRecord(invoice: InvoiceRecord | null): InvoiceRecord | null {
+  if (!invoice) {
+    return null;
+  }
+
+  const normalized: InvoiceRecord = { ...invoice };
+  const invoiceId = firstNonEmptyInvoiceString(invoice, ["invoice_id", "invoiceId", "id"]);
+  const status = firstNonEmptyInvoiceString(invoice, ["status", "invoice_status"]);
+  const updatedAt = firstNonEmptyInvoiceString(invoice, ["updated_at", "updatedAt", "updated"]);
+  const issueDate = firstNonEmptyInvoiceString(invoice, ["issue_date", "issueDate"]);
+  const currency = firstNonEmptyInvoiceString(invoice, ["currency", "currency_code"]);
+  const xml = firstNonEmptyInvoiceString(invoice, ["ubl_xml", "ublXml", "xml"]);
+
+  if (invoiceId) {
+    normalized.invoice_id = invoiceId;
+    normalized.invoiceId = invoiceId;
+  }
+  if (status) {
+    normalized.status = status;
+  }
+  if (updatedAt) {
+    normalized.updated_at = updatedAt;
+    normalized.updatedAt = updatedAt;
+  }
+  if (issueDate) {
+    normalized.issue_date = issueDate;
+    normalized.issueDate = issueDate;
+  }
+  if (currency) {
+    normalized.currency = currency;
+  }
+  if (xml) {
+    normalized.ubl_xml = xml;
+    normalized.ublXml = xml;
+    normalized.xml = xml;
+  }
+
+  return normalized;
+}
+
+function extractInvoiceId(invoice: InvoiceRecord | null): string | null {
+  return firstNonEmptyInvoiceString(invoice, ["invoice_id", "invoiceId", "id"]);
 }
 
 function getStoredInvoiceId(orderId: string): string | null {
@@ -265,19 +359,38 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const syncInvoiceRecord = (nextInvoice: InvoiceRecord | null, orderIdentifier: string | null) => {
-    const nextInvoiceId = extractInvoiceId(nextInvoice);
-    setInvoiceRecord(nextInvoice);
+    const normalizedInvoice = normalizeInvoiceRecord(nextInvoice);
+    const nextInvoiceId = extractInvoiceId(normalizedInvoice);
+    setInvoiceRecord(normalizedInvoice);
     setInvoiceId(nextInvoiceId);
-    setInvoiceUpdateDraft(nextInvoice ? JSON.stringify(nextInvoice, null, 2) : "{}");
+    setInvoiceUpdateDraft(normalizedInvoice ? JSON.stringify(normalizedInvoice, null, 2) : "{}");
     setInvoiceStatusDraft(
-      typeof nextInvoice?.status === "string" && nextInvoice.status.trim()
-        ? nextInvoice.status
+      typeof normalizedInvoice?.status === "string" && normalizedInvoice.status.trim()
+        ? normalizedInvoice.status
         : "sent",
     );
     setInvoicePaymentDateDraft("");
+    const nextInvoiceXml = firstNonEmptyInvoiceString(normalizedInvoice, ["ubl_xml", "ublXml", "xml"]);
+    if (nextInvoiceXml) {
+      setInvoiceXml(nextInvoiceXml);
+    }
     if (orderIdentifier) {
       setStoredInvoiceId(orderIdentifier, nextInvoiceId);
     }
+  };
+
+  const resolveInvoiceIdentifier = (): string | null => {
+    const fromRecord = extractInvoiceId(invoiceRecord);
+    if (invoiceId) {
+      return invoiceId;
+    }
+    if (fromRecord) {
+      return fromRecord;
+    }
+    if (lockedOrderId) {
+      return getStoredInvoiceId(lockedOrderId);
+    }
+    return null;
   };
 
   const describeCommitBlocked = (errors: CommitBlockedError[] | undefined) => {
@@ -775,7 +888,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     }
   };
 
-  const refreshInvoiceRecord = async (nextInvoiceId = invoiceId): Promise<boolean> => {
+  const refreshInvoiceRecord = async (
+    nextInvoiceId = resolveInvoiceIdentifier(),
+  ): Promise<boolean> => {
     if (!storedSession || !lockedOrderId || !nextInvoiceId) {
       return false;
     }
@@ -812,8 +927,19 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
 
     try {
       const result = await generateOrderInvoice(storedSession, lockedOrderId);
-      syncInvoiceRecord(result.invoice, lockedOrderId);
-      setInvoiceXml(null);
+      const normalizedInvoice = normalizeInvoiceRecord(result.invoice);
+      const nextInvoiceId = extractInvoiceId(normalizedInvoice);
+      syncInvoiceRecord(normalizedInvoice, lockedOrderId);
+      if (nextInvoiceId) {
+        try {
+          const xml = await fetchInvoiceUblXml(storedSession, nextInvoiceId);
+          setInvoiceXml(xml);
+        } catch {
+          // Leave invoice generation successful even if the XML fetch needs a later retry.
+        }
+      } else {
+        setInvoiceXml(null);
+      }
       pushDiagnostic("info", `Generated invoice for ${lockedOrderId}.`);
       return true;
     } catch (error) {
@@ -831,7 +957,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const loadInvoiceXml = async (): Promise<boolean> => {
-    if (!storedSession || !invoiceId) {
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    if (!storedSession || !activeInvoiceId) {
       return false;
     }
 
@@ -839,9 +966,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     setInvoiceError(null);
 
     try {
-      const xml = await fetchInvoiceUblXml(storedSession, invoiceId);
+      const xml = await fetchInvoiceUblXml(storedSession, activeInvoiceId);
       setInvoiceXml(xml);
-      pushDiagnostic("info", `Fetched invoice XML for ${invoiceId}.`);
+      pushDiagnostic("info", `Fetched invoice XML for ${activeInvoiceId}.`);
       return true;
     } catch (error) {
       const message = describeApiError(error, "invoice-ubl:", "Unable to load the invoice XML.");
@@ -854,7 +981,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const downloadInvoicePdfFile = async (): Promise<boolean> => {
-    if (!storedSession || !invoiceId) {
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    if (!storedSession || !activeInvoiceId) {
       return false;
     }
 
@@ -862,9 +990,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     setInvoiceError(null);
 
     try {
-      const pdfBlob = await fetchInvoicePdf(storedSession, invoiceId);
-      downloadDocumentBlob(`${invoiceId}.pdf`, pdfBlob);
-      pushDiagnostic("info", `Downloaded invoice PDF for ${invoiceId}.`);
+      const pdfBlob = await fetchInvoicePdf(storedSession, activeInvoiceId);
+      downloadDocumentBlob(`${activeInvoiceId}.pdf`, pdfBlob);
+      pushDiagnostic("info", `Downloaded invoice PDF for ${activeInvoiceId}.`);
       return true;
     } catch (error) {
       const message = describeApiError(
@@ -884,7 +1012,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     statusOverride?: string,
     paymentDateOverride?: string,
   ): Promise<boolean> => {
-    if (!storedSession || !invoiceId) {
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    if (!storedSession || !activeInvoiceId) {
       return false;
     }
 
@@ -892,12 +1021,12 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     setInvoiceError(null);
 
     try {
-      await transitionInvoiceStatus(storedSession, invoiceId, {
+      await transitionInvoiceStatus(storedSession, activeInvoiceId, {
         status: statusOverride ?? invoiceStatusDraft,
         payment_date: (paymentDateOverride ?? invoicePaymentDateDraft).trim() || null,
       });
-      await refreshInvoiceRecord(invoiceId);
-      pushDiagnostic("info", `Updated invoice status for ${invoiceId}.`);
+      await refreshInvoiceRecord(activeInvoiceId);
+      pushDiagnostic("info", `Updated invoice status for ${activeInvoiceId}.`);
       return true;
     } catch (error) {
       const message = describeApiError(
@@ -914,7 +1043,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const submitInvoiceUpdate = async () => {
-    if (!storedSession || !invoiceId) {
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    if (!storedSession || !activeInvoiceId) {
       return;
     }
 
@@ -931,9 +1061,9 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     setInvoiceError(null);
 
     try {
-      await updateInvoice(storedSession, invoiceId, parsedPayload);
-      await refreshInvoiceRecord(invoiceId);
-      pushDiagnostic("info", `Updated invoice ${invoiceId}.`);
+      await updateInvoice(storedSession, activeInvoiceId, parsedPayload);
+      await refreshInvoiceRecord(activeInvoiceId);
+      pushDiagnostic("info", `Updated invoice ${activeInvoiceId}.`);
     } catch (error) {
       const message = describeApiError(
         error,
@@ -948,7 +1078,8 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   };
 
   const removeInvoiceDocument = async (): Promise<boolean> => {
-    if (!storedSession || !invoiceId || !lockedOrderId) {
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    if (!storedSession || !activeInvoiceId || !lockedOrderId) {
       return false;
     }
 
@@ -956,10 +1087,10 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     setInvoiceError(null);
 
     try {
-      await deleteInvoice(storedSession, invoiceId);
+      await deleteInvoice(storedSession, activeInvoiceId);
       syncInvoiceRecord(null, lockedOrderId);
       setInvoiceXml(null);
-      pushDiagnostic("info", `Deleted invoice ${invoiceId}.`);
+      pushDiagnostic("info", `Deleted invoice ${activeInvoiceId}.`);
       return true;
     } catch (error) {
       const message = describeApiError(
@@ -975,12 +1106,106 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     }
   };
 
+  const copyDespatchXml = async (): Promise<boolean> => {
+    let xml = despatchState.xml;
+    if (!xml) {
+      if (!storedSession || !lockedOrderId) {
+        return false;
+      }
+      try {
+        xml = await fetchOrderDespatchXml(storedSession, lockedOrderId);
+        setDespatchState(current => ({ ...current, xml }));
+      } catch (error) {
+        const message = describeApiError(
+          error,
+          "order-despatch:",
+          "Unable to load the existing despatch advice.",
+        );
+        setDespatchError(message);
+        pushDiagnostic("error", `Despatch fetch failed: ${message}`);
+        return false;
+      }
+    }
+
+    if (!xml) {
+      setDespatchError("Unable to load the despatch XML.");
+      return false;
+    }
+
+    await copyDocumentText("Despatch XML", xml);
+    return true;
+  };
+
+  const downloadDespatchXmlFile = async (): Promise<boolean> => {
+    let xml = despatchState.xml;
+    if (!xml) {
+      if (!storedSession || !lockedOrderId) {
+        return false;
+      }
+      try {
+        xml = await fetchOrderDespatchXml(storedSession, lockedOrderId);
+        setDespatchState(current => ({ ...current, xml }));
+      } catch (error) {
+        const message = describeApiError(
+          error,
+          "order-despatch:",
+          "Unable to load the existing despatch advice.",
+        );
+        setDespatchError(message);
+        pushDiagnostic("error", `Despatch fetch failed: ${message}`);
+        return false;
+      }
+    }
+
+    if (!xml) {
+      setDespatchError("Unable to load the despatch XML.");
+      return false;
+    }
+
+    downloadDocumentBlob(
+      `${lockedOrderId ?? "order"}-despatch.xml`,
+      new Blob([xml], { type: "application/xml" }),
+    );
+    return true;
+  };
+
+  const copyInvoiceXml = async (): Promise<boolean> => {
+    let xml = invoiceXml;
+    if (!xml) {
+      const activeInvoiceId = resolveInvoiceIdentifier();
+      if (!storedSession || !activeInvoiceId) {
+        return false;
+      }
+      try {
+        xml = await fetchInvoiceUblXml(storedSession, activeInvoiceId);
+        setInvoiceXml(xml);
+        pushDiagnostic("info", `Fetched invoice XML for ${activeInvoiceId}.`);
+      } catch (error) {
+        const message = describeApiError(error, "invoice-ubl:", "Unable to load the invoice XML.");
+        setInvoiceError(message);
+        pushDiagnostic("error", `Invoice XML fetch failed: ${message}`);
+        return false;
+      }
+    }
+
+    if (!xml) {
+      setInvoiceError("Unable to load the invoice XML.");
+      return false;
+    }
+
+    await copyDocumentText("Invoice XML", xml);
+    return true;
+  };
+
   const buildLockedOrderVoiceConfirmation = (
     command: Exclude<
       LockedOrderAssistantCommand,
       { kind: "fetch_despatch" }
+      | { kind: "copy_despatch_xml" }
+      | { kind: "download_despatch_xml" }
       | { kind: "refresh_invoice" }
       | { kind: "fetch_invoice_xml" }
+      | { kind: "copy_invoice_xml" }
       | { kind: "download_invoice_pdf" }
     >,
   ): AssistantActionResult => {
@@ -1061,6 +1286,24 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       };
     }
 
+    if (command.kind === "copy_despatch_xml") {
+      const success = await copyDespatchXml();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Copied the despatch XML." : "Unable to copy the despatch XML.",
+      };
+    }
+
+    if (command.kind === "download_despatch_xml") {
+      const success = await downloadDespatchXmlFile();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success
+          ? "Downloaded the despatch XML."
+          : "Unable to download the despatch XML.",
+      };
+    }
+
     if (command.kind === "refresh_invoice") {
       const success = await refreshInvoiceRecord();
       return {
@@ -1076,6 +1319,14 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
       return {
         kind: success ? "applied" : "rejected",
         message: success ? "Loaded the invoice XML." : "Unable to load the invoice XML.",
+      };
+    }
+
+    if (command.kind === "copy_invoice_xml") {
+      const success = await copyInvoiceXml();
+      return {
+        kind: success ? "applied" : "rejected",
+        message: success ? "Copied the invoice XML." : "Unable to copy the invoice XML.",
       };
     }
 
@@ -1095,6 +1346,23 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       return null;
     }
+
+    const activeInvoiceId = resolveInvoiceIdentifier();
+    socket.send(
+      JSON.stringify({
+        type: "context.patch",
+        payload: {
+          orderId: lockedOrderId,
+          hasDespatch: Boolean(despatchState.adviceId || despatchState.xml),
+          hasInvoice: Boolean(activeInvoiceId),
+          invoiceStatus:
+            typeof invoiceRecord?.status === "string" && invoiceRecord.status.trim()
+              ? invoiceRecord.status.trim()
+              : null,
+          viewerIsSeller,
+        },
+      }),
+    );
 
     return new Promise<AssistantActionResult>(resolve => {
       const timeoutId = window.setTimeout(() => {
@@ -1502,17 +1770,13 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
   const requestPayload = draftToOrderRequest(draftState.draft);
   const missingRequiredFields = getDraftMissingFields(draftState.draft);
   const invoiceStatusValue =
-    (typeof invoiceRecord?.status === "string" && invoiceRecord.status) || "Not generated";
+    firstNonEmptyInvoiceString(invoiceRecord, ["status", "invoice_status"]) || "Not generated";
   const invoiceUpdatedAtValue =
-    (typeof invoiceRecord?.updated_at === "string" && invoiceRecord.updated_at) ||
-    (typeof invoiceRecord?.updatedAt === "string" && invoiceRecord.updatedAt) ||
-    "Unknown";
+    firstNonEmptyInvoiceString(invoiceRecord, ["updated_at", "updatedAt", "updated"]) || "Unknown";
   const invoiceIssueDateValue =
-    (typeof invoiceRecord?.issue_date === "string" && invoiceRecord.issue_date) ||
-    (typeof invoiceRecord?.issueDate === "string" && invoiceRecord.issueDate) ||
-    "Unknown";
+    firstNonEmptyInvoiceString(invoiceRecord, ["issue_date", "issueDate"]) || "Unknown";
   const invoiceCurrencyValue =
-    (typeof invoiceRecord?.currency === "string" && invoiceRecord.currency) ||
+    firstNonEmptyInvoiceString(invoiceRecord, ["currency", "currency_code"]) ||
     draftState.draft.currency ||
     "Unknown";
   const pageTitle = isEditMode
@@ -1828,7 +2092,7 @@ export function VoiceOrderDemo({ orderId }: VoiceOrderDemoProps = {}) {
                       <div className="create-page-documents-assistant">
                         <VoiceAssistantDock
                           context="locked_order"
-                          hint="Try “load despatch XML”, “generate invoice”, or “mark invoice paid”."
+                          hint="Try “copy the invoice XML”, “download it as a PDF”, or “delete that invoice”."
                           disabledReason={
                             !lockedOrderId ? "Load a locked order before using document voice actions." : null
                           }

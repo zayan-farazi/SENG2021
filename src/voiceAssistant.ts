@@ -46,9 +46,12 @@ export type InventoryVoiceCommand =
 export type LockedOrderVoiceCommand =
   | { kind: "fetch_despatch" }
   | { kind: "generate_despatch" }
+  | { kind: "copy_despatch_xml" }
+  | { kind: "download_despatch_xml" }
   | { kind: "generate_invoice" }
   | { kind: "refresh_invoice" }
   | { kind: "fetch_invoice_xml" }
+  | { kind: "copy_invoice_xml" }
   | { kind: "download_invoice_pdf" }
   | { kind: "set_invoice_status"; status: string; paymentDate?: string | null }
   | { kind: "delete_invoice" };
@@ -447,6 +450,22 @@ export function parseLockedOrderVoiceCommand(transcript: string): LockedOrderVoi
     return { kind: "fetch_despatch" };
   }
 
+  if (
+    (normalized.includes("copy") && normalized.includes("despatch")) ||
+    (normalized.includes("copy") && normalized.includes("dispatch"))
+  ) {
+    return { kind: "copy_despatch_xml" };
+  }
+
+  if (
+    ((normalized.includes("download") || normalized.includes("save")) &&
+      (normalized.includes("despatch") || normalized.includes("dispatch")) &&
+      normalized.includes("xml")) ||
+    normalized.includes("download despatch")
+  ) {
+    return { kind: "download_despatch_xml" };
+  }
+
   if (normalized.includes("generate despatch") || normalized.includes("create despatch")) {
     return { kind: "generate_despatch" };
   }
@@ -463,11 +482,33 @@ export function parseLockedOrderVoiceCommand(transcript: string): LockedOrderVoi
     return { kind: "fetch_invoice_xml" };
   }
 
-  if (normalized.includes("download invoice pdf") || normalized.includes("get invoice pdf")) {
+  if (
+    (normalized.includes("copy") && normalized.includes("invoice") && normalized.includes("xml")) ||
+    normalized.includes("copy xml")
+  ) {
+    return { kind: "copy_invoice_xml" };
+  }
+
+  if (
+    normalized.includes("download invoice pdf") ||
+    normalized.includes("get invoice pdf") ||
+    normalized.includes("download pdf") ||
+    normalized.includes("download the pdf") ||
+    normalized.includes("download as a pdf") ||
+    (normalized.includes("download") && normalized.includes("invoice") && normalized.includes("pdf")) ||
+    normalized.includes("download it as a pdf") ||
+    normalized.includes("save invoice pdf")
+  ) {
     return { kind: "download_invoice_pdf" };
   }
 
-  if (normalized.includes("delete invoice")) {
+  if (
+    normalized.includes("delete invoice") ||
+    normalized.includes("delete the invoice") ||
+    normalized.includes("remove invoice") ||
+    normalized.includes("remove the invoice") ||
+    normalized.includes("remove that invoice")
+  ) {
     return { kind: "delete_invoice" };
   }
 
