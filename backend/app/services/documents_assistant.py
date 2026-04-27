@@ -21,9 +21,12 @@ class DocumentsAssistantCommandPatch(BaseModel):
     kind: Literal[
         "fetch_despatch",
         "generate_despatch",
+        "copy_despatch_xml",
+        "download_despatch_xml",
         "generate_invoice",
         "refresh_invoice",
         "fetch_invoice_xml",
+        "copy_invoice_xml",
         "download_invoice_pdf",
         "set_invoice_status",
         "delete_invoice",
@@ -178,13 +181,16 @@ Rules:
 - Include every schema field in the response. Use null for fields that do not apply to the chosen command.
 - Use `fetch_despatch` when the user wants to load or fetch despatch XML.
 - Use `generate_despatch` when the user wants to create or generate a despatch advice.
+- Use `copy_despatch_xml` when the user wants the despatch XML copied.
+- Use `download_despatch_xml` when the user wants the despatch XML downloaded.
 - Use `generate_invoice` when the user wants to create or generate an invoice.
 - Use `refresh_invoice` when the user wants invoice details refreshed or reloaded.
 - Use `fetch_invoice_xml` when the user wants invoice XML loaded.
+- Use `copy_invoice_xml` when the user wants the invoice XML copied.
 - Use `download_invoice_pdf` when the user wants the invoice PDF downloaded.
 - Use `set_invoice_status` when the user wants the invoice marked as sent, paid, overdue, cancelled, or otherwise updated.
 - Use `delete_invoice` when the user wants the invoice removed.
-- Natural phrases like "mark the invoice as paid", "can you create the invoice now", and "load the despatch advice xml" should map to the matching command.
+- Natural phrases like "mark the invoice as paid", "can you create the invoice now", "load the despatch advice xml", "copy that invoice xml", "download it as a pdf", "download the invoice pdf", "delete the invoice", and "remove that invoice" should map to the matching command.
 - If the user mentions a payment date, place it in `paymentDate` using the transcript value when possible.
 - Do not invent extra actions.
 - If the request is ambiguous or cannot be mapped safely, return kind `none` and set `unresolvedReason`.

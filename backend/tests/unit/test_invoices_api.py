@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.integrations.lastminutepush_client import InvoiceServiceError
 from app.main import app
 
 
@@ -110,10 +111,9 @@ def test_generate_invoice_returns_400_when_unitprice_missing(client, monkeypatch
     assert body["detail"][0]["path"] == "lines[0].unitPrice"
 
 
-def test_generate_invoice_returns_502_when_invoice_service_throws(client, monkeypatch):
+def test_generate_invoice_returns_502_when_invoice_service_rejects_api_key(client, monkeypatch):
     """
-    Covers:
-      - the 502 wrapper exception when lastminutepush_client.create_invoice raises
+    Covers downstream auth failures from the invoice service.
     """
     _override_auth("buyer@example.com")
 
@@ -138,10 +138,86 @@ def test_generate_invoice_returns_502_when_invoice_service_throws(client, monkey
     )
 
     async def boom(_payload):  # noqa: ARG001
-        raise RuntimeError("downstream failed")
+        raise InvoiceServiceError(
+            reason="auth",
+            message="unauthorized",
+            status_code=401,
+            response_body='{"error":"UNAUTHORIZED"}',
+        )
 
     monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.create_invoice", boom)
 
     resp = client.post("/v1/order/ord_4/invoice")
     assert resp.status_code == 502
-    assert resp.json() == {"detail": "Invoice service failed."}
+    assert resp.json() == {"detail": "Invoice service rejected the API key."}
+
+
+def test_generate_invoice_returns_502_when_invoice_service_rejects_payload(client, monkeypatch):
+    _override_auth("buyer@example.com")
+
+    fake_order = {
+        "orderId": "ord_5",
+        "payload": {
+            "buyerEmail": "buyer@example.com",
+            "buyerName": "Buyer Co",
+            "sellerEmail": "seller@example.com",
+            "sellerName": "Seller Pty Ltd",
+            "currency": "AUD",
+            "issueDate": "2026-03-14",
+            "lines": [
+                {"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}
+            ],
+        },
+    }
+
+    monkeypatch.setattr(
+        "app.api.routes.invoices.order_store.get_order_record",
+        lambda order_id: fake_order if order_id == "ord_5" else None,
+    )
+
+    async def boom(_payload):  # noqa: ARG001
+        raise InvoiceServiceError(
+            reason="payload",
+            message="unprocessable",
+            status_code=422,
+            response_body='{"error":"VALIDATION_ERROR"}',
+        )
+
+    monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.create_invoice", boom)
+
+    resp = client.post("/v1/order/ord_5/invoice")
+    assert resp.status_code == 502
+    assert resp.json() == {"detail": "Invoice service rejected the payload."}
+
+
+def test_generate_invoice_returns_502_when_invoice_service_is_unavailable(client, monkeypatch):
+    _override_auth("buyer@example.com")
+
+    fake_order = {
+        "orderId": "ord_6",
+        "payload": {
+            "buyerEmail": "buyer@example.com",
+            "buyerName": "Buyer Co",
+            "sellerEmail": "seller@example.com",
+            "sellerName": "Seller Pty Ltd",
+            "currency": "AUD",
+            "issueDate": "2026-03-14",
+            "lines": [
+                {"productName": "Oranges", "quantity": 1, "unitCode": "EA", "unitPrice": "1.00"}
+            ],
+        },
+    }
+
+    monkeypatch.setattr(
+        "app.api.routes.invoices.order_store.get_order_record",
+        lambda order_id: fake_order if order_id == "ord_6" else None,
+    )
+
+    async def boom(_payload):  # noqa: ARG001
+        raise InvoiceServiceError(reason="unavailable", message="timeout")
+
+    monkeypatch.setattr("app.api.routes.invoices.lastminutepush_client.create_invoice", boom)
+
+    resp = client.post("/v1/order/ord_6/invoice")
+    assert resp.status_code == 502
+    assert resp.json() == {"detail": "Invoice service is unavailable."}

@@ -849,9 +849,10 @@ describe("VoiceOrderDemo", () => {
         json: async () => ({
           orderId: "ord_docs_locked",
           invoice: {
-            invoice_id: "INV-1",
+            id: "INV-1",
             status: "draft",
-            issue_date: "2026-03-07",
+            updatedAt: "2026-03-08T12:00:00Z",
+            issueDate: "2026-03-07",
             currency: "AUD",
           },
         }),
@@ -887,15 +888,28 @@ describe("VoiceOrderDemo", () => {
 
     await waitFor(() => {
       expect(screen.getByText("INV-1")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /^Load XML$/i }));
-
-    await waitFor(() => {
+      expect(screen.getByText("draft")).toBeInTheDocument();
+      expect(screen.getByText("2026-03-07")).toBeInTheDocument();
       expect(screen.getByDisplayValue("<Invoice />")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+    const invoiceHeader = screen.getByRole("heading", { name: /^invoice$/i });
+    const invoiceSection = invoiceHeader.closest("section");
+    if (!invoiceSection) {
+      throw new Error("Invoice section was not found.");
+    }
+
+    expect(within(invoiceSection).getByRole("button", { name: /download pdf/i })).toBeEnabled();
+    expect(within(invoiceSection).getByRole("button", { name: /copy xml/i })).toBeEnabled();
+    expect(within(invoiceSection).getByRole("button", { name: /delete invoice/i })).toBeEnabled();
+
+    fireEvent.click(within(invoiceSection).getByRole("button", { name: /copy xml/i }));
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("<Invoice />");
+    });
+
+    fireEvent.click(within(invoiceSection).getByRole("button", { name: /download pdf/i }));
 
     await waitFor(() => {
       expect(createObjectUrl).toHaveBeenCalled();
@@ -903,7 +917,7 @@ describe("VoiceOrderDemo", () => {
       expect(revokeObjectUrl).toHaveBeenCalled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /delete invoice/i }));
+    fireEvent.click(within(invoiceSection).getByRole("button", { name: /delete invoice/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Not generated")).toBeInTheDocument();
@@ -931,6 +945,93 @@ describe("VoiceOrderDemo", () => {
         }),
       }),
     );
+  });
+
+  it("hydrates invoice controls from nested invoice creation payloads", async () => {
+    setStoredSession({
+      partyId: "seller-party",
+      partyName: "Digital Book Supply",
+      contactEmail: "seller@example.com",
+      credential: "super-secure-password",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_nested",
+          status: "SUBMITTED",
+          createdAt: "2026-03-07T00:00:00Z",
+          updatedAt: "2026-03-08T00:00:00Z",
+          payload: {
+            buyerEmail: "buyer@example.com",
+            buyerName: "Acme Books",
+            sellerEmail: "seller@example.com",
+            sellerName: "Digital Book Supply",
+            currency: "AUD",
+            issueDate: "2026-03-07",
+            notes: null,
+            delivery: null,
+            lines: [
+              {
+                productName: "Oranges",
+                quantity: 2,
+                unitCode: "EA",
+                unitPrice: "12.50",
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<LockedOrder />",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_docs_nested",
+          invoice: {
+            data: {
+              id: "INV-NESTED",
+              invoice_status: "draft",
+              issue_date: "2026-03-07",
+              currency_code: "AUD",
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<InvoiceNested />",
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<VoiceOrderDemo orderId="ord_docs_nested" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /generate invoice/i })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /generate invoice/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("INV-NESTED")).toBeInTheDocument();
+      expect(screen.getByText("draft")).toBeInTheDocument();
+      expect(screen.getByText("2026-03-07")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("<InvoiceNested />")).toBeInTheDocument();
+    });
+
+    const invoiceHeader = screen.getByRole("heading", { name: /^invoice$/i });
+    const invoiceSection = invoiceHeader.closest("section");
+    if (!invoiceSection) {
+      throw new Error("Invoice section was not found.");
+    }
+
+    expect(within(invoiceSection).getByRole("button", { name: /load xml/i })).toBeEnabled();
+    expect(within(invoiceSection).getByRole("button", { name: /download pdf/i })).toBeEnabled();
+    expect(within(invoiceSection).getByRole("button", { name: /delete invoice/i })).toBeEnabled();
   });
 
   it("surfaces invoice generation validation errors inside the document panel", async () => {

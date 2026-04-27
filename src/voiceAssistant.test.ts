@@ -94,6 +94,21 @@ describe("voiceAssistant helpers", () => {
       kind: "set_invoice_status",
       status: "paid",
     });
+    expect(parseLockedOrderVoiceCommand("download it as a pdf")).toEqual({
+      kind: "download_invoice_pdf",
+    });
+    expect(parseLockedOrderVoiceCommand("download as a pdf")).toEqual({
+      kind: "download_invoice_pdf",
+    });
+    expect(parseLockedOrderVoiceCommand("copy the invoice xml")).toEqual({
+      kind: "copy_invoice_xml",
+    });
+    expect(parseLockedOrderVoiceCommand("remove that invoice")).toEqual({
+      kind: "delete_invoice",
+    });
+    expect(parseLockedOrderVoiceCommand("delete the invoice")).toEqual({
+      kind: "delete_invoice",
+    });
   });
 
   it("summarizes checkout field changes", () => {

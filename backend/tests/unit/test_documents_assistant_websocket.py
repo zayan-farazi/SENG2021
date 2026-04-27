@@ -93,3 +93,57 @@ def test_documents_assistant_websocket_returns_interpreted_command(monkeypatch):
             "message": None,
         },
     }
+
+
+def test_documents_assistant_websocket_supports_copy_invoice_xml_command(monkeypatch):
+    async def fake_interpret_documents_command(**kwargs):  # noqa: ARG001
+        return documents_assistant.DocumentsAssistantInterpretation(
+            command=documents_assistant.DocumentsAssistantCommandPatch(
+                kind="copy_invoice_xml",
+                status=None,
+                paymentDate=None,
+                unresolvedReason=None,
+            )
+        )
+
+    monkeypatch.setattr(
+        documents_assistant,
+        "interpret_documents_command",
+        fake_interpret_documents_command,
+    )
+    monkeypatch.setattr(
+        "app.api.routes.orders.interpret_documents_command", fake_interpret_documents_command
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/order/documents/assistant/ws") as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "transcript.final",
+                    "payload": {"text": "copy the invoice xml"},
+                }
+            )
+
+            echo = websocket.receive_json()
+            command = websocket.receive_json()
+
+    assert echo == {
+        "type": "transcript.echo",
+        "payload": {
+            "kind": "final",
+            "text": "copy the invoice xml",
+        },
+    }
+    assert command == {
+        "type": "assistant.command",
+        "payload": {
+            "command": {
+                "kind": "copy_invoice_xml",
+                "status": None,
+                "paymentDate": None,
+                "unresolvedReason": None,
+            },
+            "message": None,
+        },
+    }

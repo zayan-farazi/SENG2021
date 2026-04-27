@@ -46,14 +46,21 @@ export type OrderDespatchResult = {
 };
 
 export type InvoiceRecord = Record<string, unknown> & {
+  id?: string;
   invoice_id?: string;
   invoiceId?: string;
+  invoice_status?: string;
   status?: string;
   updated_at?: string;
   updatedAt?: string;
+  updated?: string;
   issue_date?: string;
   issueDate?: string;
+  currency_code?: string;
   currency?: string;
+  xml?: string;
+  ubl_xml?: string;
+  ublXml?: string;
 };
 
 export type OrderInvoiceResult = {

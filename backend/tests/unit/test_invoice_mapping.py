@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.integrations import lastminutepush_client
+from app.integrations.lastminutepush_client import InvoiceServiceError
 
 
 class _FakeResponse:
@@ -21,8 +22,11 @@ class _FakeResponse:
 
 
 class _FakeAsyncClient:
+    init_kwargs: list[dict] = []
+
     def __init__(self, *args, **kwargs):
         self.calls = []
+        self.__class__.init_kwargs.append(kwargs)
 
     async def __aenter__(self):
         return self
@@ -42,17 +46,36 @@ class _FakeAsyncClient:
             return _FakeResponse(text_data="<Invoice/>")
         return _FakeResponse(json_data={"invoice_id": "inv_1", "status": "draft"})
 
+    async def request(self, method, url, json=None, headers=None):
+        if method == "POST":
+            return await self.post(url, json=json, headers=headers)
+        if method == "GET":
+            return await self.get(url, headers=headers)
+        if method == "DELETE":
+            self.calls.append(("DELETE", url, None, headers))
+            return _FakeResponse()
+        raise AssertionError(f"Unexpected method {method}")
+
 
 def test_headers_raises_when_missing_key(monkeypatch):
     monkeypatch.delenv("INVOICE_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="INVOICE_API_KEY not configured"):
+    with pytest.raises(InvoiceServiceError, match="INVOICE_API_KEY not configured"):
         lastminutepush_client._headers()  # type: ignore[attr-defined]
+
+
+def test_base_url_normalizes_frontend_host_to_api_host(monkeypatch):
+    monkeypatch.setenv("INVOICE_API_BASE", "https://lastminutepush.one")
+    assert lastminutepush_client._base_url() == "https://api.lastminutepush.one"  # type: ignore[attr-defined]
+
+    monkeypatch.setenv("INVOICE_API_BASE", "https://www.lastminutepush.one")
+    assert lastminutepush_client._base_url() == "https://api.lastminutepush.one"  # type: ignore[attr-defined]
 
 
 @pytest.mark.anyio
 async def test_create_and_fetch_invoice(monkeypatch):
     monkeypatch.setenv("INVOICE_API_KEY", "k_test")
     monkeypatch.setenv("INVOICE_API_BASE", "https://lastminutepush.one")
+    _FakeAsyncClient.init_kwargs.clear()
 
     # Patch the module's httpx.AsyncClient
     import httpx
@@ -70,3 +93,5 @@ async def test_create_and_fetch_invoice(monkeypatch):
 
     pdf = await lastminutepush_client.get_invoice_pdf("inv_1")
     assert pdf.startswith(b"%PDF-1.4")
+    assert _FakeAsyncClient.init_kwargs
+    assert all(kwargs.get("follow_redirects") is True for kwargs in _FakeAsyncClient.init_kwargs)
