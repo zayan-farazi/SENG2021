@@ -27,6 +27,10 @@ class OrderConflictLockedError(ValueError):
     """Raised when the order cannot be updated/deleted due to its current state."""
 
 
+class OrderStockConflictError(ValueError):
+    """Raised when an order cannot be submitted because stock is unavailable."""
+
+
 def now_z() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -223,11 +227,16 @@ def submit_order_record(order_id: str) -> dict[str, Any]:
         raise OrderPersistenceError("Order is missing dbOrderId for persistence.")
 
     updated_at = now_z()
-    persist_order_status_to_database(
-        db_order_id,
-        status="SUBMITTED",
-        updated_at=updated_at,
-    )
+    stock_snapshots = persist_order_stock_deduction_to_database(existing.get("payload", {}))
+    try:
+        persist_order_status_to_database(
+            db_order_id,
+            status="SUBMITTED",
+            updated_at=updated_at,
+        )
+    except Exception:
+        rollback_order_stock_levels(stock_snapshots)
+        raise
 
     existing["status"] = "SUBMITTED"
     existing["updatedAt"] = updated_at
@@ -325,6 +334,84 @@ def persist_order_status_to_database(
         )
     except Exception as exc:  # noqa: BLE001
         raise OrderPersistenceError("Order status could not be persisted in Supabase.") from exc
+
+
+def persist_order_stock_deduction_to_database(payload: dict[str, Any]) -> list[tuple[int, float]]:
+    from app.other import findProducts, updateProduct
+
+    aggregated_quantities: dict[int, int] = {}
+    for line in payload.get("lines", []):
+        if not isinstance(line, dict):
+            continue
+        product_id = line.get("productId")
+        quantity = line.get("quantity")
+        if product_id is None:
+            continue
+        try:
+            normalized_product_id = int(product_id)
+            normalized_quantity = int(quantity)
+        except (TypeError, ValueError) as err:
+            raise OrderStockConflictError(
+                f"Order line product {product_id!r} has invalid stock data."
+            ) from err
+        if normalized_quantity <= 0:
+            continue
+        aggregated_quantities[normalized_product_id] = (
+            aggregated_quantities.get(normalized_product_id, 0) + normalized_quantity
+        )
+
+    if not aggregated_quantities:
+        return []
+
+    stock_snapshots: list[tuple[int, float]] = []
+    next_levels: list[tuple[int, float]] = []
+    for product_id, requested_quantity in aggregated_quantities.items():
+        product_rows = findProducts(prod_id=product_id).data
+        if not product_rows:
+            raise OrderStockConflictError(f"Product with id {product_id} is not available.")
+
+        product_row = product_rows[0]
+        available_units = product_row.get("available_units")
+        try:
+            current_available = float(available_units)
+        except (TypeError, ValueError):
+            current_available = 0.0
+
+        if requested_quantity > current_available:
+            raise OrderStockConflictError(
+                f"Product '{product_row.get('name') or product_id}' does not have enough stock."
+            )
+
+        stock_snapshots.append((product_id, current_available))
+        next_levels.append((product_id, current_available - requested_quantity))
+
+    applied_snapshots: list[tuple[int, float]] = []
+    try:
+        for product_id, next_available in next_levels:
+            previous_available = next(
+                snapshot[1] for snapshot in stock_snapshots if snapshot[0] == product_id
+            )
+            updateProduct(product_id, available_units=next_available)
+            applied_snapshots.append((product_id, previous_available))
+    except Exception as exc:  # noqa: BLE001
+        rollback_order_stock_levels(applied_snapshots)
+        raise OrderPersistenceError("Order stock could not be persisted in Supabase.") from exc
+
+    return stock_snapshots
+
+
+def rollback_order_stock_levels(stock_snapshots: list[tuple[int, float]]) -> None:
+    if not stock_snapshots:
+        return
+
+    from app.other import updateProduct
+
+    for product_id, available_units in stock_snapshots:
+        try:
+            updateProduct(product_id, available_units=available_units)
+        except Exception:
+            # Preserve the original submit failure; rollback is best-effort.
+            pass
 
 
 def load_order_record_from_database(order_id: str) -> dict[str, Any] | None:

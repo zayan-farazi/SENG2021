@@ -3,6 +3,7 @@ import { Minus, Plus, Search, ShoppingBag } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { VoiceAssistantDock } from "../components/VoiceAssistantDock";
 import { navigate } from "../components/AppLink";
+import { buildLiveRefreshLabel, LIVE_REFRESH_INTERVAL_MS } from "../liveRefresh";
 import { fetchMarketplaceProducts } from "../productApi";
 import { getMarketplaceAssistantWebSocketUrl } from "../voiceOrder";
 import {
@@ -49,6 +50,10 @@ function formatPrice(value: number): string {
 }
 
 function getBadgeClassName(badge: MarketplaceProduct["badge"]): string {
+  if (badge === "Out of stock") {
+    return "marketplace-product-badge marketplace-product-badge-out";
+  }
+
   if (badge === "Low stock") {
     return "marketplace-product-badge marketplace-product-badge-warning";
   }
@@ -146,6 +151,8 @@ export function MarketplacePrototypePage() {
   const [products, setProducts] = useState<MarketplaceProduct[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [isRefreshingProducts, setIsRefreshingProducts] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [assistantLiveTranscript, setAssistantLiveTranscript] = useState<string | null>(null);
   const assistantSocketRef = useRef<WebSocket | null>(null);
   const assistantResultResolverRef = useRef<((result: AssistantActionResult) => void) | null>(null);
@@ -173,9 +180,37 @@ export function MarketplacePrototypePage() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer: number | null = null;
 
-    const loadProducts = async () => {
-      setIsLoadingProducts(true);
+    const clearPollTimer = () => {
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const scheduleNextPoll = () => {
+      clearPollTimer();
+      if (cancelled) {
+        return;
+      }
+
+      pollTimer = window.setTimeout(() => {
+        if (document.visibilityState !== "visible") {
+          scheduleNextPoll();
+          return;
+        }
+
+        void refreshProducts(false).finally(scheduleNextPoll);
+      }, LIVE_REFRESH_INTERVAL_MS);
+    };
+
+    const refreshProducts = async (showLoading: boolean) => {
+      if (showLoading) {
+        setIsLoadingProducts(true);
+      } else {
+        setIsRefreshingProducts(true);
+      }
       setProductsError(null);
 
       try {
@@ -186,6 +221,7 @@ export function MarketplacePrototypePage() {
 
         const nextProducts = response.items.map(productRecordToMarketplaceProduct);
         setProducts(nextProducts);
+        setLastUpdatedAt(Date.now());
         setCart(current => {
           const productIndex = new Map(nextProducts.map(product => [product.id, product]));
           const nextLines = current.lines
@@ -210,19 +246,35 @@ export function MarketplacePrototypePage() {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Unable to load marketplace listings.";
           setProductsError(message);
-          setProducts([]);
+          if (productsRef.current.length === 0) {
+            setProducts([]);
+          }
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoading) {
           setIsLoadingProducts(false);
+        }
+        if (!cancelled && !showLoading) {
+          setIsRefreshingProducts(false);
         }
       }
     };
 
-    void loadProducts();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void refreshProducts(false);
+    };
+
+    void refreshProducts(true).finally(scheduleNextPoll);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      clearPollTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -326,7 +378,7 @@ export function MarketplacePrototypePage() {
       };
     }
 
-    const product = products.find(candidate => candidate.id === command.productId);
+    const product = productsRef.current.find(candidate => candidate.id === command.productId);
     if (!product) {
       return {
         kind: "rejected",
@@ -572,6 +624,9 @@ export function MarketplacePrototypePage() {
               <div>
                 <h1>Marketplace</h1>
                 <p>Browse seller listings, set quantities, and stage an order before review.</p>
+                <p className="marketplace-live-status" aria-live="polite">
+                  {buildLiveRefreshLabel(lastUpdatedAt, isRefreshingProducts)}
+                </p>
               </div>
 
               <div className="marketplace-toolbar">

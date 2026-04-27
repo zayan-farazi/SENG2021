@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import orders
 from app.main import app
 from app.services import app_key_auth, order_store
+from app.services.order_store import OrderStockConflictError
 from app.services.party_registration import hash_app_key
 
 
@@ -194,3 +195,32 @@ def test_update_order_returns_409_after_submit(client):
 
     assert update_response.status_code == 409
     assert "cannot be updated" in update_response.json()["detail"].lower()
+
+
+def test_submit_order_returns_409_when_stock_is_unavailable(client, monkeypatch):
+    create_response = client.post(
+        "/v1/order/create",
+        json=build_payload(),
+        headers=auth_headers("buyer-key"),
+    )
+    assert create_response.status_code == 201
+    order_id = create_response.json()["orderId"]
+
+    original_submit = order_store.submit_order_record
+
+    def fail_submit(requested_order_id: str):
+        if requested_order_id == order_id:
+            raise OrderStockConflictError(
+                "Product 'Domain-Driven Design' does not have enough stock."
+            )
+        return original_submit(requested_order_id)
+
+    monkeypatch.setattr(order_store, "submit_order_record", fail_submit)
+
+    submit_response = client.post(
+        f"/v1/order/{order_id}/submit",
+        headers=auth_headers("buyer-key"),
+    )
+
+    assert submit_response.status_code == 409
+    assert "does not have enough stock" in submit_response.json()["detail"].lower()

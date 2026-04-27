@@ -11,6 +11,7 @@ type VoiceAssistantDockProps = {
   disabledReason?: string | null;
   liveTranscript?: string | null;
   streaming?: boolean;
+  autoRestart?: boolean;
   onPartialTranscript?: (transcript: string) => void;
   onTranscript: (transcript: string) => Promise<AssistantActionResult>;
 };
@@ -32,6 +33,7 @@ export function VoiceAssistantDock({
   disabledReason = null,
   liveTranscript = null,
   streaming = false,
+  autoRestart = false,
   onPartialTranscript,
   onTranscript,
 }: VoiceAssistantDockProps) {
@@ -44,6 +46,8 @@ export function VoiceAssistantDock({
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const transcriptHandlerRef = useRef(onTranscript);
   const partialTranscriptHandlerRef = useRef(onPartialTranscript);
+  const keepListeningRef = useRef(false);
+  const restartTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     transcriptHandlerRef.current = onTranscript;
@@ -52,6 +56,13 @@ export function VoiceAssistantDock({
   useEffect(() => {
     partialTranscriptHandlerRef.current = onPartialTranscript;
   }, [onPartialTranscript]);
+
+  const clearRestartTimer = () => {
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  };
 
   const appendLog = (tone: VoiceAssistantLogEntry["tone"], text: string) => {
     setLog(current => [...current.slice(-5), { tone, text }]);
@@ -93,6 +104,8 @@ export function VoiceAssistantDock({
 
   useEffect(() => {
     if (disabledReason) {
+      keepListeningRef.current = false;
+      clearRestartTimer();
       setListening(false);
       return;
     }
@@ -143,24 +156,44 @@ export function VoiceAssistantDock({
     };
     recognition.onend = () => {
       setListening(false);
+      if (autoRestart && keepListeningRef.current && !disabledReason) {
+        clearRestartTimer();
+        restartTimerRef.current = window.setTimeout(() => {
+          if (!recognitionRef.current || !keepListeningRef.current || disabledReason) {
+            return;
+          }
+
+          try {
+            recognitionRef.current.start();
+          } catch {
+            // Ignore restart races if the browser has not fully settled the recognition session yet.
+          }
+        }, 180);
+      }
     };
 
     recognitionRef.current = recognition;
     return () => {
+      keepListeningRef.current = false;
+      clearRestartTimer();
       recognition.stop();
       recognitionRef.current = null;
     };
-  }, [disabledReason, streaming]);
+  }, [autoRestart, disabledReason, streaming]);
 
   const startListening = () => {
     if (!recognitionRef.current || disabledReason || busy) {
       return;
     }
 
+    keepListeningRef.current = autoRestart;
+    clearRestartTimer();
     recognitionRef.current.start();
   };
 
   const stopListening = () => {
+    keepListeningRef.current = false;
+    clearRestartTimer();
     recognitionRef.current?.stop();
     setListening(false);
   };

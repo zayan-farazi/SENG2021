@@ -38,6 +38,14 @@
   font-size: 0.96rem;
 }
 
+.marketplace-live-status {
+  margin: 12px 0 0;
+  color: #866f53;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .marketplace-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -331,6 +339,11 @@
 .marketplace-product-badge-warning {
   background: #fbefcf;
   color: #7a5800;
+}
+
+.marketplace-product-badge-out {
+  background: #f6e3df;
+  color: #8f3f2d;
 }
 
 .marketplace-product-badge-new {

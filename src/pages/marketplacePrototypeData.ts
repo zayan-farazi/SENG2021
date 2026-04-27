@@ -12,7 +12,7 @@ export type MarketplaceProduct = {
   stock: number;
   category: string;
   unitCode: string;
-  badge?: "Featured" | "Low stock" | "New";
+  badge?: "Featured" | "Low stock" | "Out of stock" | "New";
   tone: "peach" | "mint" | "gold";
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 };
@@ -200,6 +200,10 @@ function getMarketplaceIcon(
 }
 
 function getMarketplaceBadge(record: ProductRecord): MarketplaceProduct["badge"] | undefined {
+  if (record.available_units <= 0) {
+    return "Out of stock";
+  }
+
   if (record.available_units <= 3) {
     return "Low stock";
   }

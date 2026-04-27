@@ -481,6 +481,118 @@ describe("MarketplaceReviewPage", () => {
     expect(screen.getByText("Lineform Press")).toBeInTheDocument();
   });
 
+  it("creates a draft order and opens the editable order view without submitting it", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "product-101",
+          productRecordId: 101,
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          unitCode: "EA",
+          subtotal: 68,
+        },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ orderId: "ord_draft_1", status: "DRAFT", createdAt: "2026-04-21T00:00:00Z" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketplaceReviewPage />);
+
+    await user.type(screen.getByLabelText(/street/i), "123 Harbour Street");
+    await user.type(screen.getByLabelText(/^city$/i), "Sydney");
+    await user.type(screen.getByLabelText(/^state$/i), "NSW");
+    await user.type(screen.getByLabelText(/postcode/i), "2000");
+    await user.clear(screen.getByLabelText(/country/i));
+    await user.type(screen.getByLabelText(/country/i), "AU");
+    await user.click(screen.getByRole("button", { name: /save as draft/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/orders/ord_draft_1/edit");
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem("lockedout.marketplace-cart")).toBeNull();
+  });
+
+  it("creates multi-seller draft orders and sends the user to the orders dashboard", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "product-101",
+          productRecordId: 101,
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          unitCode: "EA",
+          subtotal: 68,
+        },
+        {
+          productId: "product-105",
+          productRecordId: 105,
+          name: "Abstract wall print",
+          seller: "Lineform Press",
+          sellerEmail: "studio@lineformpress.example",
+          unitPrice: 46,
+          quantity: 1,
+          stock: 14,
+          unitCode: "EA",
+          subtotal: 46,
+        },
+      ],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ orderId: "ord_draft_1", status: "DRAFT", createdAt: "2026-04-21T00:00:00Z" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ orderId: "ord_draft_2", status: "DRAFT", createdAt: "2026-04-21T00:00:00Z" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketplaceReviewPage />);
+
+    await user.type(screen.getByLabelText(/street/i), "123 Harbour Street");
+    await user.type(screen.getByLabelText(/^city$/i), "Sydney");
+    await user.type(screen.getByLabelText(/^state$/i), "NSW");
+    await user.type(screen.getByLabelText(/postcode/i), "2000");
+    await user.clear(screen.getByLabelText(/country/i));
+    await user.type(screen.getByLabelText(/country/i), "AU");
+    await user.click(screen.getByRole("button", { name: /save as drafts/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/orders");
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(window.sessionStorage.getItem("lockedout.marketplace-cart")).toBeNull();
+  });
+
   it("applies checkout field updates from voice transcript conversion", async () => {
     const user = userEvent.setup();
     setStoredSession({
@@ -612,13 +724,60 @@ describe("MarketplaceReviewPage", () => {
     emitTranscript("place order");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /place order/i })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/orders/ord_voice_1/edit");
     });
+  });
 
-    await user.click(screen.getAllByRole("button", { name: /^place order$/i })[1]!);
+  it("saves checkout drafts through voice commands", async () => {
+    const user = userEvent.setup();
+    setStoredSession({
+      partyId: "buyer@example.com",
+      partyName: "Buyer Co",
+      contactEmail: "buyer@example.com",
+      credential: "super-secure-password",
+    });
+    writeStoredMarketplaceCart({
+      lines: [
+        {
+          productId: "product-101",
+          productRecordId: 101,
+          name: "Handmade ceramic mug",
+          seller: "Harbour Studio",
+          sellerEmail: "orders@harbourstudio.example",
+          unitPrice: 34,
+          quantity: 2,
+          stock: 9,
+          unitCode: "EA",
+          subtotal: 68,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          orderId: "ord_voice_draft_1",
+          status: "DRAFT",
+          createdAt: "2026-04-21T00:00:00Z",
+        }),
+      }),
+    );
+
+    render(<MarketplaceReviewPage />);
+
+    await user.type(screen.getByLabelText(/street/i), "123 Harbour Street");
+    await user.type(screen.getByLabelText(/^city$/i), "Sydney");
+    await user.type(screen.getByLabelText(/^state$/i), "NSW");
+    await user.type(screen.getByLabelText(/postcode/i), "2000");
+    await user.clear(screen.getByLabelText(/country/i));
+    await user.type(screen.getByLabelText(/country/i), "AU");
+
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    emitTranscript("save as draft");
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/orders/ord_voice_1/edit");
+      expect(window.location.pathname).toBe("/orders/ord_voice_draft_1/edit");
     });
   });
 
